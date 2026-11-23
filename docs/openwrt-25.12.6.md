@@ -2,7 +2,7 @@
 
 The release binary was cross-built on x86_64 Debian 13 using GCC 14.3.0 and the musl sysroot from the official OpenWrt SDK. QEMU user-mode 10.0.13 ran it against libraries from the matching generic OpenWrt root filesystem (`r33311-981c978eff`). The ELF header identified AArch64 and requested `/lib/ld-musl-aarch64.so.1`. [OpenWrt release files](https://downloads.openwrt.org/releases/25.12.6/targets/armsr/armv8/)
 
-The release pins the packages feed at `093d551675b1119a06ef224d419905e8d6b2af1a`. Its Rust recipe specifies Rust 1.96.0 and dynamic musl linking. This check used upstream Rust 1.96.0 and its AArch64 musl standard library through `rustup`, with the SDK's GCC as the linker. Building the feed's Rust host toolchain, installing an OpenWrt package, and running on physical hardware are unverified. [Release feed pins](https://downloads.openwrt.org/releases/25.12.6/targets/armsr/armv8/feeds.buildinfo) · [Pinned Rust recipe](https://github.com/openwrt/packages/blob/093d551675b1119a06ef224d419905e8d6b2af1a/lang/rust/Makefile)
+This check used upstream Rust 1.96.0 and its AArch64 musl standard library through `rustup`, with the SDK's GCC as the linker. The [APK build and full-system guest check](openwrt-package.md) has its own recipe and evidence.
 
 ## Reproduce
 

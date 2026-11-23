@@ -23,6 +23,8 @@ CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=/path/to/sdk/bin/target-cc \
 
 Use your SDK's actual linker path and any flags or sysroot it requires. The crate sets no target, linker, or C library. Copy the resulting binary from `target/<target>/release/` to the matching board and run it there.
 
+For an installable OpenWrt APK, use the [opt-in SDK package overlay](docs/openwrt-package.md).
+
 ## Reading the results
 
 - **CPU** reports iterations per second for a fixed 32-bit xorshift loop, with a checksum of the final state. Each iteration applies three shift-and-XOR updates to the same integer.
@@ -34,7 +36,7 @@ Use your SDK's actual linker path and any flags or sysroot it requires. The crat
 | Target | Evidence |
 | --- | --- |
 | x86_64 Linux GNU | Native release build and CLI checks on a Debian development host with Rust 1.66.0 |
-| OpenWrt 25.12.6 `armsr/armv8` | [SDK-linked cross-build and QEMU user-mode smoke test](docs/openwrt-25.12.6.md) |
+| OpenWrt 25.12.6 `armsr/armv8` | [SDK APK build and QEMU guest installation](docs/openwrt-package.md), plus a [standalone binary smoke test](docs/openwrt-25.12.6.md) |
 | Actual embedded Linux boards | No board runs recorded |
 
 A native build checks the development host. An emulated smoke test checks whether the target binary starts and produces valid output under emulation. Board performance requires a run on the actual board and firmware.
