@@ -1,58 +1,42 @@
-# embedded-linux-benchmark
+<div align="center">
 
-A dependency-free Rust CLI for measuring CPU, RAM, filesystem, and TCP loopback throughput on Linux. It also runs a bounded automatic stress suite and provides opt-in UART, I2C, SPI, and GPIO benchmarks for embedded boards.
+# Embedded Linux Benchmark
 
-## Build and run
+[![CI](https://github.com/brucerry/embedded-linux-benchmark/actions/workflows/ci.yml/badge.svg?branch=cpu-ram-benchmarks)](https://github.com/brucerry/embedded-linux-benchmark/actions/workflows/ci.yml?query=branch%3Acpu-ram-benchmarks)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-On a Linux distribution or a Jetson running Jetson Linux, build natively with Rust and Cargo 1.66 or newer and a native C linker. The crate has no external Rust dependencies.
+A dependency-free Rust CLI for measuring individual components of a Linux system or embedded board.
+
+</div>
+
+## Get started
+
+Install Rust and Cargo 1.66 or newer and a native C linker on Linux.
 
 ```sh
 cargo build --release --locked
-cargo test --release --locked
 ./target/release/embedded-linux-benchmark --help
 ./target/release/embedded-linux-benchmark cpu
 ./target/release/embedded-linux-benchmark ram --duration-ms 500 --buffer-kib 1024
-./target/release/embedded-linux-benchmark network --size-mib 8
 ./target/release/embedded-linux-benchmark stress auto
 ```
 
-See the [benchmark guide](docs/benchmarks.md) for storage opt-in, the stress limits, and measurement details. The [peripheral guide](docs/benchmarks.md#peripherals) covers fixture requirements and the two GPIO interfaces.
+The default stress run uses CPU, RAM, and TCP loopback. Storage writes require a directory and an explicit size budget. Peer networking and peripheral benchmarks require an explicitly selected peer, device, or fixture. See the [benchmark guide](docs/benchmarks.md) for commands, limits, and how to interpret results.
 
-For other machines running a different Linux release, build against a C library baseline they provide. For NVIDIA Jetson cross-builds, use the [Jetson Linux SDK build and ABI checks](docs/jetson-linux.md).
+## Build for a target
 
-For a cross-build, use the Rust target and standard library that match your firmware's architecture and ABI. With your SDK environment loaded, select the target and, when required, its linker through Cargo. For example, for a 64-bit Arm musl board:
+Build natively on the board or select the Rust target, linker, and standard library that match its SDK and C library. The crate sets none of those for you.
 
-```sh
-rustup target add aarch64-unknown-linux-musl
-CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=/path/to/sdk/bin/target-cc \
-  cargo build --release --locked --target aarch64-unknown-linux-musl
-```
-
-Use your SDK's actual linker path and any flags or sysroot it requires. The crate sets no target, linker, or C library. Copy the resulting binary from `target/<target>/release/` to the matching board and run it there.
-
-For installable OpenWrt packages, use the [SDK overlay and AArch64 matrix](docs/openwrt-compatibility.md) or the [x86-64, Armv7, and MIPS build guide](docs/openwrt-platforms.md). The SDK selects IPK or APK for its release.
-
-## Reading the results
-
-- **CPU** reports iterations per second for a fixed 32-bit xorshift loop, with a checksum of the final state. Each iteration applies three shift-and-XOR updates to the same integer.
-- **RAM** reports MiB/s for copying one preallocated buffer into another. It prints the size of each buffer and the combined working set. Each copy counts the source size once. Cache residency and the copy routine affect the result, so interpret it as application-level copy throughput.
-- Both use one thread and monotonic elapsed time. `--duration-ms` defaults to 1000 and accepts 1–60000. Elapsed time can exceed the requested duration by a batch or copy and any scheduling delay. The RAM benchmark accepts 4–32768 KiB per buffer, defaults to 4096 KiB per buffer, and uses up to 64 MiB for both buffers. It initializes the buffers before timing and checks the final contents after timing.
-
-## Source layout
-
-`src/main.rs` handles exit status and `src/cli.rs` validates and dispatches commands. The `cpu`, `ram`, `storage`, and `network` modules implement the automatic suite workloads. The `uart`, `i2c`, `spi`, `gpio`, and `gpio_chardev` modules implement peripheral benchmarks. `src/peripheral.rs` contains shared device checks and Linux ioctl support.
-
-## Validation
-
-The [current suite results](docs/benchmarks.md#validation) cover the new commands. The SDK references below also retain the earlier CPU and RAM evidence.
-
-| Target | Evidence |
+| Environment | Verification |
 | --- | --- |
-| x86_64 Linux GNU | Native release build and CLI checks on a Debian development host with Rust 1.66.0 |
-| Jetson Linux 39.2.2 and 36.5.2 on AArch64 | [NVIDIA SDK cross-builds and QEMU user-mode CLI checks](docs/jetson-linux.md) |
-| OpenWrt 21.02 through pinned upstream `main` on AArch64 | [Per-release SDK builds and QEMU guest installation](docs/openwrt-compatibility.md) |
-| OpenWrt x86-64, Armv7 hard-float, and MIPS32 in both byte orders | [Selected SDK builds and QEMU guest installation](docs/openwrt-platforms.md) |
-| OpenWrt 25.12.6 `armsr/armv8` with the release-pinned Rust helper | [Separate SDK APK and QEMU guest proof](docs/openwrt-package.md), plus a [standalone binary smoke test](docs/openwrt-25.12.6.md) |
-| Actual embedded Linux boards | No board runs recorded |
+| Linux x86-64 | Native Debian builds and CLI tests |
+| OpenWrt | Selected AArch64 SDKs from 21.02 through a pinned upstream revision, plus x86-64, Armv7, and both MIPS byte orders. Package and guest evidence varies by target. |
+| NVIDIA Jetson Linux | AArch64 vendor SDK builds for 36.5.2 and 39.2.2, with CLI checks in matching userspaces under QEMU user mode |
 
-A native build checks the development host. An emulated smoke test checks whether the target binary starts and produces valid output under emulation. Board performance requires a run on the actual board and firmware.
+Platform coverage varies by benchmark. Physical-board performance requires a run on the board and firmware you are evaluating.
+
+## Guides
+
+- [Benchmarks and fixtures](docs/benchmarks.md) covers CPU, RAM, storage, networking, stress, and peripheral tests.
+- [OpenWrt AArch64](docs/openwrt-compatibility.md) and [other OpenWrt architectures](docs/openwrt-platforms.md) cover SDK selection, packages, and guest checks.
+- [Jetson Linux](docs/jetson-linux.md) covers NVIDIA SDK cross-builds and ABI checks.

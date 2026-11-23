@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Linux checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          persist-credentials: false
+
+      - name: Install Rust toolchains
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup toolchain install 1.66.0 --profile minimal
+          rustup target add --toolchain stable aarch64-unknown-linux-musl
+
+      - name: Check formatting and lints
+        run: |
+          cargo +stable fmt --all -- --check
+          cargo +stable clippy --all-targets --locked --offline -- -D warnings
+
+      - name: Build and test with Rust 1.66
+        run: |
+          cargo +1.66.0 build --release --locked --offline
+          cargo +1.66.0 test --release --locked --offline
+          python3 tests/uart_pty.py ./target/release/embedded-linux-benchmark
+
+      - name: Check Linux ABI and AArch64 compilation
+        run: |
+          cc -std=c11 -Wall -Wextra -Werror -c tests/linux_uapi.c -o "$RUNNER_TEMP/benchmark-uapi.o"
+          cargo +stable check --locked --offline --target aarch64-unknown-linux-musl
