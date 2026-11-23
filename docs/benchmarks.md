@@ -1,4 +1,4 @@
-# Storage, network, and automatic stress
+# Storage, network, peripherals, and automatic stress
 
 Use `cargo build --release --locked` and run `./target/release/embedded-linux-benchmark --help` for the commands. All workloads run on the calling thread. The `cpu` and `ram` commands also run independently with their existing settings.
 
@@ -20,6 +20,34 @@ The write and read rates are separate. Writes go through buffered filesystem I/O
 ```
 
 The command connects two TCP sockets through a listener bound to `127.0.0.1` on an ephemeral port. Timing starts after connection setup and covers one-way application throughput, including receiving and verifying the payload. The result covers the local TCP stack. Physical NIC throughput requires a separate measurement. The command uses the system's existing loopback configuration. `--size-mib` accepts 1–64 and defaults to 8. `--timeout-ms` accepts 1–30000 and defaults to 5000.
+
+## Peripherals
+
+UART and GPIO run only when requested directly. The automatic stress suite never accesses them.
+
+### UART loopback
+
+Use a dedicated fixture with the selected port's TX connected to its RX at the voltage and signaling levels specified for that port. Across separate connectors, share a ground and use compatible levels. Keep the boot console, login terminals, and any attached equipment out of the fixture. Use TX/RX only for the loopback. RS-232 signaling requires a suitable transceiver before it can connect to a logic-level UART.
+
+```sh
+./target/release/embedded-linux-benchmark uart --device /dev/ttyUSB0 --loopback --bytes 4096
+```
+
+`--loopback` acknowledges the dedicated fixture. The command checks the Linux console records, rejects standard streams and the controlling terminal, and accepts recognized `/dev` serial tty nodes such as `ttyUSB`, `ttyS`, and Jetson `ttyTHS` nodes, their aliases, or `/dev/pts/N` for testing. It requires the standard tty line discipline and a nonzero existing baud rate. The benchmark uses 115200 baud, 8 data bits, no parity, one stop bit, and no flow control. `--bytes` accepts 1–65536 and defaults to 4096. `--timeout-ms` accepts 1–30000 and defaults to 10000.
+
+The result is verified payload bytes per second over the loopback, including both userspace I/O and comparison. The command opens the device nonblocking, leaves the original hang-up-on-close flag (`HUPCL`) intact, and restores the original tty settings on success or a handled error. A driver can still change modem lines when opening a port or when closing the last descriptor, depending on its existing settings. Use a fixture that does not rely on modem lines. Forced termination can interrupt settings restoration. The deadline cannot preempt a kernel driver call that stalls.
+
+The UART implementation uses the Linux tty ABI for x86, x86-64, Arm, AArch64, and MIPS32 targets with glibc or musl. Other Linux targets return an explicit UART error before accessing a device. [Linux device numbers](https://docs.kernel.org/admin-guide/devices.html) · [Generic kernel termios ABI](https://github.com/torvalds/linux/blob/v6.12/include/uapi/asm-generic/termbits.h) · [MIPS kernel termios ABI](https://github.com/torvalds/linux/blob/v6.12/arch/mips/include/uapi/asm/termbits.h)
+
+### GPIO input read latency
+
+Use the Linux sysfs GPIO number of a line already exported and configured as an input. The example assumes an existing `gpio23` input. Sysfs GPIO is a legacy interface and may be missing from the target kernel. The benchmark requires a readable `direction` attribute equal to `in` and a readable `value` attribute. It opens both read-only and leaves export, pin direction, and pin state under the board's existing configuration. Keep the line exported as an input throughout the run. [Linux sysfs GPIO ABI](https://docs.kernel.org/userspace-api/gpio/sysfs.html)
+
+```sh
+./target/release/embedded-linux-benchmark gpio --pin 23 --samples 1000
+```
+
+`--samples` accepts 1–100000 and defaults to 1000. `--timeout-ms` accepts 1–30000 and defaults to 5000. The command reports the mean time for userspace to rewind and read one value, along with the number of high samples. Electrical propagation and edge timing require separate instrumentation. The deadline is checked between samples and cannot interrupt a stalled kernel GPIO read.
 
 ## Automatic stress
 
@@ -68,6 +96,8 @@ The storage write budget is shared across the entire run at any duration. The su
 
 The suite validates settings before starting and stops at the first failure. An elapsed-time run succeeds when it reaches its requested duration or completes a storage-only write budget. A failed component, a component operation timeout before the run deadline, or a round-based run exceeding its timeout produces a nonzero exit status. The RAM working set is bounded by two buffers, with a maximum of 64 MiB. Storage and network use fixed-size application buffers.
 
+The elapsed-time CPU summary measures workload completion and reports total iterations. The timed suite performs no CPU checksum comparison. The standalone `cpu` command reports its checksum, and the standalone CLI tests independently recompute it from the measured iteration count.
+
 Deadlines are checked during the run between CPU batches, RAM copies, I/O chunks, and phases. An in-progress filesystem call such as `sync_data()`, time spent waiting for the OS scheduler, or allocation and page faults can delay the next check. Sudden termination, including default `SIGINT` handling, or power loss can leave a `.embedded-linux-benchmark-*` file in the selected directory.
 
 ## Validation
@@ -77,6 +107,26 @@ The native Debian 13 release tests cover component output, loopback byte counts,
 All four individual selectors passed native CLI tests, an OpenWrt 25.12.6 AArch64 full-system QEMU test, and Jetson Linux 39.2.2 QEMU user-mode checks with the matching NVIDIA sample libraries. These runs checked the selected phase count, storage byte accounting and cleanup, and rejection of conflicting settings.
 
 Short elapsed-time runs passed on native Debian 13, in matching OpenWrt 25.12.6 AArch64 and 24.10.8 MIPS32 little-endian QEMU guests, and under QEMU user mode with Jetson Linux 39.2.2 sample libraries. They exercised deadline clamping, the shared storage budget, storage-only early exit, and scratch cleanup. The 14-day boundary and overflow were tested through argument parsing. The full duration was not run.
+
+UART pseudoterminal tests passed natively and in the Jetson Linux 39.2.2 QEMU user-mode setup. They exercised loopback byte counts, corruption, timeout, terminal refusal, and tty restoration. The GPIO unit test uses ordinary files as inert attributes to check input-only reads, counts, direction and type rejection, and timeout.
+
+```sh
+cargo test --release --locked
+cargo build --release --locked
+python3 tests/uart_pty.py ./target/release/embedded-linux-benchmark
+```
+
+The peripheral packages were built and inspected with matching OpenWrt SDKs. Package installation, UART pseudoterminal transfer and failure cases, Linux console refusal, missing GPIO rejection, and package removal passed in the full-system QEMU guests below. GPIO availability records whether the kernel exposed `/sys/class/gpio/export`. The tests inspected its presence without opening it or exporting a pin.
+
+| Environment | Kernel | Legacy GPIO sysfs export attribute |
+| --- | --- | --- |
+| OpenWrt 21.02.7 `armvirt/64` and `x86/64` (IPK) | 5.4.238 | Present in both guests |
+| OpenWrt 24.10.8 `malta/le` and `malta/be` (IPK) | 6.6.144 | Present in both guests |
+| OpenWrt 25.12.6 `armsr/armv7` and `armsr/armv8` (APK) | 6.12.112 | Present in both guests |
+| Native Debian 13 development environment | Host kernel | Absent in the test environment |
+| Jetson Linux 39.2.2 QEMU user mode | Host kernel | Jetson kernel availability unverified |
+
+Physical UART rates, GPIO read latency, and GPIO availability on actual boards remain unverified.
 
 | Current build | Execution evidence |
 | --- | --- |

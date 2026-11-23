@@ -1,5 +1,5 @@
 use crate::common::{Deadline, DEFAULT_DURATION_MS, MAX_DURATION_MS, MIB};
-use crate::{cpu, network, ram, storage, stress};
+use crate::{cpu, gpio, network, ram, storage, stress, uart};
 use std::collections::HashMap;
 use std::env;
 use std::path::Path;
@@ -13,7 +13,7 @@ enum Kind {
     StressTest,
 }
 
-use Kind::{Flag, Number, Path as Directory};
+use Kind::{Flag, Number};
 
 const CPU_OPTIONS: &[(&str, Kind)] = &[("--duration-ms", Number(1, MAX_DURATION_MS))];
 const RAM_OPTIONS: &[(&str, Kind)] = &[
@@ -24,7 +24,7 @@ const RAM_OPTIONS: &[(&str, Kind)] = &[
     ),
 ];
 const STORAGE_OPTIONS: &[(&str, Kind)] = &[
-    ("--dir", Directory),
+    ("--dir", Kind::Path),
     ("--size-mib", Number(1, storage::MAX_MIB)),
     ("--timeout-ms", Number(1, storage::MAX_TIMEOUT_MS)),
     ("--sync", Flag),
@@ -32,6 +32,17 @@ const STORAGE_OPTIONS: &[(&str, Kind)] = &[
 const NETWORK_OPTIONS: &[(&str, Kind)] = &[
     ("--size-mib", Number(1, network::MAX_MIB)),
     ("--timeout-ms", Number(1, network::MAX_TIMEOUT_MS)),
+];
+const UART_OPTIONS: &[(&str, Kind)] = &[
+    ("--device", Kind::Path),
+    ("--loopback", Flag),
+    ("--bytes", Number(1, uart::MAX_BYTES)),
+    ("--timeout-ms", Number(1, uart::MAX_TIMEOUT_MS)),
+];
+const GPIO_OPTIONS: &[(&str, Kind)] = &[
+    ("--pin", Number(0, u32::MAX as u64)),
+    ("--samples", Number(1, gpio::MAX_SAMPLES)),
+    ("--timeout-ms", Number(1, gpio::MAX_TIMEOUT_MS)),
 ];
 const STRESS_OPTIONS: &[(&str, Kind)] = &[
     ("--test", Kind::StressTest),
@@ -44,7 +55,7 @@ const STRESS_OPTIONS: &[(&str, Kind)] = &[
     ),
     ("--network-mib", Number(1, network::MAX_MIB)),
     ("--timeout-ms", Number(1, stress::MAX_TIMEOUT_MS)),
-    ("--storage-dir", Directory),
+    ("--storage-dir", Kind::Path),
     ("--storage-mib", Number(1, storage::MAX_MIB)),
     ("--storage-sync", Flag),
 ];
@@ -87,10 +98,10 @@ impl<'a> Options<'a> {
                             format!("'{option}' must be an integer between {min} and {max}")
                         })?,
                 ),
-                Directory if raw.is_empty() => {
+                Kind::Path if raw.is_empty() => {
                     return Err(format!("'{option}' must be a nonempty path"))
                 }
-                Directory => Value::Path(Path::new(raw)),
+                Kind::Path => Value::Path(Path::new(raw)),
                 Kind::StressTest => Value::StressTest(match raw.as_str() {
                     "cpu" => stress::Test::Cpu,
                     "ram" => stress::Test::Ram,
@@ -168,6 +179,8 @@ fn help() {
   embedded-linux-benchmark ram [--duration-ms MS] [--buffer-kib KIB]
   embedded-linux-benchmark storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]
   embedded-linux-benchmark network [--size-mib MIB] [--timeout-ms MS]
+  embedded-linux-benchmark uart --device PATH --loopback [--bytes N] [--timeout-ms MS]
+  embedded-linux-benchmark gpio --pin N [--samples N] [--timeout-ms MS]
   embedded-linux-benchmark stress auto [--test cpu|ram|network|storage] [--rounds N | --duration-secs SEC]
     [--duration-ms MS] [--buffer-kib KIB]
     [--network-mib MIB] [--timeout-ms MS] [--storage-dir DIR --storage-mib MIB [--storage-sync]]
@@ -176,6 +189,8 @@ cpu       Single-threaded 32-bit integer throughput
 ram       Copy throughput between two equal-sized buffers
 storage   Sequential buffered file I/O in the selected directory (1–64 MiB)
 network   TCP throughput on 127.0.0.1 (1–64 MiB, default 8)
+uart      Verified serial transfer at 115200 8N1 using a dedicated loopback fixture
+gpio      Userspace read latency for an existing sysfs GPIO input
 stress    Up to 5 sequential rounds of CPU, RAM, and TCP loopback (default 3)
           --duration-secs sets a total run target of 1–{max_duration_secs} seconds
           --duration-ms controls each CPU/RAM phase, including timed runs
@@ -268,6 +283,8 @@ pub(crate) fn run() -> Result<(), String> {
         "ram" => RAM_OPTIONS,
         "storage" => STORAGE_OPTIONS,
         "network" => NETWORK_OPTIONS,
+        "uart" => UART_OPTIONS,
+        "gpio" => GPIO_OPTIONS,
         "stress" => {
             if help_requested(args) {
                 help();
@@ -314,6 +331,22 @@ pub(crate) fn run() -> Result<(), String> {
         "network" => network::run(
             options.number("--size-mib").unwrap_or(network::DEFAULT_MIB) * MIB,
             Deadline::after(options.timeout(network::DEFAULT_TIMEOUT_MS)),
+        ),
+        "uart" => {
+            let device = options.path("--device").ok_or("UART requires '--device'")?;
+            if !options.flag("--loopback") {
+                return Err("UART requires '--loopback' to acknowledge a dedicated fixture".into());
+            }
+            uart::run(
+                device,
+                options.number("--bytes").unwrap_or(uart::DEFAULT_BYTES) as usize,
+                Deadline::after(options.timeout(uart::DEFAULT_TIMEOUT_MS)),
+            )
+        }
+        "gpio" => gpio::run(
+            options.number("--pin").ok_or("GPIO requires '--pin'")? as u32,
+            options.number("--samples").unwrap_or(gpio::DEFAULT_SAMPLES),
+            Deadline::after(options.timeout(gpio::DEFAULT_TIMEOUT_MS)),
         ),
         _ => unreachable!(),
     }

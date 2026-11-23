@@ -683,3 +683,50 @@ fn timed_stress_rejects_conflicts_and_out_of_range_durations_before_work() {
         );
     }
 }
+
+#[test]
+fn peripheral_commands_validate_opt_in_and_limits() {
+    let help = successful_output(&["--help"]);
+    assert!(help.contains("uart --device PATH --loopback"));
+    assert!(help.contains("gpio --pin N"));
+    let cases: &[(&[&str], &str)] = &[
+        (&["uart", "--loopback"], "requires '--device'"),
+        (
+            &["uart", "--device", "/dev/missing-fixture"],
+            "requires '--loopback'",
+        ),
+        (
+            &["uart", "--device", "/dev/null", "--loopback"],
+            "recognized serial tty",
+        ),
+        (
+            &["uart", "--device", "Cargo.toml", "--loopback"],
+            "serial character device",
+        ),
+        (&["uart", "--bytes", "65537"], "between 1 and 65536"),
+        (&["uart", "--timeout-ms", "0"], "between 1 and 30000"),
+        (
+            &["uart", "--loopback", "--loopback"],
+            "may only be set once",
+        ),
+        (&["gpio"], "requires '--pin'"),
+        (&["gpio", "--pin", "4294967296"], "between 0 and 4294967295"),
+        (
+            &["gpio", "--pin", "0", "--samples", "100001"],
+            "between 1 and 100000",
+        ),
+        (
+            &["gpio", "--pin", "0", "--timeout-ms", "30001"],
+            "between 1 and 30000",
+        ),
+        (&["stress", "auto", "--test", "uart"], "invalid stress test"),
+        (&["stress", "auto", "--test", "gpio"], "invalid stress test"),
+    ];
+    for (args, message) in cases {
+        let output = run(args);
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(output.stdout.is_empty(), "{output:?}");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains(message), "{args:?}: {stderr}");
+    }
+}

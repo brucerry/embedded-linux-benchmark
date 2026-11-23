@@ -1,10 +1,12 @@
 mod cli;
 mod common;
 mod cpu;
+mod gpio;
 mod network;
 mod ram;
 mod storage;
 mod stress;
+mod uart;
 
 use std::process::ExitCode;
 
