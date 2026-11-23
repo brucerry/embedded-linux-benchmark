@@ -30,7 +30,17 @@ The command connects two TCP sockets through a listener bound to `127.0.0.1` on 
   --storage-dir /path/to/writable-directory --storage-mib 16 --storage-sync
 ```
 
-Each round runs CPU, RAM, and loopback in sequence. Storage runs after loopback when both `--storage-dir` and `--storage-mib` are supplied. `--storage-mib` is the total 1–64 MiB write budget across all rounds. The suite divides it among rounds, with any remaining bytes in the final round. `--storage-sync` is optional with storage enabled.
+By default each round runs CPU, RAM, and loopback in sequence. Supplying both `--storage-dir` and `--storage-mib` adds storage after loopback. `--storage-mib` is the total 1–64 MiB write budget across all rounds. The suite divides it among rounds, with any remaining bytes in the final round. `--storage-sync` is optional with storage enabled.
+
+Use one `--test` selector to repeat a single component. Each selection accepts `--rounds` and `--timeout-ms`. CPU and RAM accept `--duration-ms`, RAM accepts `--buffer-kib`, and network accepts `--network-mib`. Storage-only requires both the directory and total write budget and accepts `--storage-sync`. Options for other components produce an error before the run starts.
+
+```sh
+./target/release/embedded-linux-benchmark stress auto --test cpu --rounds 3 --duration-ms 500
+./target/release/embedded-linux-benchmark stress auto --test ram --buffer-kib 2048
+./target/release/embedded-linux-benchmark stress auto --test network --network-mib 4
+./target/release/embedded-linux-benchmark stress auto --test storage --rounds 2 \
+  --storage-dir /path/to/writable-directory --storage-mib 16 --storage-sync
+```
 
 | Option | Default | Accepted values |
 | --- | --- | --- |
@@ -38,7 +48,7 @@ Each round runs CPU, RAM, and loopback in sequence. Storage runs after loopback 
 | `--duration-ms` | 250 per CPU or RAM phase | 1–5000 |
 | `--buffer-kib` | 1024 per RAM buffer | 4–32768 |
 | `--network-mib` | 8 per round | 1–64 |
-| `--timeout-ms` | 15000 for the full suite | 1–120000, greater than the combined CPU and RAM durations |
+| `--timeout-ms` | 15000 for the full run | 1–120000, greater than the total duration of all scheduled CPU and RAM phases |
 
 The suite validates settings before starting, prints each completed component's outcome, and stops at the first failure. A failed component or expired deadline produces a nonzero exit status. The RAM working set is bounded by two buffers, with a maximum of 64 MiB. Storage and network use fixed-size application buffers.
 
@@ -47,6 +57,8 @@ Deadlines are checked during the run between CPU batches, RAM copies, I/O chunks
 ## Validation
 
 The native Debian 13 release tests cover component output, loopback byte counts, invalid limits and incomplete storage opt-ins, storage budget accounting, and scratch-file removal. A child process with a small file-size limit exercises a write failure both directly and in the stress suite. The default three-round run also passed without creating a scratch file.
+
+All four individual selectors passed native CLI tests, an OpenWrt 25.12.6 AArch64 full-system QEMU test, and Jetson Linux 39.2.2 QEMU user-mode checks with the matching NVIDIA sample libraries. These runs checked the selected phase count, storage byte accounting and cleanup, and rejection of conflicting settings.
 
 | Current build | Execution evidence |
 | --- | --- |

@@ -11,6 +11,25 @@ pub(crate) const DEFAULT_BUFFER_KIB: u64 = 1_024;
 pub(crate) const DEFAULT_TIMEOUT_MS: u64 = 15_000;
 pub(crate) const MAX_TIMEOUT_MS: u64 = 120_000;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Test {
+    Cpu,
+    Ram,
+    Network,
+    Storage,
+}
+
+impl Test {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Cpu => "cpu",
+            Self::Ram => "ram",
+            Self::Network => "network",
+            Self::Storage => "storage",
+        }
+    }
+}
+
 pub(crate) struct Storage {
     pub(crate) directory: PathBuf,
     pub(crate) total_bytes: u64,
@@ -18,6 +37,7 @@ pub(crate) struct Storage {
 }
 
 pub(crate) struct Plan {
+    pub(crate) test: Option<Test>,
     pub(crate) rounds: u64,
     pub(crate) duration: Duration,
     pub(crate) buffer_kib: u64,
@@ -48,14 +68,24 @@ fn phase(
 }
 
 fn run_round(plan: &Plan, round: u64, deadline: Deadline) -> Result<(), String> {
-    phase("CPU", deadline, || cpu::run(plan.duration, Some(deadline)))?;
-    phase("RAM", deadline, || {
-        ram::run(plan.duration, plan.buffer_kib, Some(deadline))
-    })?;
-    phase("Network", deadline, || {
-        network::run(plan.network_bytes, deadline)
-    })?;
-    if let Some(storage) = &plan.storage {
+    if matches!(plan.test, None | Some(Test::Cpu)) {
+        phase("CPU", deadline, || cpu::run(plan.duration, Some(deadline)))?;
+    }
+    if matches!(plan.test, None | Some(Test::Ram)) {
+        phase("RAM", deadline, || {
+            ram::run(plan.duration, plan.buffer_kib, Some(deadline))
+        })?;
+    }
+    if matches!(plan.test, None | Some(Test::Network)) {
+        phase("Network", deadline, || {
+            network::run(plan.network_bytes, deadline)
+        })?;
+    }
+    if let Some(storage) = plan
+        .storage
+        .as_ref()
+        .filter(|_| matches!(plan.test, None | Some(Test::Storage)))
+    {
         let mut bytes = storage.total_bytes / plan.rounds;
         if round == plan.rounds {
             bytes += storage.total_bytes % plan.rounds;
@@ -74,12 +104,16 @@ pub(crate) fn run(plan: Plan) -> Result<(), String> {
         plan.rounds,
         plan.timeout.as_millis()
     );
-    match &plan.storage {
-        Some(storage) => println!(
+    if let Some(test) = plan.test {
+        println!("Test: {}", test.name());
+    }
+    match (&plan.storage, plan.test) {
+        (Some(storage), _) => println!(
             "Storage write budget: {} bytes across all rounds",
             storage.total_bytes
         ),
-        None => println!("Storage: disabled"),
+        (None, None) => println!("Storage: disabled"),
+        (None, Some(_)) => (),
     }
     for round in 1..=plan.rounds {
         println!("Round {round}/{}", plan.rounds);

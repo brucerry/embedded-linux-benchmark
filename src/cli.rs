@@ -10,6 +10,7 @@ enum Kind {
     Number(u64, u64),
     Path,
     Flag,
+    StressTest,
 }
 
 use Kind::{Flag, Number, Path as Directory};
@@ -33,6 +34,7 @@ const NETWORK_OPTIONS: &[(&str, Kind)] = &[
     ("--timeout-ms", Number(1, network::MAX_TIMEOUT_MS)),
 ];
 const STRESS_OPTIONS: &[(&str, Kind)] = &[
+    ("--test", Kind::StressTest),
     ("--rounds", Number(1, stress::MAX_ROUNDS)),
     ("--duration-ms", Number(1, stress::MAX_DURATION_MS)),
     (
@@ -50,6 +52,7 @@ enum Value<'a> {
     Number(u64),
     Path(&'a Path),
     Flag,
+    StressTest(stress::Test),
 }
 
 struct Options<'a>(HashMap<&'a str, Value<'a>>);
@@ -87,6 +90,17 @@ impl<'a> Options<'a> {
                     return Err(format!("'{option}' must be a nonempty path"))
                 }
                 Directory => Value::Path(Path::new(raw)),
+                Kind::StressTest => Value::StressTest(match raw.as_str() {
+                    "cpu" => stress::Test::Cpu,
+                    "ram" => stress::Test::Ram,
+                    "network" => stress::Test::Network,
+                    "storage" => stress::Test::Storage,
+                    _ => {
+                        return Err(format!(
+                            "invalid stress test '{raw}'. Choose cpu, ram, network, or storage."
+                        ))
+                    }
+                }),
                 Flag => unreachable!(),
             };
             values.insert(option.as_str(), value);
@@ -112,6 +126,31 @@ impl<'a> Options<'a> {
         matches!(self.0.get(option), Some(Value::Flag))
     }
 
+    fn stress_test(&self) -> Result<Option<stress::Test>, String> {
+        use stress::Test::{Cpu, Network, Ram, Storage};
+
+        let test = match self.0.get("--test") {
+            Some(Value::StressTest(test)) => *test,
+            _ => return Ok(None),
+        };
+        for (option, permitted) in [
+            ("--duration-ms", matches!(test, Cpu | Ram)),
+            ("--buffer-kib", test == Ram),
+            ("--network-mib", test == Network),
+            ("--storage-dir", test == Storage),
+            ("--storage-mib", test == Storage),
+            ("--storage-sync", test == Storage),
+        ] {
+            if !permitted && self.0.contains_key(option) {
+                return Err(format!(
+                    "'{option}' cannot be used with '--test {}'",
+                    test.name()
+                ));
+            }
+        }
+        Ok(Some(test))
+    }
+
     fn duration(&self, default_ms: u64) -> Duration {
         Duration::from_millis(self.number("--duration-ms").unwrap_or(default_ms))
     }
@@ -128,7 +167,8 @@ fn help() {
   embedded-linux-benchmark ram [--duration-ms MS] [--buffer-kib KIB]
   embedded-linux-benchmark storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]
   embedded-linux-benchmark network [--size-mib MIB] [--timeout-ms MS]
-  embedded-linux-benchmark stress auto [--rounds N] [--duration-ms MS] [--buffer-kib KIB]
+  embedded-linux-benchmark stress auto [--test cpu|ram|network|storage] [--rounds N]
+    [--duration-ms MS] [--buffer-kib KIB]
     [--network-mib MIB] [--timeout-ms MS] [--storage-dir DIR --storage-mib MIB [--storage-sync]]
 
 cpu       Single-threaded 32-bit integer throughput
@@ -136,6 +176,7 @@ ram       Copy throughput between two equal-sized buffers
 storage   Sequential buffered file I/O in the selected directory (1–64 MiB)
 network   TCP throughput on 127.0.0.1 (1–64 MiB, default 8)
 stress    Up to 5 sequential rounds of CPU, RAM, and TCP loopback (default 3)
+          --test runs one component per round and accepts only its options
           Storage requires both a directory and a total write budget
 
 cpu/ram --duration-ms  1–{MAX_DURATION_MS} (default {DEFAULT_DURATION_MS})
@@ -150,11 +191,22 @@ fn help_requested(args: &[String]) -> bool {
 
 fn run_stress(args: &[String]) -> Result<(), String> {
     let options = Options::parse("stress auto", args, STRESS_OPTIONS)?;
+    let test = options.stress_test()?;
     let rounds = options.number("--rounds").unwrap_or(stress::DEFAULT_ROUNDS);
     let duration = options.duration(stress::DEFAULT_DURATION_MS);
     let timeout = options.timeout(stress::DEFAULT_TIMEOUT_MS);
-    if timeout <= duration * (2 * rounds as u32) {
-        return Err("'--timeout-ms' must exceed the combined CPU and RAM phase durations".into());
+    let timed_phases = match test {
+        None => 2,
+        Some(stress::Test::Cpu | stress::Test::Ram) => 1,
+        Some(_) => 0,
+    };
+    if timeout <= duration * (timed_phases * rounds as u32) {
+        let phases = if test.is_none() {
+            "combined CPU and RAM phase durations"
+        } else {
+            "selected test's total phase duration"
+        };
+        return Err(format!("'--timeout-ms' must exceed the {phases}"));
     }
     let sync = options.flag("--storage-sync");
     let storage = match (
@@ -166,10 +218,11 @@ fn run_stress(args: &[String]) -> Result<(), String> {
             total_bytes: mib * MIB,
             sync,
         }),
-        (None, None) if !sync => None,
+        (None, None) if !sync && test != Some(stress::Test::Storage) => None,
         _ => return Err("stress storage requires both '--storage-dir' and '--storage-mib'".into()),
     };
     stress::run(stress::Plan {
+        test,
         rounds,
         duration,
         buffer_kib: options

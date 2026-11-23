@@ -265,6 +265,148 @@ fn stress_runs_multiple_rounds_without_storage_and_honors_an_opt_in_budget() {
 }
 
 #[test]
+fn stress_selector_runs_only_the_selected_component_each_round() {
+    let directory = ScratchDirectory::create();
+    let components = [
+        ("CPU", "CPU throughput ("),
+        ("RAM", "RAM copy throughput ("),
+        ("Network", "Network throughput ("),
+        ("Storage", "Storage throughput ("),
+    ];
+    let cases: &[(&str, &[&str])] = &[
+        ("cpu", &["--duration-ms", "1"]),
+        ("ram", &["--duration-ms", "1", "--buffer-kib", "4"]),
+        ("network", &["--network-mib", "1"]),
+        (
+            "storage",
+            &[
+                "--storage-dir",
+                directory.path(),
+                "--storage-mib",
+                "1",
+                "--storage-sync",
+            ],
+        ),
+    ];
+    for (test, options) in cases {
+        let mut args = vec!["stress", "auto", "--test", test, "--rounds", "3"];
+        args.extend_from_slice(options);
+        let output = successful_output(&args);
+        assert!(output.contains("Stress result: PASS (3/3 rounds completed)"));
+        for (component, throughput) in components {
+            let expected = if component.eq_ignore_ascii_case(test) {
+                3
+            } else {
+                0
+            };
+            let outcome = format!("{component}: PASS");
+            assert_eq!(
+                output.lines().filter(|line| *line == outcome).count(),
+                expected,
+                "{test}"
+            );
+            assert_eq!(
+                output
+                    .lines()
+                    .filter(|line| line.starts_with(throughput))
+                    .count(),
+                expected,
+                "{test}"
+            );
+        }
+        if *test == "storage" {
+            for label in ["Write bytes: ", "Read bytes: "] {
+                let counts: Vec<&str> = output
+                    .lines()
+                    .filter_map(|line| line.strip_prefix(label))
+                    .collect();
+                assert_eq!(counts, ["349525", "349525", "349526"]);
+            }
+            assert!(output.contains("Write mode: buffered, includes sync_data"));
+        }
+        assert!(directory.names().is_empty(), "{test}");
+    }
+}
+
+#[test]
+fn stress_rejects_invalid_selectors_and_conflicting_options_before_work() {
+    let directory = ScratchDirectory::create();
+    let cases: &[(&[&str], &str)] = &[
+        (&["--test", "all"], "invalid stress test 'all'"),
+        (&["--test", "cpu,ram"], "invalid stress test 'cpu,ram'"),
+        (&["--test"], "missing value for '--test'"),
+        (&["--test", "cpu", "--test", "ram"], "may only be set once"),
+        (&["--test", "storage"], "requires both"),
+        (
+            &["--test", "storage", "--storage-dir", directory.path()],
+            "requires both",
+        ),
+        (
+            &["--test", "storage", "--storage-mib", "1"],
+            "requires both",
+        ),
+        (
+            &[
+                "--test",
+                "storage",
+                "--storage-dir",
+                directory.path(),
+                "--storage-mib",
+                "65",
+            ],
+            "integer between 1 and 64",
+        ),
+        (
+            &["--test", "ram", "--timeout-ms", "750"],
+            "selected test's total phase duration",
+        ),
+        (
+            &["--test", "network", "--duration-ms", "1"],
+            "'--duration-ms' cannot be used",
+        ),
+        (
+            &["--test", "cpu", "--buffer-kib", "4"],
+            "'--buffer-kib' cannot be used",
+        ),
+        (
+            &["--test", "ram", "--network-mib", "1"],
+            "'--network-mib' cannot be used",
+        ),
+        (
+            &[
+                "--test",
+                "cpu",
+                "--storage-dir",
+                directory.path(),
+                "--storage-mib",
+                "1",
+            ],
+            "'--storage-dir' cannot be used",
+        ),
+        (
+            &["--test", "ram", "--storage-mib", "1"],
+            "'--storage-mib' cannot be used",
+        ),
+        (
+            &["--test", "network", "--storage-sync"],
+            "'--storage-sync' cannot be used",
+        ),
+    ];
+    for (options, expected) in cases {
+        let mut args = vec!["stress", "auto"];
+        args.extend_from_slice(options);
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(1), "{args:?}: {output:?}");
+        assert!(output.stdout.is_empty(), "{args:?}: {output:?}");
+        assert!(
+            String::from_utf8(output.stderr).unwrap().contains(expected),
+            "{args:?}"
+        );
+    }
+    assert!(directory.names().is_empty());
+}
+
+#[test]
 fn category_parameters_are_validated_before_load_or_writes() {
     let directory = ScratchDirectory::create();
     let ordinary_file = directory.0.join("ordinary-file");
@@ -374,6 +516,21 @@ fn failed_writes_remove_scratch_files_and_stop_stress() {
                 "4",
                 "--network-mib",
                 "1",
+                "--storage-dir",
+                directory.path(),
+                "--storage-mib",
+                "1",
+            ],
+            true,
+        ),
+        (
+            vec![
+                "stress",
+                "auto",
+                "--test",
+                "storage",
+                "--rounds",
+                "2",
                 "--storage-dir",
                 directory.path(),
                 "--storage-mib",
