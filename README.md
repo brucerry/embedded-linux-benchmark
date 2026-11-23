@@ -40,3 +40,4 @@ Platform coverage varies by benchmark. Physical-board performance requires a run
 - [Benchmarks and fixtures](docs/benchmarks.md) covers CPU, RAM, storage, networking, stress, and peripheral tests.
 - [OpenWrt AArch64](docs/openwrt-compatibility.md) and [other OpenWrt architectures](docs/openwrt-platforms.md) cover SDK selection, packages, and guest checks.
 - [Jetson Linux](docs/jetson-linux.md) covers NVIDIA SDK cross-builds and ABI checks.
+- [Optional CUDA helper](docs/cuda.md) covers separate NVIDIA Toolkit builds and compute and transfer modes.
