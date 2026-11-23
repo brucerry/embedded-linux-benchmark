@@ -9,6 +9,7 @@ PKG_LICENSE_FILES:=LICENSE
 include $(INCLUDE_DIR)/package.mk
 
 OPENWRT_RUST_TARGET ?=
+OPENWRT_BUILD_STD ?= 0
 
 define Package/embedded-linux-benchmark
   SECTION:=utils
@@ -25,10 +26,15 @@ endef
 define Build/Compile
 	@test -n "$(OPENWRT_RUST_TARGET)" || \
 		{ echo "Set OPENWRT_RUST_TARGET to the Rust target matching this SDK" >&2; exit 1; }
+	@case "$(OPENWRT_BUILD_STD)" in \
+		0|1) ;; \
+		*) echo "Set OPENWRT_BUILD_STD to 0 or 1" >&2; exit 1 ;; \
+	esac
 	cd "$(PKG_BUILD_DIR)" && \
 		CARGO_TARGET_DIR="$(PKG_BUILD_DIR)/target" \
 		RUSTFLAGS="-C linker=$(TARGET_CC_NOCACHE) -C target-feature=-crt-static" \
-		cargo build --release --locked --offline --target "$(OPENWRT_RUST_TARGET)"
+		cargo build $(if $(filter 1,$(OPENWRT_BUILD_STD)),-Z build-std) \
+			--release --locked --offline --target "$(OPENWRT_RUST_TARGET)"
 endef
 
 define Package/embedded-linux-benchmark/install

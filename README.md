@@ -23,7 +23,7 @@ CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=/path/to/sdk/bin/target-cc \
 
 Use your SDK's actual linker path and any flags or sysroot it requires. The crate sets no target, linker, or C library. Copy the resulting binary from `target/<target>/release/` to the matching board and run it there.
 
-For installable OpenWrt packages, use the [SDK overlay and compatibility matrix](docs/openwrt-compatibility.md). The SDK selects IPK or APK for its release.
+For installable OpenWrt packages, use the [SDK overlay and AArch64 matrix](docs/openwrt-compatibility.md) or the [x86-64, Armv7, and MIPS build guide](docs/openwrt-platforms.md). The SDK selects IPK or APK for its release.
 
 ## Reading the results
 
@@ -37,6 +37,7 @@ For installable OpenWrt packages, use the [SDK overlay and compatibility matrix]
 | --- | --- |
 | x86_64 Linux GNU | Native release build and CLI checks on a Debian development host with Rust 1.66.0 |
 | OpenWrt 21.02 through pinned upstream `main` on AArch64 | [Per-release SDK builds and QEMU guest installation](docs/openwrt-compatibility.md) |
+| OpenWrt x86-64, Armv7 hard-float, and MIPS32 in both byte orders | [Selected SDK builds and QEMU guest installation](docs/openwrt-platforms.md) |
 | OpenWrt 25.12.6 `armsr/armv8` with the release-pinned Rust helper | [Separate SDK APK and QEMU guest proof](docs/openwrt-package.md), plus a [standalone binary smoke test](docs/openwrt-25.12.6.md) |
 | Actual embedded Linux boards | No board runs recorded |
 

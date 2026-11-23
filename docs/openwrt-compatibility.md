@@ -2,7 +2,7 @@
 
 The opt-in SDK overlay builds the locked Cargo crate with an external Rust compiler and target standard library. It uses the selected OpenWrt SDK's GCC linker driver and sysroot, then lets the SDK produce its native package format. This works with the 21.02.7 and 22.03.7 release-pinned packages feeds, which lack `lang/rust/rust-package.mk`. [21.02.7 feed pins](https://downloads.openwrt.org/releases/21.02.7/targets/armvirt/64/feeds.buildinfo) · [22.03.7 feed pins](https://downloads.openwrt.org/releases/22.03.7/targets/armvirt/64/feeds.buildinfo)
 
-## Verified SDK builds
+## Verified AArch64 SDK builds
 
 These are the published stable series from 21.02 through 25.12 and a published snapshot matching the official upstream `main` head on November 23, 2026. The target names vary by release. All six rows used an x86_64 Linux build host and upstream Rust/Cargo 1.96.0 with `aarch64-unknown-linux-musl` std. [OpenWrt release index](https://downloads.openwrt.org/releases/) · [Upstream commit `14a07b78e9ac9d604547533550e6aa41955ac588`](https://github.com/openwrt/openwrt/commit/14a07b78e9ac9d604547533550e6aa41955ac588)
 
@@ -32,7 +32,7 @@ Use the SDK directory linked in the matrix for the archive and `sha256sums`. For
 
 ## Build a package
 
-Start in the benchmark checkout with the selected SDK archive already downloaded and verified. Use the standard SDK build prerequisites. The older SDKs require a Python interpreter with `distutils` available. If the SDK selects a different interpreter, set `staging_dir/host/bin/python` and `python3` in the SDK to the working host interpreter and let the prerequisite check run.
+Start in the benchmark checkout with the selected SDK archive already downloaded and verified. Use the standard SDK build prerequisites. The older SDKs require a Python interpreter with `distutils` available. If the SDK selects a different interpreter, set `staging_dir/host/bin/python` and `python3` in the SDK to the working host interpreter and let the prerequisite check run. The example uses AArch64. See the [platform guide](openwrt-platforms.md) for the target triples and Rust toolchains for x86-64, Armv7, and MIPS.
 
 ```sh
 checkout=$PWD
