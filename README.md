@@ -42,3 +42,4 @@ Platform coverage varies by benchmark. Physical-board performance requires a run
 - [Jetson Linux](docs/jetson-linux.md) covers NVIDIA SDK cross-builds and ABI checks.
 - [Optional CUDA helper](docs/cuda.md) covers separate NVIDIA Toolkit builds and compute and transfer modes.
 - [Optional ALSA helper](docs/audio.md) covers dedicated PCM loopback and software round-trip estimates.
+- [Optional Jetson H.264 helper](docs/jetson-codec.md) covers separate hardware encode and decode fixtures.

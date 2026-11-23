@@ -38,3 +38,6 @@ jobs:
         run: |
           cc -std=c11 -Wall -Wextra -Werror -c tests/linux_uapi.c -o "$RUNNER_TEMP/benchmark-uapi.o"
           cargo +stable check --locked --offline --target aarch64-unknown-linux-musl
+
+      - name: Check optional codec fixture logic
+        run: python3 -B -m unittest discover -s codec
