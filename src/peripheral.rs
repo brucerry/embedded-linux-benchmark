@@ -111,6 +111,12 @@ pub(crate) enum Kind {
     I2c,
     Spi,
     Gpio,
+    #[cfg(all(
+        target_pointer_width = "64",
+        any(target_arch = "x86_64", target_arch = "aarch64"),
+        any(target_env = "gnu", target_env = "musl")
+    ))]
+    Video,
 }
 
 impl Kind {
@@ -119,6 +125,12 @@ impl Kind {
             Self::I2c => "i2c-dev",
             Self::Spi => "spidev",
             Self::Gpio => "gpio",
+            #[cfg(all(
+                target_pointer_width = "64",
+                any(target_arch = "x86_64", target_arch = "aarch64"),
+                any(target_env = "gnu", target_env = "musl")
+            ))]
+            Self::Video => "video4linux",
         }
     }
 
@@ -129,6 +141,12 @@ impl Kind {
         match self {
             Self::I2c => name.strip_prefix("i2c-").map_or(false, digits),
             Self::Gpio => name.strip_prefix("gpiochip").map_or(false, digits),
+            #[cfg(all(
+                target_pointer_width = "64",
+                any(target_arch = "x86_64", target_arch = "aarch64"),
+                any(target_env = "gnu", target_env = "musl")
+            ))]
+            Self::Video => name.strip_prefix("video").map_or(false, digits),
             Self::Spi => name
                 .strip_prefix("spidev")
                 .and_then(|n| n.split_once('.'))

@@ -821,3 +821,39 @@ fn fixture_bus_commands_reject_unsafe_requests_before_traffic() {
         assert!(stderr.contains(message), "{args:?}: {stderr}");
     }
 }
+
+#[test]
+fn camera_and_hdmi_require_an_explicit_safe_source() {
+    for (args, error) in [
+        (&["camera"][..], "requires '--device'"),
+        (&["camera", "--frames", "1"], "between 2 and 10000"),
+        (&["camera", "--timeout-ms", "30001"], "between 1 and 30000"),
+        (&["camera", "--device", "/dev/null"], "video4linux"),
+        (
+            &["hdmi", "capture", "--device", "/dev/null"],
+            "requires '--fixture'",
+        ),
+        (
+            &["hdmi", "status", "--connector", "../../tty"],
+            "connector name",
+        ),
+        (
+            &["hdmi", "status", "--device", "/dev/null"],
+            "unknown option",
+        ),
+        (
+            &["stress", "auto", "--test", "camera"],
+            "invalid stress test",
+        ),
+    ] {
+        let output = run(args);
+        assert!(output.stdout.is_empty());
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        let message = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            message.contains(error)
+                || (error == "video4linux" && message.contains("supported 64-bit Linux")),
+            "{args:?}: {message}"
+        );
+    }
+}

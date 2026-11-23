@@ -1,5 +1,8 @@
 use crate::common::{Deadline, DEFAULT_DURATION_MS, MAX_DURATION_MS, MIB};
-use crate::{cpu, gpio, gpio_chardev, i2c, network, network_peer, ram, spi, storage, stress, uart};
+use crate::{
+    camera, cpu, gpio, gpio_chardev, hdmi, i2c, network, network_peer, ram, spi, storage, stress,
+    uart,
+};
 use std::collections::HashMap;
 use std::env;
 use std::path::Path;
@@ -44,6 +47,18 @@ const PEER_OPTIONS: &[(&str, Kind)] = &[
     ("--pings", Number(1, network_peer::MAX_PINGS)),
     ("--timeout-ms", Number(1, network_peer::MAX_TIMEOUT_MS)),
 ];
+const CAMERA_OPTIONS: &[(&str, Kind)] = &[
+    ("--device", Kind::Path),
+    ("--frames", Number(2, camera::MAX_FRAMES)),
+    ("--timeout-ms", Number(1, camera::MAX_TIMEOUT_MS)),
+];
+const HDMI_CAPTURE_OPTIONS: &[(&str, Kind)] = &[
+    ("--device", Kind::Path),
+    ("--fixture", Flag),
+    ("--frames", Number(2, camera::MAX_FRAMES)),
+    ("--timeout-ms", Number(1, camera::MAX_TIMEOUT_MS)),
+];
+const HDMI_STATUS_OPTIONS: &[(&str, Kind)] = &[("--connector", Kind::Text)];
 const UART_OPTIONS: &[(&str, Kind)] = &[
     ("--device", Kind::Path),
     ("--loopback", Flag),
@@ -226,6 +241,9 @@ fn help() {
   embedded-linux-benchmark gpio --pin N [--samples N] [--timeout-ms MS]
   embedded-linux-benchmark gpio --chip PATH --offset N --input-fixture
     [--samples N] [--timeout-ms MS]
+  embedded-linux-benchmark camera --device PATH [--frames N] [--timeout-ms MS]
+  embedded-linux-benchmark hdmi status --connector NAME
+  embedded-linux-benchmark hdmi capture --device PATH --fixture [--frames N] [--timeout-ms MS]
   embedded-linux-benchmark stress auto [--test cpu|ram|network|storage] [--rounds N | --duration-secs SEC]
     [--duration-ms MS] [--buffer-kib KIB]
     [--network-mib MIB] [--timeout-ms MS] [--storage-dir DIR --storage-mib MIB [--storage-sync]]
@@ -239,6 +257,8 @@ uart      Verified serial transfer at 115200 8N1 using a dedicated loopback fixt
 i2c       Pure read latency using a dedicated fixture and one I2C address
 spi       Verified full-duplex SPI throughput using a dedicated loopback fixture
 gpio      Userspace input read latency via legacy sysfs or GPIO chardev v2
+camera    V4L2 delivery rate, inter-arrival jitter, and driver sequence gaps
+hdmi      DRM connector observations or V4L2 capture-fixture delivery measurements
 stress    Up to 5 sequential rounds of CPU, RAM, and TCP loopback (default 3)
           --duration-secs sets a total run target of 1–{max_duration_secs} seconds
           --duration-ms controls each CPU/RAM phase, including timed runs
@@ -341,6 +361,14 @@ pub(crate) fn run() -> Result<(), String> {
             _ => NETWORK_OPTIONS,
         },
         "uart" => UART_OPTIONS,
+        "camera" => CAMERA_OPTIONS,
+        "hdmi" => {
+            if help_requested(args) {
+                help();
+                return Ok(());
+            }
+            return run_hdmi(args);
+        }
         "i2c" => I2C_OPTIONS,
         "spi" => SPI_OPTIONS,
         "gpio" => GPIO_OPTIONS,
@@ -434,8 +462,46 @@ pub(crate) fn run() -> Result<(), String> {
             )
         }
         "gpio" => run_gpio(options),
+        "camera" => run_camera(options, false),
         _ => unreachable!(),
     }
+}
+
+fn run_hdmi(args: &[String]) -> Result<(), String> {
+    let (command, args) = args
+        .split_first()
+        .ok_or("expected 'hdmi status' or 'hdmi capture'")?;
+    if help_requested(args) {
+        help();
+        return Ok(());
+    }
+    match command.as_str() {
+        "status" => hdmi::status(
+            Options::parse("hdmi status", args, HDMI_STATUS_OPTIONS)?.text("--connector")?,
+        ),
+        "capture" => run_camera(
+            Options::parse("hdmi capture", args, HDMI_CAPTURE_OPTIONS)?,
+            true,
+        ),
+        _ => Err("expected 'hdmi status' or 'hdmi capture'".into()),
+    }
+}
+
+fn run_camera(options: Options<'_>, hdmi: bool) -> Result<(), String> {
+    let device = options
+        .path("--device")
+        .ok_or("capture requires '--device'")?;
+    if hdmi && !options.flag("--fixture") {
+        return Err(
+            "HDMI capture requires '--fixture' to acknowledge a dedicated capture fixture".into(),
+        );
+    }
+    camera::run(
+        device,
+        options.number("--frames").unwrap_or(camera::DEFAULT_FRAMES),
+        Deadline::after(options.timeout(camera::DEFAULT_TIMEOUT_MS)),
+        hdmi,
+    )
 }
 
 fn run_peer(server: bool, args: &[String]) -> Result<(), String> {

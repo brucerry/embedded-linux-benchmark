@@ -104,3 +104,44 @@ CHECK(SOCK_STREAM == 2 && SOCK_NONBLOCK == 0x80 && EINPROGRESS == 150);
 CHECK(SOCK_STREAM == 1 && SOCK_NONBLOCK == 04000 && EINPROGRESS == 115);
 #endif
 CHECK(SOCK_CLOEXEC == 02000000);
+
+#include <linux/videodev2.h>
+#include <sys/mman.h>
+
+CHECK(V4L2_CAP_VIDEO_CAPTURE == 1);
+CHECK(V4L2_CAP_VIDEO_CAPTURE_MPLANE == 0x1000);
+CHECK(V4L2_CAP_STREAMING == 0x04000000);
+CHECK(V4L2_CAP_DEVICE_CAPS == 0x80000000);
+CHECK(V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE == 9);
+CHECK(V4L2_FIELD_ALTERNATE == 7);
+CHECK(V4L2_CAP_TIMEPERFRAME == 0x1000);
+CHECK(V4L2_BUF_FLAG_ERROR == 0x40);
+CHECK(V4L2_MEMORY_MMAP == 1);
+CHECK(PROT_READ == 1 && PROT_WRITE == 2 && MAP_SHARED == 1);
+FIELD(v4l2_pix_format, sizeimage, 20);
+CHECK(sizeof(struct v4l2_plane_pix_format) == 20);
+FIELD(v4l2_pix_format_mplane, num_planes, 180);
+FIELD(v4l2_captureparm, timeperframe, 8);
+#if __SIZEOF_POINTER__ == 8
+CHECK(sizeof(off_t) == 8);
+CHECK(sizeof(struct v4l2_capability) == 104);
+CHECK(sizeof(struct v4l2_format) == 208);
+FIELD(v4l2_format, fmt, 8);
+CHECK(sizeof(struct v4l2_streamparm) == 204);
+CHECK(sizeof(struct v4l2_requestbuffers) == 20);
+CHECK(sizeof(struct v4l2_buffer) == 88);
+FIELD(v4l2_buffer, timestamp, 24);
+FIELD(v4l2_buffer, sequence, 56);
+FIELD(v4l2_buffer, m, 64);
+CHECK(sizeof(struct v4l2_plane) == 64);
+FIELD(v4l2_plane, m, 8);
+CHECK(VIDIOC_QUERYCAP == 0x80685600);
+CHECK(VIDIOC_G_FMT == 0xc0d05604);
+CHECK(VIDIOC_REQBUFS == 0xc0145608);
+CHECK(VIDIOC_QUERYBUF == 0xc0585609);
+CHECK(VIDIOC_QBUF == 0xc058560f);
+CHECK(VIDIOC_DQBUF == 0xc0585611);
+CHECK(VIDIOC_STREAMON == 0x40045612);
+CHECK(VIDIOC_STREAMOFF == 0x40045613);
+CHECK(VIDIOC_G_PARM == 0xc0cc5615);
+#endif
