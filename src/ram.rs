@@ -1,4 +1,4 @@
-use crate::common::{measure, Deadline, MIB};
+use crate::common::{measure, Deadline, RunError, Sample, MIB};
 use std::hint::black_box;
 use std::time::Duration;
 
@@ -15,11 +15,11 @@ fn allocate_buffer(size: usize, byte: u8, label: &str) -> Result<Vec<u8>, String
     Ok(buffer)
 }
 
-pub(crate) fn run(
+pub(crate) fn benchmark(
     duration: Duration,
     buffer_kib: u64,
     deadline: Option<Deadline>,
-) -> Result<(), String> {
+) -> Result<Sample, RunError> {
     let buffer_bytes = (buffer_kib * 1_024) as usize;
     let mut source = allocate_buffer(buffer_bytes, 0xa5, "source")?;
     for (index, byte) in source.iter_mut().enumerate() {
@@ -31,13 +31,26 @@ pub(crate) fn run(
         black_box(destination.as_slice());
     };
     copy();
-    let (copies, elapsed) = measure(duration, deadline, copy)?;
+    let mut sample = measure(duration, deadline, copy)?;
     if destination != source {
-        return Err("RAM copy verification failed".into());
+        return Err(RunError::Failed("RAM copy verification failed".into()));
     }
+    sample.count *= buffer_bytes as u64;
+    Ok(sample)
+}
 
-    let bytes_copied = copies * buffer_bytes as u64;
-    let seconds = elapsed.as_secs_f64();
+pub(crate) fn run(
+    duration: Duration,
+    buffer_kib: u64,
+    deadline: Option<Deadline>,
+) -> Result<(), String> {
+    let sample = benchmark(duration, buffer_kib, deadline)?;
+    if sample.elapsed < duration {
+        return Err(RunError::Deadline.into());
+    }
+    let bytes_copied = sample.count;
+    let copies = bytes_copied / (buffer_kib * 1_024);
+    let seconds = sample.elapsed.as_secs_f64();
     println!(
         "RAM copy throughput (single thread)\n\
          Buffer size: {buffer_kib} KiB each\n\

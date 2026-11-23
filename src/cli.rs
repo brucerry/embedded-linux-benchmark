@@ -36,6 +36,7 @@ const NETWORK_OPTIONS: &[(&str, Kind)] = &[
 const STRESS_OPTIONS: &[(&str, Kind)] = &[
     ("--test", Kind::StressTest),
     ("--rounds", Number(1, stress::MAX_ROUNDS)),
+    ("--duration-secs", Number(1, stress::MAX_DURATION_SECS)),
     ("--duration-ms", Number(1, stress::MAX_DURATION_MS)),
     (
         "--buffer-kib",
@@ -167,7 +168,7 @@ fn help() {
   embedded-linux-benchmark ram [--duration-ms MS] [--buffer-kib KIB]
   embedded-linux-benchmark storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]
   embedded-linux-benchmark network [--size-mib MIB] [--timeout-ms MS]
-  embedded-linux-benchmark stress auto [--test cpu|ram|network|storage] [--rounds N]
+  embedded-linux-benchmark stress auto [--test cpu|ram|network|storage] [--rounds N | --duration-secs SEC]
     [--duration-ms MS] [--buffer-kib KIB]
     [--network-mib MIB] [--timeout-ms MS] [--storage-dir DIR --storage-mib MIB [--storage-sync]]
 
@@ -176,12 +177,15 @@ ram       Copy throughput between two equal-sized buffers
 storage   Sequential buffered file I/O in the selected directory (1–64 MiB)
 network   TCP throughput on 127.0.0.1 (1–64 MiB, default 8)
 stress    Up to 5 sequential rounds of CPU, RAM, and TCP loopback (default 3)
+          --duration-secs sets a total run target of 1–{max_duration_secs} seconds
+          --duration-ms controls each CPU/RAM phase, including timed runs
           --test runs one component per round and accepts only its options
           Storage requires both a directory and a total write budget
 
 cpu/ram --duration-ms  1–{MAX_DURATION_MS} (default {DEFAULT_DURATION_MS})
 ram --buffer-kib       4–32768 per buffer (default 4096)
--h, --help  Show this help"
+-h, --help  Show this help",
+        max_duration_secs = stress::MAX_DURATION_SECS,
     );
 }
 
@@ -189,25 +193,38 @@ fn help_requested(args: &[String]) -> bool {
     matches!(args, [flag] if flag == "--help" || flag == "-h")
 }
 
-fn run_stress(args: &[String]) -> Result<(), String> {
+fn parse_stress(args: &[String]) -> Result<stress::Plan, String> {
     let options = Options::parse("stress auto", args, STRESS_OPTIONS)?;
     let test = options.stress_test()?;
-    let rounds = options.number("--rounds").unwrap_or(stress::DEFAULT_ROUNDS);
     let duration = options.duration(stress::DEFAULT_DURATION_MS);
-    let timeout = options.timeout(stress::DEFAULT_TIMEOUT_MS);
-    let timed_phases = match test {
-        None => 2,
-        Some(stress::Test::Cpu | stress::Test::Ram) => 1,
-        Some(_) => 0,
+    let schedule = match options.number("--duration-secs") {
+        Some(seconds) => {
+            for option in ["--rounds", "--timeout-ms"] {
+                if options.number(option).is_some() {
+                    return Err(format!("'{option}' cannot be used with '--duration-secs'"));
+                }
+            }
+            stress::Schedule::Timed(Duration::from_secs(seconds))
+        }
+        None => {
+            let count = options.number("--rounds").unwrap_or(stress::DEFAULT_ROUNDS);
+            let timeout = options.timeout(stress::DEFAULT_TIMEOUT_MS);
+            let timed_phases = match test {
+                None => 2,
+                Some(stress::Test::Cpu | stress::Test::Ram) => 1,
+                Some(_) => 0,
+            };
+            if timeout <= duration * (timed_phases * count as u32) {
+                let phases = if test.is_none() {
+                    "combined CPU and RAM phase durations"
+                } else {
+                    "selected test's total phase duration"
+                };
+                return Err(format!("'--timeout-ms' must exceed the {phases}"));
+            }
+            stress::Schedule::Rounds { count, timeout }
+        }
     };
-    if timeout <= duration * (timed_phases * rounds as u32) {
-        let phases = if test.is_none() {
-            "combined CPU and RAM phase durations"
-        } else {
-            "selected test's total phase duration"
-        };
-        return Err(format!("'--timeout-ms' must exceed the {phases}"));
-    }
     let sync = options.flag("--storage-sync");
     let storage = match (
         options.path("--storage-dir"),
@@ -221,9 +238,9 @@ fn run_stress(args: &[String]) -> Result<(), String> {
         (None, None) if !sync && test != Some(stress::Test::Storage) => None,
         _ => return Err("stress storage requires both '--storage-dir' and '--storage-mib'".into()),
     };
-    stress::run(stress::Plan {
+    Ok(stress::Plan {
         test,
-        rounds,
+        schedule,
         duration,
         buffer_kib: options
             .number("--buffer-kib")
@@ -232,7 +249,6 @@ fn run_stress(args: &[String]) -> Result<(), String> {
             .number("--network-mib")
             .unwrap_or(network::DEFAULT_MIB)
             * MIB,
-        timeout,
         storage,
     })
 }
@@ -262,7 +278,7 @@ pub(crate) fn run() -> Result<(), String> {
                     help();
                     Ok(())
                 }
-                Some((auto, args)) if auto == "auto" => run_stress(args),
+                Some((auto, args)) if auto == "auto" => stress::run(parse_stress(args)?),
                 _ => Err("expected 'stress auto'. See --help.".into()),
             };
         }
@@ -300,5 +316,21 @@ pub(crate) fn run() -> Result<(), String> {
             Deadline::after(options.timeout(network::DEFAULT_TIMEOUT_MS)),
         ),
         _ => unreachable!(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_day_and_two_week_targets_without_starting_work() {
+        for seconds in [1, 86_400, 1_209_600] {
+            let args = ["--duration-secs".into(), seconds.to_string()];
+            let plan = parse_stress(&args).expect("valid stress plan");
+            assert!(
+                matches!(plan.schedule, stress::Schedule::Timed(duration) if duration == Duration::from_secs(seconds))
+            );
+        }
     }
 }

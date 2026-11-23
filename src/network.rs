@@ -1,4 +1,4 @@
-use crate::common::{Deadline, MIB};
+use crate::common::{Deadline, RunError, Sample, MIB};
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, TcpListener, TcpStream};
 use std::thread;
@@ -17,21 +17,21 @@ fn retryable(error: &io::Error) -> bool {
     )
 }
 
-fn pause(deadline: Deadline) -> Result<(), String> {
+fn pause(deadline: Deadline) -> Result<(), RunError> {
     thread::sleep(deadline.remaining()?.min(Duration::from_millis(1)));
     Ok(())
 }
 
-fn transferred(result: io::Result<usize>, operation: &str) -> Result<usize, String> {
+fn transferred(result: io::Result<usize>, operation: &str) -> Result<usize, RunError> {
     match result {
-        Ok(0) => Err(format!("loopback {operation} ended before the byte budget")),
+        Ok(0) => Err(format!("loopback {operation} ended before the byte budget").into()),
         Ok(count) => Ok(count),
         Err(error) if retryable(&error) => Ok(0),
-        Err(error) => Err(format!("loopback {operation} failed: {error}")),
+        Err(error) => Err(format!("loopback {operation} failed: {error}").into()),
     }
 }
 
-fn connect(deadline: Deadline) -> Result<(TcpStream, TcpStream), String> {
+fn connect(deadline: Deadline) -> Result<(TcpStream, TcpStream), RunError> {
     let connect = || -> io::Result<_> {
         let listener = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))?;
         listener.set_nonblocking(true)?;
@@ -40,8 +40,13 @@ fn connect(deadline: Deadline) -> Result<(TcpStream, TcpStream), String> {
     };
     let (listener, endpoint) =
         connect().map_err(|error| format!("cannot set up TCP loopback listener: {error}"))?;
-    let sender = TcpStream::connect_timeout(&endpoint, deadline.remaining()?)
-        .map_err(|error| format!("cannot connect to TCP loopback listener: {error}"))?;
+    let sender = TcpStream::connect_timeout(&endpoint, deadline.remaining()?).map_err(|error| {
+        if error.kind() == io::ErrorKind::TimedOut {
+            RunError::Deadline
+        } else {
+            format!("cannot connect to TCP loopback listener: {error}").into()
+        }
+    })?;
     let peer = sender
         .local_addr()
         .map_err(|error| format!("cannot identify loopback sender: {error}"))?;
@@ -49,9 +54,15 @@ fn connect(deadline: Deadline) -> Result<(TcpStream, TcpStream), String> {
         deadline.check()?;
         match listener.accept() {
             Ok((stream, address)) if address == peer => break stream,
-            Ok(_) => return Err("unexpected peer on TCP loopback listener".into()),
+            Ok(_) => {
+                return Err(RunError::Failed(
+                    "unexpected peer on TCP loopback listener".into(),
+                ))
+            }
             Err(error) if retryable(&error) => pause(deadline)?,
-            Err(error) => return Err(format!("cannot accept TCP loopback connection: {error}")),
+            Err(error) => {
+                return Err(format!("cannot accept TCP loopback connection: {error}").into())
+            }
         }
     };
     sender
@@ -61,7 +72,7 @@ fn connect(deadline: Deadline) -> Result<(TcpStream, TcpStream), String> {
     Ok((sender, receiver))
 }
 
-pub(crate) fn run(bytes: u64, deadline: Deadline) -> Result<(), String> {
+pub(crate) fn benchmark(bytes: u64, deadline: Deadline) -> Result<Sample, RunError> {
     // Pump both ends without blocking either side or creating a receiver thread.
     let (mut sender, mut receiver) = connect(deadline)?;
     let payload = [0xa5u8; CHUNK_BYTES];
@@ -80,7 +91,9 @@ pub(crate) fn run(bytes: u64, deadline: Deadline) -> Result<(), String> {
             let len = (sent - received).min(CHUNK_BYTES as u64) as usize;
             let count = transferred(receiver.read(&mut buffer[..len]), "receive")?;
             if buffer[..count] != payload[..count] {
-                return Err("TCP loopback payload verification failed".into());
+                return Err(RunError::Failed(
+                    "TCP loopback payload verification failed".into(),
+                ));
             }
             received += count as u64;
         }
@@ -88,8 +101,18 @@ pub(crate) fn run(bytes: u64, deadline: Deadline) -> Result<(), String> {
             pause(deadline)?;
         }
     }
-    let seconds = start.elapsed().as_secs_f64();
+    let elapsed = start.elapsed();
     deadline.check()?;
+    Ok(Sample {
+        count: received,
+        elapsed,
+    })
+}
+
+pub(crate) fn run(bytes: u64, deadline: Deadline) -> Result<(), String> {
+    let sample = benchmark(bytes, deadline)?;
+    let received = sample.count;
+    let seconds = sample.elapsed.as_secs_f64();
     println!(
         "Network throughput (TCP loopback, single thread)\n\
          Address: 127.0.0.1\n\

@@ -1,4 +1,4 @@
-use crate::common::{Deadline, MIB};
+use crate::common::{Deadline, RunError, MIB};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::os::unix::fs::OpenOptionsExt;
@@ -95,7 +95,8 @@ fn measure(
     bytes: u64,
     sync: bool,
     deadline: Deadline,
-) -> Result<(Duration, Duration), String> {
+    written: &mut u64,
+) -> Result<(Duration, Duration), RunError> {
     let payload = [0xa5u8; CHUNK_BYTES];
     let mut buffer = [0u8; CHUNK_BYTES];
     let start = Instant::now();
@@ -103,9 +104,19 @@ fn measure(
     while remaining > 0 {
         deadline.check()?;
         let len = remaining.min(CHUNK_BYTES as u64) as usize;
-        file.write_all(&payload[..len])
-            .map_err(|error| format!("storage write failed: {error}"))?;
-        remaining -= len as u64;
+        match file.write(&payload[..len]) {
+            Ok(0) => {
+                return Err(RunError::Failed(
+                    "storage write failed: wrote zero bytes".into(),
+                ))
+            }
+            Ok(count) => {
+                remaining -= count as u64;
+                *written += count as u64;
+            }
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+            Err(error) => return Err(format!("storage write failed: {error}").into()),
+        }
     }
     if sync {
         deadline.check()?;
@@ -125,7 +136,7 @@ fn measure(
         file.read_exact(&mut buffer[..len])
             .map_err(|error| format!("storage read failed: {error}"))?;
         if buffer[..len] != payload[..len] {
-            return Err("storage read verification failed".into());
+            return Err(RunError::Failed("storage read verification failed".into()));
         }
         remaining -= len as u64;
     }
@@ -134,12 +145,13 @@ fn measure(
     Ok((write_elapsed, read_elapsed))
 }
 
-pub(crate) fn run(
+pub(crate) fn benchmark(
     directory: &Path,
     bytes: u64,
     sync: bool,
     deadline: Deadline,
-) -> Result<(), String> {
+    written: &mut u64,
+) -> Result<(Duration, Duration), RunError> {
     deadline.check()?;
     let mut scratch = ScratchFile::create(directory).map_err(|error| {
         format!(
@@ -147,14 +159,25 @@ pub(crate) fn run(
             directory.display()
         )
     })?;
-    let result = measure(&mut scratch.file, bytes, sync, deadline);
+    let result = measure(&mut scratch.file, bytes, sync, deadline, written);
     let cleanup = scratch.remove();
-    let (write_elapsed, read_elapsed) = match (result, cleanup) {
-        (Err(error), Err(cleanup)) => return Err(format!("{error}. {cleanup}")),
-        (Err(error), _) | (_, Err(error)) => return Err(error),
+    let timings = match (result, cleanup) {
+        (Err(error), Err(cleanup)) => return Err(format!("{error}. {cleanup}").into()),
+        (Err(error), Ok(())) => return Err(error),
+        (Ok(_), Err(error)) => return Err(error.into()),
         (Ok(timings), Ok(())) => timings,
     };
     deadline.check()?;
+    Ok(timings)
+}
+
+pub(crate) fn run(
+    directory: &Path,
+    bytes: u64,
+    sync: bool,
+    deadline: Deadline,
+) -> Result<(), String> {
+    let (write_elapsed, read_elapsed) = benchmark(directory, bytes, sync, deadline, &mut 0)?;
     let write_mode = if sync {
         "buffered, includes sync_data"
     } else {

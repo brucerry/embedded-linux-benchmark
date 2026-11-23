@@ -561,3 +561,125 @@ fn failed_writes_remove_scratch_files_and_stop_stress() {
         assert!(directory.names().is_empty(), "{args:?}");
     }
 }
+
+#[test]
+fn timed_cpu_stops_at_the_global_deadline_inside_a_long_phase() {
+    let start = std::time::Instant::now();
+    let output = successful_output(&[
+        "stress",
+        "auto",
+        "--test",
+        "cpu",
+        "--duration-secs",
+        "1",
+        "--duration-ms",
+        "5000",
+    ]);
+    assert!(start.elapsed() < std::time::Duration::from_secs(4));
+    assert!(elapsed(&output) >= 0.999);
+    assert!(
+        field(&output, "CPU iterations: ")
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .parse::<u64>()
+            .unwrap()
+            > 0
+    );
+    assert_eq!(field(&output, "Stop reason: "), "duration reached");
+    assert_eq!(field(&output, "Stress result: "), "PASS");
+    assert!(!output.contains("RAM bytes copied:"));
+}
+
+#[test]
+fn timed_suite_uses_one_storage_budget_and_keeps_running() {
+    let directory = ScratchDirectory::create();
+    let output = successful_output(&[
+        "stress",
+        "auto",
+        "--duration-secs",
+        "1",
+        "--duration-ms",
+        "2",
+        "--buffer-kib",
+        "4",
+        "--network-mib",
+        "1",
+        "--storage-dir",
+        directory.path(),
+        "--storage-mib",
+        "1",
+    ]);
+    assert_eq!(output.matches("Storage: write budget reached").count(), 1);
+    assert_eq!(field(&output, "Storage bytes written: "), "1048576");
+    assert!(field(&output, "Storage bytes verified: ").starts_with("1048576 "));
+    for label in [
+        "CPU iterations: ",
+        "RAM bytes copied: ",
+        "Network bytes received: ",
+    ] {
+        assert!(!field(&output, label).starts_with("0 "));
+    }
+    assert_eq!(field(&output, "Stop reason: "), "duration reached");
+    assert!(output.lines().count() < 20, "{output}");
+    assert!(directory.names().is_empty());
+}
+
+#[test]
+fn timed_storage_only_finishes_early_after_using_its_budget() {
+    let directory = ScratchDirectory::create();
+    let output = successful_output(&[
+        "stress",
+        "auto",
+        "--test",
+        "storage",
+        "--duration-secs",
+        "5",
+        "--storage-dir",
+        directory.path(),
+        "--storage-mib",
+        "2",
+    ]);
+    assert_eq!(field(&output, "Storage bytes written: "), "2097152");
+    assert_eq!(
+        field(&output, "Stop reason: "),
+        "storage write budget reached"
+    );
+    assert!(elapsed(&output) < 5.0);
+    assert!(!output.contains("CPU iterations:"));
+    assert!(directory.names().is_empty());
+}
+
+#[test]
+fn timed_stress_rejects_conflicts_and_out_of_range_durations_before_work() {
+    let cases: &[(&[&str], &str)] = &[
+        (&["--duration-secs", "0"], "integer between 1 and 1209600"),
+        (
+            &["--duration-secs", "1209601"],
+            "integer between 1 and 1209600",
+        ),
+        (
+            &["--duration-secs", "18446744073709551616"],
+            "integer between 1 and 1209600",
+        ),
+        (
+            &["--duration-secs", "1209600", "--rounds", "2"],
+            "'--rounds' cannot be used",
+        ),
+        (
+            &["--duration-secs", "1", "--timeout-ms", "1000"],
+            "'--timeout-ms' cannot be used",
+        ),
+    ];
+    for (options, message) in cases {
+        let mut args = vec!["stress", "auto"];
+        args.extend_from_slice(options);
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(1), "{args:?}: {output:?}");
+        assert!(output.stdout.is_empty(), "{args:?}: {output:?}");
+        assert!(
+            String::from_utf8(output.stderr).unwrap().contains(message),
+            "{args:?}"
+        );
+    }
+}
