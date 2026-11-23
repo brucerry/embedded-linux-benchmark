@@ -86,3 +86,21 @@ FIELD(gpio_v2_line_values, mask, 8);
 #elif !defined(EXPECT_LEGACY_GPIO_HEADERS)
 #error "GPIO v2 UAPI declarations are missing"
 #endif
+
+#include <netinet/in.h>
+#include <poll.h>
+#include <sys/socket.h>
+
+CHECK(AF_INET == 2);
+CHECK(sizeof(struct sockaddr_in) == 16);
+FIELD(sockaddr_in, sin_port, 2);
+FIELD(sockaddr_in, sin_addr, 4);
+CHECK(sizeof(struct pollfd) == 8);
+CHECK(POLLIN == 1 && POLLOUT == 4);
+CHECK(sizeof(nfds_t) == sizeof(unsigned long));
+#if defined(__mips__)
+CHECK(SOCK_STREAM == 2 && SOCK_NONBLOCK == 0x80 && EINPROGRESS == 150);
+#else
+CHECK(SOCK_STREAM == 1 && SOCK_NONBLOCK == 04000 && EINPROGRESS == 115);
+#endif
+CHECK(SOCK_CLOEXEC == 02000000);

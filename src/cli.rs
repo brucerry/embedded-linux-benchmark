@@ -1,5 +1,5 @@
 use crate::common::{Deadline, DEFAULT_DURATION_MS, MAX_DURATION_MS, MIB};
-use crate::{cpu, gpio, gpio_chardev, i2c, network, ram, spi, storage, stress, uart};
+use crate::{cpu, gpio, gpio_chardev, i2c, network, network_peer, ram, spi, storage, stress, uart};
 use std::collections::HashMap;
 use std::env;
 use std::path::Path;
@@ -9,6 +9,7 @@ use std::time::Duration;
 enum Kind {
     Number(u64, u64),
     Path,
+    Text,
     Flag,
     StressTest,
     I2cAddress,
@@ -33,6 +34,15 @@ const STORAGE_OPTIONS: &[(&str, Kind)] = &[
 const NETWORK_OPTIONS: &[(&str, Kind)] = &[
     ("--size-mib", Number(1, network::MAX_MIB)),
     ("--timeout-ms", Number(1, network::MAX_TIMEOUT_MS)),
+];
+const PEER_OPTIONS: &[(&str, Kind)] = &[
+    ("--bind", Kind::Text),
+    ("--peer", Kind::Text),
+    ("--session", Kind::Text),
+    ("--port", Number(0, u16::MAX as u64)),
+    ("--size-mib", Number(1, network_peer::MAX_MIB)),
+    ("--pings", Number(1, network_peer::MAX_PINGS)),
+    ("--timeout-ms", Number(1, network_peer::MAX_TIMEOUT_MS)),
 ];
 const UART_OPTIONS: &[(&str, Kind)] = &[
     ("--device", Kind::Path),
@@ -81,6 +91,7 @@ const STRESS_OPTIONS: &[(&str, Kind)] = &[
 enum Value<'a> {
     Number(u64),
     Path(&'a Path),
+    Text(&'a str),
     Flag,
     StressTest(stress::Test),
 }
@@ -120,6 +131,7 @@ impl<'a> Options<'a> {
                     return Err(format!("'{option}' must be a nonempty path"))
                 }
                 Kind::Path => Value::Path(Path::new(raw)),
+                Kind::Text => Value::Text(raw),
                 Kind::I2cAddress => Value::Number(u64::from(i2c::address(raw)?)),
                 Kind::StressTest => Value::StressTest(match raw.as_str() {
                     "cpu" => stress::Test::Cpu,
@@ -143,6 +155,13 @@ impl<'a> Options<'a> {
         match self.0.get(option) {
             Some(Value::Number(number)) => Some(*number),
             _ => None,
+        }
+    }
+
+    fn text(&self, option: &str) -> Result<&'a str, String> {
+        match self.0.get(option) {
+            Some(Value::Text(value)) => Ok(value),
+            _ => Err(format!("command requires '{option}'")),
         }
     }
 
@@ -198,6 +217,8 @@ fn help() {
   embedded-linux-benchmark ram [--duration-ms MS] [--buffer-kib KIB]
   embedded-linux-benchmark storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]
   embedded-linux-benchmark network [--size-mib MIB] [--timeout-ms MS]
+  embedded-linux-benchmark network peer-server|peer-client --bind IP --peer IP --port N
+    --session HEX [--size-mib MIB] [--pings N] [--timeout-ms MS]
   embedded-linux-benchmark uart --device PATH --loopback [--bytes N] [--timeout-ms MS]
   embedded-linux-benchmark i2c --adapter PATH --address ADDR --fixture
     [--read-bytes N] [--samples N] [--timeout-ms MS]
@@ -213,6 +234,7 @@ cpu       Single-threaded 32-bit integer throughput
 ram       Copy throughput between two equal-sized buffers
 storage   Sequential buffered file I/O in the selected directory (1–64 MiB)
 network   TCP throughput on 127.0.0.1 (1–64 MiB, default 8)
+          peer-server/peer-client measure TCP throughput and application round trips
 uart      Verified serial transfer at 115200 8N1 using a dedicated loopback fixture
 i2c       Pure read latency using a dedicated fixture and one I2C address
 spi       Verified full-duplex SPI throughput using a dedicated loopback fixture
@@ -308,7 +330,16 @@ pub(crate) fn run() -> Result<(), String> {
         "cpu" => CPU_OPTIONS,
         "ram" => RAM_OPTIONS,
         "storage" => STORAGE_OPTIONS,
-        "network" => NETWORK_OPTIONS,
+        "network" => match args.split_first() {
+            Some((role, args)) if matches!(role.as_str(), "peer-server" | "peer-client") => {
+                if help_requested(args) {
+                    help();
+                    return Ok(());
+                }
+                return run_peer(role == "peer-server", args);
+            }
+            _ => NETWORK_OPTIONS,
+        },
         "uart" => UART_OPTIONS,
         "i2c" => I2C_OPTIONS,
         "spi" => SPI_OPTIONS,
@@ -404,6 +435,37 @@ pub(crate) fn run() -> Result<(), String> {
         }
         "gpio" => run_gpio(options),
         _ => unreachable!(),
+    }
+}
+
+fn run_peer(server: bool, args: &[String]) -> Result<(), String> {
+    let options = Options::parse("network peer", args, PEER_OPTIONS)?;
+    let bind = network_peer::address(options.text("--bind")?)?;
+    let peer = network_peer::address(options.text("--peer")?)?;
+    if bind == peer || bind.is_loopback() != peer.is_loopback() {
+        return Err(
+            "'--bind' and '--peer' must be distinct and both loopback or both non-loopback".into(),
+        );
+    }
+    let port = options
+        .number("--port")
+        .ok_or("network peer requires '--port'")? as u16;
+    if !server && port == 0 {
+        return Err("peer client requires a nonzero '--port'".into());
+    }
+    let config = network_peer::Config {
+        bind,
+        peer,
+        port,
+        session: network_peer::session(options.text("--session")?)?,
+        mib: options.number("--size-mib").unwrap_or(8),
+        pings: options.number("--pings").unwrap_or(20),
+    };
+    let deadline = Deadline::after(options.timeout(network_peer::MAX_TIMEOUT_MS));
+    if server {
+        network_peer::server(&config, deadline)
+    } else {
+        network_peer::client(&config, deadline)
     }
 }
 
