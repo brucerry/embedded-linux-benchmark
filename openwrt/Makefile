@@ -14,13 +14,13 @@ OPENWRT_BUILD_STD ?= 0
 define Package/embedded-linux-benchmark
   SECTION:=utils
   CATEGORY:=Utilities
-  TITLE:=Single-board CPU and RAM copy benchmarks
+  TITLE:=Component benchmarks for embedded Linux
   URL:=https://github.com/brucerry/embedded-linux-benchmark
   DEPENDS:=+libgcc
 endef
 
 define Package/embedded-linux-benchmark/description
-  Measure CPU integer throughput and bounded RAM copy throughput on one board.
+  Measure Linux components with bounded workloads and opt-in fixture tests.
 endef
 
 define Build/Compile

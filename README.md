@@ -2,7 +2,7 @@
 
 # Embedded Linux Benchmark
 
-[![CI](https://github.com/brucerry/embedded-linux-benchmark/actions/workflows/ci.yml/badge.svg?branch=cpu-ram-benchmarks)](https://github.com/brucerry/embedded-linux-benchmark/actions/workflows/ci.yml?query=branch%3Acpu-ram-benchmarks)
+[![CI](https://github.com/brucerry/embedded-linux-benchmark/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/brucerry/embedded-linux-benchmark/actions/workflows/ci.yml?query=branch%3Amain)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A dependency-free Rust CLI for measuring individual components of a Linux system or embedded board.
