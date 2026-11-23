@@ -165,3 +165,23 @@ FIELD(can_frame, can_dlc, 4);
 FIELD(can_frame, data, 8);
 FIELD(canfd_frame, len, 4);
 FIELD(canfd_frame, data, 8);
+
+#include <linux/usbdevice_fs.h>
+
+FIELD(usbdevfs_bulktransfer, ep, 0);
+FIELD(usbdevfs_bulktransfer, len, 4);
+FIELD(usbdevfs_bulktransfer, timeout, 8);
+#if __SIZEOF_POINTER__ == 8
+CHECK(sizeof(struct usbdevfs_bulktransfer) == 24);
+FIELD(usbdevfs_bulktransfer, data, 16);
+CHECK(USBDEVFS_BULK == 0xc0185502);
+#else
+CHECK(sizeof(struct usbdevfs_bulktransfer) == 16);
+FIELD(usbdevfs_bulktransfer, data, 12);
+CHECK(USBDEVFS_BULK == 0xc0105502);
+#endif
+#if defined(__mips__)
+CHECK(USBDEVFS_CLAIMINTERFACE == 0x4004550f && USBDEVFS_RELEASEINTERFACE == 0x40045510);
+#else
+CHECK(USBDEVFS_CLAIMINTERFACE == 0x8004550f && USBDEVFS_RELEASEINTERFACE == 0x80045510);
+#endif

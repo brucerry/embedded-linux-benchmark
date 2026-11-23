@@ -100,6 +100,19 @@ Both sides use 8-byte Classic CAN by default. Add `--fd` to both for 64-byte CAN
 
 Verification covers Classic CAN and CAN FD wire formats and round trips with mock I/O. Native and SDK header checks include MIPS. Physical CAN traffic and performance remain unverified.
 
+### USB bulk loopback
+
+Use an isolated USB fixture with firmware that echoes each bulk OUT transfer onto its bulk IN endpoint. Select the device node, current interface number, and both endpoint addresses explicitly. The interface must be unbound from kernel drivers and expose both bulk endpoints in its current configuration and alternate setting.
+
+```sh
+./target/release/embedded-linux-benchmark usb --device /dev/bus/usb/001/011 \
+  --interface 0 --out-endpoint 0x01 --in-endpoint 0x81 --loopback --bytes 4096
+```
+
+The command claims the selected interface, uses bounded usbfs bulk OUT and IN transfers of at most 4096 bytes each, verifies the echo, and releases the interface. It exposes no control messages, resets, configuration changes, or driver detachment. `--bytes` accepts 1–65536 (default 4096). `--timeout-ms` accepts 1–30000 (default 5000). Each request uses the remaining run time as its nonzero kernel timeout. The result includes both directions and verification. [Linux USB userspace API](https://docs.kernel.org/driver-api/usb/usb.html)
+
+USB validation used an inert sysfs interface fixture and mocked transfers, including short sends, corrupted replies, and a deadline. Native and SDK ABI checks covered 64-bit, Armv7, and both MIPS byte orders. Package install, peer TCP, USB and CAN rejection, and package removal passed in disposable OpenWrt 21.02.7 AArch64, 25.12.6 AArch64, and 24.10.8 MIPS little-endian guests. USB and CAN fixture unit tests also passed under Jetson Linux 39.2.2 QEMU user mode. Real USB transfers remain unverified.
+
 ### I2C fixture read latency
 
 Use a dedicated adapter and a fixture documented to support standalone reads of the selected length at the selected address. Reads can have side effects, including consuming queued data, clearing status, or advancing a device pointer. Choose an isolated fixture without equipment that relies on that device state.

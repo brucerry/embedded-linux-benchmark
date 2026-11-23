@@ -1,11 +1,11 @@
 // Shared Linux device admission and Linux UAPI ioctl conventions.
 use crate::common::Deadline;
-use std::fs::{self, File, OpenOptions};
+use std::fs::{self, File, Metadata, OpenOptions};
 use std::io;
 use std::os::raw::c_ulong;
 use std::os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt};
 use std::os::unix::io::AsRawFd;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 const SUPPORTED: bool = cfg!(all(
@@ -75,7 +75,7 @@ pub(crate) fn supported() -> Result<(), String> {
     if SUPPORTED {
         Ok(())
     } else {
-        Err("I2C, SPI, and GPIO chardev v2 are unavailable for this Linux target ABI".into())
+        Err("device ioctls are unavailable for this Linux target ABI".into())
     }
 }
 
@@ -166,18 +166,7 @@ pub(crate) fn open_device(path: &Path, kind: Kind, writable: bool) -> Result<Fil
         .filter(|name| kind.valid_name(name))
         .filter(|_| path.parent() == Some(Path::new("/dev")))
         .ok_or_else(|| format!("expected a {} device node in /dev", kind.subsystem()))?;
-    let expected =
-        fs::metadata(&path).map_err(|error| format!("cannot inspect device: {error}"))?;
-    if !expected.file_type().is_char_device() {
-        return Err(format!("{name} must be a character device"));
-    }
-
-    // Linux stat device numbers encode the extended minor in bits 20..31.
-    let device = expected.rdev();
-    let major = (device >> 8) & 0xfff;
-    let minor = (device & 0xff) | ((device >> 12) & 0xfff00);
-    let sys_device = fs::canonicalize(format!("/sys/dev/char/{major}:{minor}"))
-        .map_err(|error| format!("cannot confirm {name} in sysfs: {error}"))?;
+    let (expected, sys_device) = char_identity(&path, name)?;
     let subsystem = fs::read_link(sys_device.join("subsystem"))
         .map_err(|error| format!("cannot confirm {name} subsystem in sysfs: {error}"))?;
     if sys_device.file_name().and_then(|s| s.to_str()) != Some(name)
@@ -189,11 +178,35 @@ pub(crate) fn open_device(path: &Path, kind: Kind, writable: bool) -> Result<Fil
         ));
     }
 
+    open_identified(&path, name, &expected, writable)
+}
+
+pub(crate) fn char_identity(path: &Path, name: &str) -> Result<(Metadata, PathBuf), String> {
+    let metadata = fs::metadata(path).map_err(|error| format!("cannot inspect {name}: {error}"))?;
+    if !metadata.file_type().is_char_device() {
+        return Err(format!("{name} must be a character device"));
+    }
+    // Linux stat device numbers encode the extended minor in bits 20..31.
+    let device = metadata.rdev();
+    let major = (device >> 8) & 0xfff;
+    let minor = (device & 0xff) | ((device >> 12) & 0xfff00);
+    let sys_device = fs::canonicalize(format!("/sys/dev/char/{major}:{minor}"))
+        .map_err(|error| format!("cannot confirm {name} in sysfs: {error}"))?;
+    Ok((metadata, sys_device))
+}
+
+pub(crate) fn open_identified(
+    path: &Path,
+    name: &str,
+    expected: &Metadata,
+    writable: bool,
+) -> Result<File, String> {
+    supported()?;
     let file = OpenOptions::new()
         .read(true)
         .write(writable)
         .custom_flags(NOFOLLOW | NONBLOCK_NOCTTY)
-        .open(&path)
+        .open(path)
         .map_err(|error| format!("cannot open {name}: {error}"))?;
     let actual = file
         .metadata()

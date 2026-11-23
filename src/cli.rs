@@ -1,7 +1,7 @@
 use crate::common::{Deadline, DEFAULT_DURATION_MS, MAX_DURATION_MS, MIB};
 use crate::{
     camera, can, cpu, gpio, gpio_chardev, hdmi, i2c, network, network_peer, ram, spi, storage,
-    stress, uart,
+    stress, uart, usb,
 };
 use std::collections::HashMap;
 use std::env;
@@ -74,6 +74,15 @@ const UART_OPTIONS: &[(&str, Kind)] = &[
     ("--loopback", Flag),
     ("--bytes", Number(1, uart::MAX_BYTES)),
     ("--timeout-ms", Number(1, uart::MAX_TIMEOUT_MS)),
+];
+const USB_OPTIONS: &[(&str, Kind)] = &[
+    ("--device", Kind::Path),
+    ("--interface", Number(0, 255)),
+    ("--in-endpoint", Kind::Text),
+    ("--out-endpoint", Kind::Text),
+    ("--loopback", Flag),
+    ("--bytes", Number(1, usb::MAX_BYTES)),
+    ("--timeout-ms", Number(1, usb::MAX_TIMEOUT_MS)),
 ];
 const I2C_OPTIONS: &[(&str, Kind)] = &[
     ("--adapter", Kind::Path),
@@ -252,6 +261,8 @@ fn help() {
   embedded-linux-benchmark gpio --chip PATH --offset N --input-fixture
     [--samples N] [--timeout-ms MS]
   embedded-linux-benchmark camera --device PATH [--frames N] [--timeout-ms MS]
+  embedded-linux-benchmark usb --device PATH --interface N --out-endpoint ADDR --in-endpoint ADDR
+    --loopback [--bytes N] [--timeout-ms MS]
   embedded-linux-benchmark can send|receive --interface IFACE --tx-id ID --rx-id ID
     --session HEX --fixture [--fd] [--frames N] [--timeout-ms MS]
   embedded-linux-benchmark hdmi status --connector NAME
@@ -270,6 +281,7 @@ i2c       Pure read latency using a dedicated fixture and one I2C address
 spi       Verified full-duplex SPI throughput using a dedicated loopback fixture
 gpio      Userspace input read latency via legacy sysfs or GPIO chardev v2
 camera    V4L2 delivery rate, inter-arrival jitter, and driver sequence gaps
+usb       Verified bulk throughput on a dedicated usbfs loopback fixture
 can       Classic CAN or CAN FD round trips with an isolated SocketCAN peer
 hdmi      DRM connector observations or V4L2 capture-fixture delivery measurements
 stress    Up to 5 sequential rounds of CPU, RAM, and TCP loopback (default 3)
@@ -374,6 +386,7 @@ pub(crate) fn run() -> Result<(), String> {
             _ => NETWORK_OPTIONS,
         },
         "uart" => UART_OPTIONS,
+        "usb" => USB_OPTIONS,
         "can" => {
             if help_requested(args) {
                 help();
@@ -483,6 +496,25 @@ pub(crate) fn run() -> Result<(), String> {
         }
         "gpio" => run_gpio(options),
         "camera" => run_camera(options, false),
+        "usb" => {
+            if !options.flag("--loopback") {
+                return Err("USB requires '--loopback' to acknowledge a dedicated fixture".into());
+            }
+            let config = usb::Config {
+                device: options.path("--device").ok_or("USB requires '--device'")?,
+                interface: options
+                    .number("--interface")
+                    .ok_or("USB requires '--interface'")? as u32,
+                output: usb::endpoint(options.text("--out-endpoint")?, false)?,
+                input: usb::endpoint(options.text("--in-endpoint")?, true)?,
+                bytes: options.number("--bytes").unwrap_or(usb::DEFAULT_BYTES) as usize,
+            };
+            usb::run(
+                &config,
+                Deadline::after(options.timeout(usb::DEFAULT_TIMEOUT_MS)),
+            )
+        }
+
         _ => unreachable!(),
     }
 }

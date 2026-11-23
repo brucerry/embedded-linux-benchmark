@@ -908,3 +908,53 @@ fn socketcan_refuses_non_fixture_and_invalid_interface_settings() {
         );
     }
 }
+
+#[test]
+fn usb_requires_matching_endpoint_directions_and_a_dedicated_fixture() {
+    let complete = [
+        "usb",
+        "--device",
+        "/dev/null",
+        "--loopback",
+        "--interface",
+        "0",
+        "--out-endpoint",
+        "0x01",
+        "--in-endpoint",
+        "0x81",
+    ];
+    for (args, error) in [
+        (
+            &["usb", "--device", "/dev/null"][..],
+            "requires '--loopback'",
+        ),
+        (
+            &["usb", "--loopback", "--device", "/dev/null"],
+            "requires '--interface'",
+        ),
+        (&["usb", "--bytes", "65537"], "between 1 and 65536"),
+        (&["usb", "--detach"], "unknown option"),
+        (
+            &[
+                "usb",
+                "--loopback",
+                "--device",
+                "/dev/null",
+                "--interface",
+                "0",
+                "--out-endpoint",
+                "0x81",
+            ],
+            "USB OUT endpoint",
+        ),
+        (&complete, "expected /dev/bus/usb/BBB/DDD"),
+    ] {
+        let output = run(args);
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(output.stdout.is_empty());
+        assert!(
+            String::from_utf8(output.stderr).unwrap().contains(error),
+            "{args:?}"
+        );
+    }
+}

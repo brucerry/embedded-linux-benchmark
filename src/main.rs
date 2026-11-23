@@ -17,6 +17,7 @@ mod spi;
 mod storage;
 mod stress;
 mod uart;
+mod usb;
 
 use std::process::ExitCode;
 
