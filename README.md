@@ -1,17 +1,20 @@
 # embedded-linux-benchmark
 
-A small Rust CLI for measuring individual components of one embedded Linux board. The first version provides single-threaded CPU integer throughput and RAM copy throughput.
+A small Rust CLI for measuring single-threaded CPU integer throughput and RAM copy throughput on a Linux system, including embedded boards.
 
 ## Build and run
 
-Use Rust and Cargo 1.66 or newer. The crate has no external Rust dependencies.
+On a Linux distribution or a Jetson running Jetson Linux, build natively with Rust and Cargo 1.66 or newer and a native C linker. The crate has no external Rust dependencies.
 
 ```sh
 cargo build --release --locked
+cargo test --release --locked
 ./target/release/embedded-linux-benchmark --help
 ./target/release/embedded-linux-benchmark cpu
 ./target/release/embedded-linux-benchmark ram --duration-ms 500 --buffer-kib 1024
 ```
+
+For other machines running a different Linux release, build against a C library baseline they provide. For NVIDIA Jetson cross-builds, use the [Jetson Linux SDK build and ABI checks](docs/jetson-linux.md).
 
 For a cross-build, use the Rust target and standard library that match your firmware's architecture and ABI. With your SDK environment loaded, select the target and, when required, its linker through Cargo. For example, for a 64-bit Arm musl board:
 
@@ -36,6 +39,7 @@ For installable OpenWrt packages, use the [SDK overlay and AArch64 matrix](docs/
 | Target | Evidence |
 | --- | --- |
 | x86_64 Linux GNU | Native release build and CLI checks on a Debian development host with Rust 1.66.0 |
+| Jetson Linux 39.2.2 and 36.5.2 on AArch64 | [NVIDIA SDK cross-builds and QEMU user-mode CLI checks](docs/jetson-linux.md) |
 | OpenWrt 21.02 through pinned upstream `main` on AArch64 | [Per-release SDK builds and QEMU guest installation](docs/openwrt-compatibility.md) |
 | OpenWrt x86-64, Armv7 hard-float, and MIPS32 in both byte orders | [Selected SDK builds and QEMU guest installation](docs/openwrt-platforms.md) |
 | OpenWrt 25.12.6 `armsr/armv8` with the release-pinned Rust helper | [Separate SDK APK and QEMU guest proof](docs/openwrt-package.md), plus a [standalone binary smoke test](docs/openwrt-25.12.6.md) |
