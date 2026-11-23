@@ -7,15 +7,18 @@ mod gpio;
 mod gpio_chardev;
 mod hdmi;
 mod i2c;
+mod iio;
 mod linux_poll;
 mod linux_socket;
 mod network;
 mod network_peer;
+mod pcie;
 mod peripheral;
 mod ram;
 mod spi;
 mod storage;
 mod stress;
+mod sysfs;
 mod uart;
 mod usb;
 

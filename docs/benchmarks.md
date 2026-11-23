@@ -44,6 +44,28 @@ A peer fixture using two distinct loopback addresses passed natively and with th
 
 Peripheral benchmarks run only when requested directly. The automatic stress suite never accesses them.
 
+### PCIe link information
+
+```sh
+./target/release/embedded-linux-benchmark pcie link --device 0000:01:00.0
+```
+
+Use the complete PCI domain, bus, device and function for the device you intend to observe. The command reads the kernel's negotiated and maximum link speed and lane width for that device. Missing attributes are reported as unavailable. The speeds are link signaling rates in GT/s, and the maximum values are capabilities. Measuring payload throughput requires a separate test. [Linux PCI sysfs implementation](https://github.com/torvalds/linux/blob/v6.12/drivers/pci/pci-sysfs.c)
+
+`pcie throughput --device BDF --fixture` returns an unavailable error before opening a device. The published stock endpoint-test read, write and copy requests specify a transfer size and flags. The reviewed Linux 6.12 and 6.18 host drivers wait for IRQ completion without a transfer timeout. They perform completion or integrity checks but expose no per-direction timing or completed byte counter. A userspace timeout cannot interrupt that wait. A bounded throughput benchmark requires an identifiable driver ABI with a completion deadline and an exact dedicated endpoint fixture. [Linux 6.12 endpoint-test UAPI](https://github.com/torvalds/linux/blob/v6.12/include/uapi/linux/pcitest.h) · [Linux 6.18 endpoint-test driver](https://github.com/torvalds/linux/blob/v6.18/drivers/misc/pci_endpoint_test.c)
+
+### IIO raw input cadence
+
+```sh
+./target/release/embedded-linux-benchmark iio --device iio:device0 --channel in_voltage0 --samples 100
+```
+
+Select an available input channel by its sysfs stem. This example reads `in_voltage0_raw` as a signed integer. Use a spare input where repeated reads are appropriate. The command rewinds and reads the same attribute for every sample. It reports the raw range and mean, mean userspace seek-plus-read time, and cadence and standard deviation between successive read completions.
+
+`--samples` accepts 2–10000 with a default of 100. `--timeout-ms` accepts 1–30000 with a default of 5000. The command checks the deadline between reads. A stalled driver call can extend the run. These observations use userspace monotonic time. Buffered hardware timestamps, converter sample rates and calibrated units require device-specific information. The benchmark performs read-only access to the selected raw attribute. [Linux IIO sysfs ABI](https://www.kernel.org/doc/Documentation/ABI/testing/sysfs-bus-iio)
+
+PCIe and IIO validation used inert sysfs fixtures and CLI rejection tests. OpenWrt 25.12.6 AArch64 and 24.10.8 MIPS little-endian SDK packages built successfully. CLI rejection passed in those userspaces and in the Jetson Linux 39.2.2 sample userspace under QEMU user mode.
+
 ### Camera delivery rate
 
 Use an explicit V4L2 video node from a dedicated, already configured capture source. The command reports the driver's current dimensions, pixel format, plane count, field mode, and frame interval when available. It uses the streaming MMAP queue, with single-plane and multi-plane capture support, and discards buffers without saving or recording frames. It leaves the device's format and controls as configured.

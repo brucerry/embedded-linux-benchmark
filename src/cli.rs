@@ -1,7 +1,7 @@
 use crate::common::{Deadline, DEFAULT_DURATION_MS, MAX_DURATION_MS, MIB};
 use crate::{
-    camera, can, cpu, gpio, gpio_chardev, hdmi, i2c, network, network_peer, ram, spi, storage,
-    stress, uart, usb,
+    camera, can, cpu, gpio, gpio_chardev, hdmi, i2c, iio, network, network_peer, pcie, ram, spi,
+    storage, stress, uart, usb,
 };
 use std::collections::HashMap;
 use std::env;
@@ -84,6 +84,14 @@ const USB_OPTIONS: &[(&str, Kind)] = &[
     ("--bytes", Number(1, usb::MAX_BYTES)),
     ("--timeout-ms", Number(1, usb::MAX_TIMEOUT_MS)),
 ];
+const IIO_OPTIONS: &[(&str, Kind)] = &[
+    ("--device", Kind::Text),
+    ("--channel", Kind::Text),
+    ("--samples", Number(2, iio::MAX_SAMPLES)),
+    ("--timeout-ms", Number(1, iio::MAX_TIMEOUT_MS)),
+];
+const PCIE_LINK_OPTIONS: &[(&str, Kind)] = &[("--device", Kind::Text)];
+const PCIE_THROUGHPUT_OPTIONS: &[(&str, Kind)] = &[("--device", Kind::Text), ("--fixture", Flag)];
 const I2C_OPTIONS: &[(&str, Kind)] = &[
     ("--adapter", Kind::Path),
     ("--address", Kind::I2cAddress),
@@ -261,6 +269,9 @@ fn help() {
   embedded-linux-benchmark gpio --chip PATH --offset N --input-fixture
     [--samples N] [--timeout-ms MS]
   embedded-linux-benchmark camera --device PATH [--frames N] [--timeout-ms MS]
+  embedded-linux-benchmark pcie link --device BDF
+  embedded-linux-benchmark pcie throughput --device BDF --fixture
+  embedded-linux-benchmark iio --device NAME --channel INPUT [--samples N] [--timeout-ms MS]
   embedded-linux-benchmark usb --device PATH --interface N --out-endpoint ADDR --in-endpoint ADDR
     --loopback [--bytes N] [--timeout-ms MS]
   embedded-linux-benchmark can send|receive --interface IFACE --tx-id ID --rx-id ID
@@ -281,6 +292,8 @@ i2c       Pure read latency using a dedicated fixture and one I2C address
 spi       Verified full-duplex SPI throughput using a dedicated loopback fixture
 gpio      Userspace input read latency via legacy sysfs or GPIO chardev v2
 camera    V4L2 delivery rate, inter-arrival jitter, and driver sequence gaps
+pcie      PCIe link speed and width observations. Stock endpoint throughput is unavailable.
+iio       Userspace cadence and jitter for raw IIO input samples
 usb       Verified bulk throughput on a dedicated usbfs loopback fixture
 can       Classic CAN or CAN FD round trips with an isolated SocketCAN peer
 hdmi      DRM connector observations or V4L2 capture-fixture delivery measurements
@@ -394,6 +407,14 @@ pub(crate) fn run() -> Result<(), String> {
             }
             return run_can(args);
         }
+        "pcie" => {
+            if help_requested(args) {
+                help();
+                return Ok(());
+            }
+            return run_pcie(args);
+        }
+        "iio" => IIO_OPTIONS,
         "camera" => CAMERA_OPTIONS,
         "hdmi" => {
             if help_requested(args) {
@@ -496,6 +517,13 @@ pub(crate) fn run() -> Result<(), String> {
         }
         "gpio" => run_gpio(options),
         "camera" => run_camera(options, false),
+        "iio" => iio::run(
+            options.text("--device")?,
+            options.text("--channel")?,
+            options.number("--samples").unwrap_or(iio::DEFAULT_SAMPLES),
+            Deadline::after(options.timeout(iio::DEFAULT_TIMEOUT_MS)),
+        ),
+
         "usb" => {
             if !options.flag("--loopback") {
                 return Err("USB requires '--loopback' to acknowledge a dedicated fixture".into());
@@ -516,6 +544,26 @@ pub(crate) fn run() -> Result<(), String> {
         }
 
         _ => unreachable!(),
+    }
+}
+
+fn run_pcie(args: &[String]) -> Result<(), String> {
+    let (command, args) = args
+        .split_first()
+        .ok_or("expected 'pcie link' or 'pcie throughput'")?;
+    if help_requested(args) {
+        help();
+        return Ok(());
+    }
+    match command.as_str() {
+        "link" => {
+            pcie::link(Options::parse("pcie link", args, PCIE_LINK_OPTIONS)?.text("--device")?)
+        }
+        "throughput" => {
+            let options = Options::parse("pcie throughput", args, PCIE_THROUGHPUT_OPTIONS)?;
+            pcie::throughput(options.text("--device")?, options.flag("--fixture"))
+        }
+        _ => Err("expected 'pcie link' or 'pcie throughput'".into()),
     }
 }
 

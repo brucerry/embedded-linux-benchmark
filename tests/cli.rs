@@ -958,3 +958,57 @@ fn usb_requires_matching_endpoint_directions_and_a_dedicated_fixture() {
         );
     }
 }
+
+#[test]
+fn pcie_and_iio_reject_unsafe_attributes_and_unbounded_transfer() {
+    for (args, error) in [
+        (&["pcie", "link"][..], "requires '--device'"),
+        (
+            &["pcie", "link", "--device", "0000:00:20.0"],
+            "complete PCI device ID",
+        ),
+        (
+            &["pcie", "throughput", "--device", "0000:01:00.0"],
+            "requires '--fixture'",
+        ),
+        (
+            &[
+                "pcie",
+                "throughput",
+                "--device",
+                "0000:01:00.0",
+                "--fixture",
+            ],
+            "no bounded completion timeout",
+        ),
+        (&["iio", "--device", "iio:device0"], "requires '--channel'"),
+        (
+            &[
+                "iio",
+                "--device",
+                "iio:device0",
+                "--channel",
+                "../scan_elements",
+            ],
+            "input channel stem",
+        ),
+        (
+            &["iio", "--device", "iio:device0", "--channel", "in_temp_raw"],
+            "without the '_raw' suffix",
+        ),
+        (
+            &["iio", "--device", "../iio:device0", "--channel", "in_temp"],
+            "explicit IIO device name",
+        ),
+        (&["iio", "--samples", "1"], "between 2 and 10000"),
+        (&["stress", "auto", "--test", "iio"], "invalid stress test"),
+    ] {
+        let output = run(args);
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(output.stdout.is_empty(), "{args:?}");
+        assert!(
+            String::from_utf8(output.stderr).unwrap().contains(error),
+            "{args:?}"
+        );
+    }
+}
