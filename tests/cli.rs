@@ -132,3 +132,275 @@ fn invalid_inputs_fail_before_running_a_benchmark() {
         );
     }
 }
+
+struct ScratchDirectory(std::path::PathBuf);
+
+impl ScratchDirectory {
+    fn create() -> Self {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+        loop {
+            let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
+            let directory = std::env::temp_dir().join(format!(
+                "embedded-linux-benchmark-cli-{}-{sequence}",
+                std::process::id()
+            ));
+            match std::fs::create_dir(&directory) {
+                Ok(()) => return Self(directory),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("create test directory: {error}"),
+            }
+        }
+    }
+
+    fn path(&self) -> &str {
+        self.0.to_str().expect("UTF-8 test path")
+    }
+
+    fn names(&self) -> Vec<String> {
+        let mut names: Vec<_> = std::fs::read_dir(&self.0)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        names
+    }
+}
+
+impl Drop for ScratchDirectory {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn storage_reports_buffered_and_synced_modes_and_removes_its_file() {
+    let directory = ScratchDirectory::create();
+    let sentinel = directory.0.join(".embedded-linux-benchmark-keep");
+    std::fs::write(&sentinel, b"keep this file").unwrap();
+    for (extra, mode) in [
+        (None, "buffered, page cache eligible"),
+        (Some("--sync"), "buffered, includes sync_data"),
+    ] {
+        let mut args = vec!["storage", "--dir", directory.path(), "--size-mib", "1"];
+        args.extend(extra);
+        let output = successful_output(&args);
+        assert_eq!(field(&output, "Write mode: "), mode);
+        assert_eq!(field(&output, "Write bytes: "), "1048576");
+        assert_eq!(field(&output, "Read bytes: "), "1048576");
+        assert!(field(&output, "Read mode: ").contains("page cache eligible"));
+        assert_eq!(directory.names(), [".embedded-linux-benchmark-keep"]);
+        assert_eq!(std::fs::read(&sentinel).unwrap(), b"keep this file");
+    }
+}
+
+#[test]
+fn loopback_receives_exactly_the_requested_bytes() {
+    let output = successful_output(&["network", "--size-mib", "1"]);
+    assert!(output.starts_with("Network throughput (TCP loopback, single thread)\n"));
+    assert_eq!(field(&output, "Address: "), "127.0.0.1");
+    assert_eq!(field(&output, "Bytes received: "), "1048576");
+    assert!(rate(&output, " MiB/s") > 0.0);
+}
+
+#[test]
+fn stress_runs_multiple_rounds_without_storage_and_honors_an_opt_in_budget() {
+    let directory = ScratchDirectory::create();
+    let args = [
+        "stress",
+        "auto",
+        "--rounds",
+        "3",
+        "--duration-ms",
+        "1",
+        "--buffer-kib",
+        "4",
+        "--network-mib",
+        "1",
+    ];
+    let result = Command::new(env!("CARGO_BIN_EXE_embedded-linux-benchmark"))
+        .args(args)
+        .current_dir(&directory.0)
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success() && result.stderr.is_empty(),
+        "{result:?}"
+    );
+    let output = String::from_utf8(result.stdout).unwrap();
+    assert!(output.contains("Storage: disabled"));
+    assert!(!output.contains("Storage throughput"));
+    for component in ["CPU: PASS", "RAM: PASS", "Network: PASS"] {
+        assert_eq!(output.lines().filter(|line| *line == component).count(), 3);
+    }
+    assert!(output.contains("Stress result: PASS (3/3 rounds completed)"));
+    assert!(directory.names().is_empty());
+
+    let mut args = args.to_vec();
+    args.extend([
+        "--storage-dir",
+        directory.path(),
+        "--storage-mib",
+        "1",
+        "--storage-sync",
+    ]);
+    let output = successful_output(&args);
+    let written: Vec<u64> = output
+        .lines()
+        .filter_map(|line| line.strip_prefix("Write bytes: "))
+        .map(|bytes| bytes.parse().unwrap())
+        .collect();
+    assert_eq!(written, [349525, 349525, 349526]);
+    assert_eq!(
+        output
+            .lines()
+            .filter(|line| *line == "Storage: PASS")
+            .count(),
+        3
+    );
+    assert!(output.contains("Write mode: buffered, includes sync_data"));
+    assert!(output.contains("Stress result: PASS (3/3 rounds completed)"));
+    assert!(directory.names().is_empty());
+}
+
+#[test]
+fn category_parameters_are_validated_before_load_or_writes() {
+    let directory = ScratchDirectory::create();
+    let ordinary_file = directory.0.join("ordinary-file");
+    std::fs::write(&ordinary_file, b"untouched").unwrap();
+    let cases: &[(&[&str], &str)] = &[
+        (
+            &["storage", "--dir", directory.path()],
+            "requires '--size-mib'",
+        ),
+        (&["storage", "--size-mib", "1"], "requires '--dir'"),
+        (
+            &["storage", "--dir", directory.path(), "--size-mib", "65"],
+            "integer between 1 and 64",
+        ),
+        (
+            &[
+                "storage",
+                "--dir",
+                ordinary_file.to_str().unwrap(),
+                "--size-mib",
+                "1",
+            ],
+            "must be a directory",
+        ),
+        (&["network", "--size-mib", "0"], "integer between 1 and 64"),
+        (
+            &["network", "--timeout-ms", "30001"],
+            "integer between 1 and 30000",
+        ),
+        (
+            &["network", "--host", "192.0.2.1"],
+            "unknown option '--host'",
+        ),
+        (&["stress"], "expected 'stress auto'"),
+        (
+            &["stress", "auto", "--rounds", "6"],
+            "integer between 1 and 5",
+        ),
+        (
+            &["stress", "auto", "--duration-ms", "5001"],
+            "integer between 1 and 5000",
+        ),
+        (
+            &["stress", "auto", "--timeout-ms", "1"],
+            "combined CPU and RAM phase durations",
+        ),
+        (
+            &["stress", "auto", "--storage-dir", directory.path()],
+            "requires both",
+        ),
+        (&["stress", "auto", "--storage-mib", "1"], "requires both"),
+        (&["stress", "auto", "--storage-sync"], "requires both"),
+        (
+            &[
+                "stress",
+                "auto",
+                "--storage-dir",
+                directory.path(),
+                "--storage-mib",
+                "65",
+            ],
+            "integer between 1 and 64",
+        ),
+        (
+            &[
+                "stress",
+                "auto",
+                "--storage-dir",
+                ordinary_file.to_str().unwrap(),
+                "--storage-mib",
+                "1",
+            ],
+            "must be a directory",
+        ),
+    ];
+    for (args, expected) in cases {
+        let output = run(args);
+        assert_eq!(output.status.code(), Some(1), "{args:?}: {output:?}");
+        assert!(output.stdout.is_empty(), "{args:?}: {output:?}");
+        assert!(
+            String::from_utf8(output.stderr).unwrap().contains(expected),
+            "{args:?}"
+        );
+    }
+    assert_eq!(directory.names(), ["ordinary-file"]);
+    assert_eq!(std::fs::read(ordinary_file).unwrap(), b"untouched");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn failed_writes_remove_scratch_files_and_stop_stress() {
+    let directory = ScratchDirectory::create();
+    for (args, stress) in [
+        (
+            vec!["storage", "--dir", directory.path(), "--size-mib", "1"],
+            false,
+        ),
+        (
+            vec![
+                "stress",
+                "auto",
+                "--rounds",
+                "2",
+                "--duration-ms",
+                "1",
+                "--buffer-kib",
+                "4",
+                "--network-mib",
+                "1",
+                "--storage-dir",
+                directory.path(),
+                "--storage-mib",
+                "1",
+            ],
+            true,
+        ),
+    ] {
+        // Ignore SIGXFSZ so exceeding the child file-size limit returns a write error.
+        let output = Command::new("/bin/sh")
+            .args(["-c", "trap '' XFSZ && ulimit -f 1 && exec \"$@\"", "sh"])
+            .arg(env!("CARGO_BIN_EXE_embedded-linux-benchmark"))
+            .args(&args)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(1), "{args:?}: {output:?}");
+        assert!(String::from_utf8(output.stderr)
+            .unwrap()
+            .contains("storage write failed"));
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        if stress {
+            assert!(stdout.contains("Storage: FAIL"));
+            assert!(stdout.contains("Stress result: FAIL (0/2 rounds completed)"));
+            assert!(!stdout.contains("Round 2/2"));
+        } else {
+            assert!(stdout.is_empty());
+        }
+        assert!(directory.names().is_empty(), "{args:?}");
+    }
+}

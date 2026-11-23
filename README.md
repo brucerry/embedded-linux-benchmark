@@ -1,6 +1,6 @@
 # embedded-linux-benchmark
 
-A small Rust CLI for measuring single-threaded CPU integer throughput and RAM copy throughput on a Linux system, including embedded boards.
+A dependency-free Rust CLI for measuring CPU, RAM, filesystem, and TCP loopback throughput on a Linux system, including embedded boards. It also runs a bounded automatic stress suite.
 
 ## Build and run
 
@@ -12,7 +12,11 @@ cargo test --release --locked
 ./target/release/embedded-linux-benchmark --help
 ./target/release/embedded-linux-benchmark cpu
 ./target/release/embedded-linux-benchmark ram --duration-ms 500 --buffer-kib 1024
+./target/release/embedded-linux-benchmark network --size-mib 8
+./target/release/embedded-linux-benchmark stress auto
 ```
+
+See the [benchmark guide](docs/benchmarks.md) for storage opt-in, the stress limits, and storage and loopback result semantics.
 
 For other machines running a different Linux release, build against a C library baseline they provide. For NVIDIA Jetson cross-builds, use the [Jetson Linux SDK build and ABI checks](docs/jetson-linux.md).
 
@@ -34,7 +38,13 @@ For installable OpenWrt packages, use the [SDK overlay and AArch64 matrix](docs/
 - **RAM** reports MiB/s for copying one preallocated buffer into another. It prints the size of each buffer and the combined working set. Each copy counts the source size once. Cache residency and the copy routine affect the result, so interpret it as application-level copy throughput.
 - Both use one thread and monotonic elapsed time. `--duration-ms` defaults to 1000 and accepts 1–60000. Elapsed time can exceed the requested duration by a batch or copy and any scheduling delay. The RAM benchmark accepts 4–32768 KiB per buffer, defaults to 4096 KiB per buffer, and uses up to 64 MiB for both buffers. It initializes the buffers before timing and checks the final contents after timing.
 
+## Source layout
+
+`src/main.rs` handles exit status and `src/cli.rs` validates and dispatches commands. The `cpu`, `ram`, `storage`, and `network` modules implement the workloads. `src/stress.rs` runs them in sequence, and `src/common.rs` contains shared timing and deadline logic.
+
 ## Validation
+
+The [current suite results](docs/benchmarks.md#validation) cover the new commands. The SDK references below also retain the earlier CPU and RAM evidence.
 
 | Target | Evidence |
 | --- | --- |
