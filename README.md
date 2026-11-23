@@ -41,3 +41,4 @@ Platform coverage varies by benchmark. Physical-board performance requires a run
 - [OpenWrt AArch64](docs/openwrt-compatibility.md) and [other OpenWrt architectures](docs/openwrt-platforms.md) cover SDK selection, packages, and guest checks.
 - [Jetson Linux](docs/jetson-linux.md) covers NVIDIA SDK cross-builds and ABI checks.
 - [Optional CUDA helper](docs/cuda.md) covers separate NVIDIA Toolkit builds and compute and transfer modes.
+- [Optional ALSA helper](docs/audio.md) covers dedicated PCM loopback and software round-trip estimates.
