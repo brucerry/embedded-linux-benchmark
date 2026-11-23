@@ -1,7 +1,7 @@
 use crate::common::{Deadline, DEFAULT_DURATION_MS, MAX_DURATION_MS, MIB};
 use crate::{
-    camera, cpu, gpio, gpio_chardev, hdmi, i2c, network, network_peer, ram, spi, storage, stress,
-    uart,
+    camera, can, cpu, gpio, gpio_chardev, hdmi, i2c, network, network_peer, ram, spi, storage,
+    stress, uart,
 };
 use std::collections::HashMap;
 use std::env;
@@ -46,6 +46,16 @@ const PEER_OPTIONS: &[(&str, Kind)] = &[
     ("--size-mib", Number(1, network_peer::MAX_MIB)),
     ("--pings", Number(1, network_peer::MAX_PINGS)),
     ("--timeout-ms", Number(1, network_peer::MAX_TIMEOUT_MS)),
+];
+const CAN_OPTIONS: &[(&str, Kind)] = &[
+    ("--interface", Kind::Text),
+    ("--tx-id", Kind::Text),
+    ("--rx-id", Kind::Text),
+    ("--session", Kind::Text),
+    ("--fixture", Flag),
+    ("--fd", Flag),
+    ("--frames", Number(1, can::MAX_FRAMES)),
+    ("--timeout-ms", Number(1, can::MAX_TIMEOUT_MS)),
 ];
 const CAMERA_OPTIONS: &[(&str, Kind)] = &[
     ("--device", Kind::Path),
@@ -242,6 +252,8 @@ fn help() {
   embedded-linux-benchmark gpio --chip PATH --offset N --input-fixture
     [--samples N] [--timeout-ms MS]
   embedded-linux-benchmark camera --device PATH [--frames N] [--timeout-ms MS]
+  embedded-linux-benchmark can send|receive --interface IFACE --tx-id ID --rx-id ID
+    --session HEX --fixture [--fd] [--frames N] [--timeout-ms MS]
   embedded-linux-benchmark hdmi status --connector NAME
   embedded-linux-benchmark hdmi capture --device PATH --fixture [--frames N] [--timeout-ms MS]
   embedded-linux-benchmark stress auto [--test cpu|ram|network|storage] [--rounds N | --duration-secs SEC]
@@ -258,6 +270,7 @@ i2c       Pure read latency using a dedicated fixture and one I2C address
 spi       Verified full-duplex SPI throughput using a dedicated loopback fixture
 gpio      Userspace input read latency via legacy sysfs or GPIO chardev v2
 camera    V4L2 delivery rate, inter-arrival jitter, and driver sequence gaps
+can       Classic CAN or CAN FD round trips with an isolated SocketCAN peer
 hdmi      DRM connector observations or V4L2 capture-fixture delivery measurements
 stress    Up to 5 sequential rounds of CPU, RAM, and TCP loopback (default 3)
           --duration-secs sets a total run target of 1–{max_duration_secs} seconds
@@ -361,6 +374,13 @@ pub(crate) fn run() -> Result<(), String> {
             _ => NETWORK_OPTIONS,
         },
         "uart" => UART_OPTIONS,
+        "can" => {
+            if help_requested(args) {
+                help();
+                return Ok(());
+            }
+            return run_can(args);
+        }
         "camera" => CAMERA_OPTIONS,
         "hdmi" => {
             if help_requested(args) {
@@ -465,6 +485,37 @@ pub(crate) fn run() -> Result<(), String> {
         "camera" => run_camera(options, false),
         _ => unreachable!(),
     }
+}
+
+fn run_can(args: &[String]) -> Result<(), String> {
+    let (role, args) = args
+        .split_first()
+        .ok_or("expected 'can send' or 'can receive'")?;
+    let sender = match role.as_str() {
+        "send" => true,
+        "receive" => false,
+        _ => return Err("expected 'can send' or 'can receive'".into()),
+    };
+    if help_requested(args) {
+        help();
+        return Ok(());
+    }
+    let options = Options::parse("can", args, CAN_OPTIONS)?;
+    if !options.flag("--fixture") {
+        return Err("CAN requires '--fixture' to acknowledge a dedicated isolated bus".into());
+    }
+    let config = can::Config {
+        interface: can::interface(options.text("--interface")?)?,
+        tx: can::identifier(options.text("--tx-id")?)?,
+        rx: can::identifier(options.text("--rx-id")?)?,
+        session: can::session(options.text("--session")?)?,
+        frames: options.number("--frames").unwrap_or(128) as u32,
+        fd: options.flag("--fd"),
+    };
+    if config.tx == config.rx {
+        return Err("CAN transmit and receive IDs must be distinct".into());
+    }
+    can::run(&config, sender, Deadline::after(options.timeout(10_000)))
 }
 
 fn run_hdmi(args: &[String]) -> Result<(), String> {

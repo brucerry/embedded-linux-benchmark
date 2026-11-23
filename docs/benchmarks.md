@@ -83,6 +83,23 @@ The result is verified payload bytes per second over the loopback, including bot
 
 The UART implementation uses the Linux tty ABI for x86, x86-64, Arm, AArch64, and MIPS32 targets with glibc or musl. Other Linux targets return an explicit UART error before accessing a device. [Linux device numbers](https://docs.kernel.org/admin-guide/devices.html) · [Generic kernel termios ABI](https://github.com/torvalds/linux/blob/v6.12/include/uapi/asm-generic/termbits.h) · [MIPS kernel termios ABI](https://github.com/torvalds/linux/blob/v6.12/arch/mips/include/uapi/asm/termbits.h)
 
+### Classic CAN and CAN FD peer fixture
+
+Use two endpoints on a dedicated isolated CAN bus with matching existing bitrate and termination. Keep the fixture disconnected from production equipment. Agree on two distinct standard 11-bit identifiers, an eight-character hexadecimal session, and a frame count. Start the receiver first.
+
+```sh
+# Receiver
+./target/release/embedded-linux-benchmark can receive --interface can0 --tx-id 0x124 \
+  --rx-id 0x123 --session 1234abcd --fixture --frames 128
+# Sender
+./target/release/embedded-linux-benchmark can send --interface can0 --tx-id 0x123 \
+  --rx-id 0x124 --session 1234abcd --fixture --frames 128
+```
+
+Both sides use 8-byte Classic CAN by default. Add `--fd` to both for 64-byte CAN FD frames on interfaces already configured for CAN FD. This benchmark uses no bit-rate switching or interface configuration. Socket filters select the receive ID and local echo is disabled. Every echoed sequence and payload is verified. The sender reports completed round-trip cycles per second and mean cycle time. `--frames` accepts 1–4096 (default 128). `--timeout-ms` accepts 1–30000 (default 10000), including time waiting for a peer. [Linux SocketCAN](https://docs.kernel.org/networking/can.html)
+
+Verification covers Classic CAN and CAN FD wire formats and round trips with mock I/O. Native and SDK header checks include MIPS. Physical CAN traffic and performance remain unverified.
+
 ### I2C fixture read latency
 
 Use a dedicated adapter and a fixture documented to support standalone reads of the selected length at the selected address. Reads can have side effects, including consuming queued data, clearing status, or advancing a device pointer. Choose an isolated fixture without equipment that relies on that device state.

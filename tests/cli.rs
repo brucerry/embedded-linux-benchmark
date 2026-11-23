@@ -857,3 +857,54 @@ fn camera_and_hdmi_require_an_explicit_safe_source() {
         );
     }
 }
+
+#[test]
+fn socketcan_refuses_non_fixture_and_invalid_interface_settings() {
+    let common = [
+        "--fixture",
+        "--interface",
+        "lo",
+        "--tx-id",
+        "0x123",
+        "--rx-id",
+        "0x124",
+        "--session",
+        "1234abcd",
+    ];
+    let cases = [
+        (vec!["can", "send"], "requires '--fixture'"),
+        (
+            vec!["can", "send", "--fixture", "--interface", "../lo"],
+            "Linux interface name",
+        ),
+        (
+            vec![
+                "can",
+                "send",
+                "--fixture",
+                "--interface",
+                "lo",
+                "--tx-id",
+                "0x800",
+            ],
+            "standard 11-bit",
+        ),
+        (
+            vec!["can", "receive", "--fixture", "--frames", "4097"],
+            "between 1 and 4096",
+        ),
+        (
+            ["can", "send"].into_iter().chain(common).collect(),
+            "is not a SocketCAN interface",
+        ),
+    ];
+    for (args, expected) in cases {
+        let output = run(&args);
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(output.stdout.is_empty());
+        assert!(
+            String::from_utf8(output.stderr).unwrap().contains(expected),
+            "{args:?}"
+        );
+    }
+}

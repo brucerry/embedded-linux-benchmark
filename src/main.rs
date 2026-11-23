@@ -1,4 +1,5 @@
 mod camera;
+mod can;
 mod cli;
 mod common;
 mod cpu;
@@ -7,6 +8,7 @@ mod gpio_chardev;
 mod hdmi;
 mod i2c;
 mod linux_poll;
+mod linux_socket;
 mod network;
 mod network_peer;
 mod peripheral;

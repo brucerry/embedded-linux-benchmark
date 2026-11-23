@@ -145,3 +145,23 @@ CHECK(VIDIOC_STREAMON == 0x40045612);
 CHECK(VIDIOC_STREAMOFF == 0x40045613);
 CHECK(VIDIOC_G_PARM == 0xc0cc5615);
 #endif
+
+#include <linux/can.h>
+#include <linux/can/raw.h>
+#include <net/if.h>
+#include <linux/if_arp.h>
+
+CHECK(AF_CAN == 29 && SOCK_RAW == 3);
+CHECK(IF_NAMESIZE == 16 && ARPHRD_CAN == 280);
+CHECK(CAN_RAW == 1 && SOL_CAN_RAW == 101);
+CHECK(CAN_RAW_FILTER == 1 && CAN_RAW_LOOPBACK == 3 && CAN_RAW_FD_FRAMES == 5);
+CHECK((CAN_EFF_FLAG | CAN_RTR_FLAG | CAN_SFF_MASK) == 0xc00007ff);
+CHECK(sizeof(struct sockaddr_can) == 24);
+FIELD(sockaddr_can, can_ifindex, 4);
+FIELD(sockaddr_can, can_addr, 8);
+CHECK(sizeof(struct can_filter) == 8);
+CHECK(CAN_MTU == 16 && CANFD_MTU == 72);
+FIELD(can_frame, can_dlc, 4);
+FIELD(can_frame, data, 8);
+FIELD(canfd_frame, len, 4);
+FIELD(canfd_frame, data, 8);

@@ -1,9 +1,9 @@
 use crate::common::{Deadline, MIB};
-use crate::linux_poll;
+use crate::{linux_poll, linux_socket};
 use std::io::{self, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, TcpListener, TcpStream};
 use std::os::raw::{c_int, c_uint};
-use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd};
+use std::os::unix::io::AsRawFd;
 use std::time::Instant;
 
 pub(crate) const MAX_MIB: u64 = 64;
@@ -77,15 +77,8 @@ impl SockAddr {
 }
 
 extern "C" {
-    fn socket(domain: c_int, kind: c_int, protocol: c_int) -> c_int;
-    fn bind(fd: c_int, addr: *const SockAddr, len: c_uint) -> c_int;
     fn connect(fd: c_int, addr: *const SockAddr, len: c_uint) -> c_int;
 }
-
-#[cfg(target_arch = "mips")]
-const SOCKET_FLAGS: c_int = 2 | 0x80 | 0o2000000; // SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC
-#[cfg(not(target_arch = "mips"))]
-const SOCKET_FLAGS: c_int = 1 | 0o4000 | 0o2000000;
 
 #[cfg(target_arch = "mips")]
 const EINPROGRESS: i32 = 150;
@@ -93,36 +86,13 @@ const EINPROGRESS: i32 = 150;
 const EINPROGRESS: i32 = 115;
 
 fn dial(config: &Config, deadline: Deadline) -> Result<TcpStream, String> {
-    if !cfg!(all(
-        target_os = "linux",
-        any(
-            target_arch = "x86",
-            target_arch = "x86_64",
-            target_arch = "arm",
-            target_arch = "aarch64",
-            target_arch = "mips"
-        )
-    )) {
-        return Err("peer TCP source binding is unavailable for this Linux target ABI".into());
-    }
     deadline.check()?;
-    // AF_INET with a nonblocking close-on-exec TCP socket and two sockaddr_in arguments.
-    let fd = unsafe { socket(2, SOCKET_FLAGS, 0) };
-    if fd < 0 {
-        return Err(format!(
-            "cannot open TCP socket: {}",
-            io::Error::last_os_error()
-        ));
-    }
-    let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+    let fd = linux_socket::open(2, linux_socket::STREAM, 0)
+        .map_err(|error| format!("cannot open TCP socket: {error}"))?;
     let length = std::mem::size_of::<SockAddr>() as c_uint;
-    if unsafe { bind(fd.as_raw_fd(), &SockAddr::new(config.bind, 0), length) } < 0 {
-        return Err(format!(
-            "cannot bind source {}: {}",
-            config.bind,
-            io::Error::last_os_error()
-        ));
-    }
+    // AF_INET socket and sockaddr_in source, with a kernel-assigned source port.
+    unsafe { linux_socket::bind_to(&fd, &SockAddr::new(config.bind, 0)) }
+        .map_err(|error| format!("cannot bind source {}: {error}", config.bind))?;
     let result = unsafe {
         connect(
             fd.as_raw_fd(),
