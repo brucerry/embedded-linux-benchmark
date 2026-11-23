@@ -730,3 +730,94 @@ fn peripheral_commands_validate_opt_in_and_limits() {
         assert!(stderr.contains(message), "{args:?}: {stderr}");
     }
 }
+
+#[test]
+fn fixture_bus_commands_reject_unsafe_requests_before_traffic() {
+    let help = successful_output(&["--help"]);
+    assert!(help.contains("i2c --adapter PATH --address ADDR --fixture"));
+    assert!(help.contains("spi --device PATH --loopback"));
+    assert!(help.contains("gpio --chip PATH --offset N --input-fixture"));
+    let cases: &[(&[&str], &str)] = &[
+        (
+            &["i2c", "--address", "0x48", "--fixture"],
+            "requires '--adapter'",
+        ),
+        (
+            &["i2c", "--adapter", "/dev/null", "--fixture"],
+            "requires '--address'",
+        ),
+        (
+            &["i2c", "--adapter", "/dev/null", "--address", "0x48"],
+            "requires '--fixture'",
+        ),
+        (&["i2c", "--address", "0x07"], "unreserved 7-bit address"),
+        (&["i2c", "--address", "0x78"], "unreserved 7-bit address"),
+        (&["i2c", "--address", "0x100"], "unreserved 7-bit address"),
+        (&["i2c", "--read-bytes", "33"], "between 1 and 32"),
+        (&["i2c", "--samples", "1025"], "between 1 and 1024"),
+        (&["i2c", "--timeout-ms", "0"], "between 1 and 30000"),
+        (&["i2c", "--force"], "unknown option"),
+        (&["i2c", "--register", "1"], "unknown option"),
+        (&["i2c", "--scan"], "unknown option"),
+        (
+            &[
+                "i2c",
+                "--adapter",
+                "/dev/null",
+                "--address",
+                "72",
+                "--fixture",
+            ],
+            "expected a i2c-dev device node",
+        ),
+        (&["spi", "--device", "/dev/null"], "requires '--loopback'"),
+        (&["spi", "--loopback"], "requires '--device'"),
+        (
+            &["spi", "--device", "/dev/null", "--loopback"],
+            "expected a spidev device node",
+        ),
+        (&["spi", "--bytes", "65537"], "between 1 and 65536"),
+        (&["spi", "--timeout-ms", "30001"], "between 1 and 30000"),
+        (&["spi", "--mode", "0"], "unknown option"),
+        (
+            &["gpio", "--pin", "23", "--offset", "1"],
+            "cannot be combined",
+        ),
+        (
+            &["gpio", "--offset", "1", "--input-fixture"],
+            "requires '--chip'",
+        ),
+        (
+            &["gpio", "--chip", "/dev/null", "--input-fixture"],
+            "requires '--offset'",
+        ),
+        (
+            &["gpio", "--chip", "/dev/null", "--offset", "0"],
+            "requires '--input-fixture'",
+        ),
+        (
+            &["gpio", "--offset", "4294967296"],
+            "between 0 and 4294967295",
+        ),
+        (
+            &[
+                "gpio",
+                "--chip",
+                "/dev/null",
+                "--offset",
+                "0",
+                "--input-fixture",
+            ],
+            "expected a gpio device node",
+        ),
+        (&["stress", "auto", "--test", "i2c"], "invalid stress test"),
+        (&["stress", "auto", "--test", "spi"], "invalid stress test"),
+    ];
+    for (args, message) in cases {
+        let output = run(args);
+        assert_eq!(output.status.code(), Some(1), "{args:?}");
+        assert!(output.stdout.is_empty(), "{output:?}");
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(stderr.contains(message), "{args:?}: {stderr}");
+    }
+}

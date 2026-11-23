@@ -1,6 +1,6 @@
 # embedded-linux-benchmark
 
-A dependency-free Rust CLI for measuring CPU, RAM, filesystem, and TCP loopback throughput on Linux. It also runs a bounded automatic stress suite and provides opt-in UART loopback and GPIO input benchmarks for embedded boards.
+A dependency-free Rust CLI for measuring CPU, RAM, filesystem, and TCP loopback throughput on Linux. It also runs a bounded automatic stress suite and provides opt-in UART, I2C, SPI, and GPIO benchmarks for embedded boards.
 
 ## Build and run
 
@@ -16,7 +16,7 @@ cargo test --release --locked
 ./target/release/embedded-linux-benchmark stress auto
 ```
 
-See the [benchmark guide](docs/benchmarks.md) for storage opt-in, the stress limits, and measurement details. The [peripheral guide](docs/benchmarks.md#peripherals) covers the UART fixture and the GPIO input requirements.
+See the [benchmark guide](docs/benchmarks.md) for storage opt-in, the stress limits, and measurement details. The [peripheral guide](docs/benchmarks.md#peripherals) covers fixture requirements and the two GPIO interfaces.
 
 For other machines running a different Linux release, build against a C library baseline they provide. For NVIDIA Jetson cross-builds, use the [Jetson Linux SDK build and ABI checks](docs/jetson-linux.md).
 
@@ -40,7 +40,7 @@ For installable OpenWrt packages, use the [SDK overlay and AArch64 matrix](docs/
 
 ## Source layout
 
-`src/main.rs` handles exit status and `src/cli.rs` validates and dispatches commands. The `cpu`, `ram`, `storage`, `network`, `uart`, and `gpio` modules implement the workloads. `src/stress.rs` runs the automatic suite, and `src/common.rs` contains shared timing and deadline logic.
+`src/main.rs` handles exit status and `src/cli.rs` validates and dispatches commands. The `cpu`, `ram`, `storage`, and `network` modules implement the automatic suite workloads. The `uart`, `i2c`, `spi`, `gpio`, and `gpio_chardev` modules implement peripheral benchmarks. `src/peripheral.rs` contains shared device checks and Linux ioctl support.
 
 ## Validation
 

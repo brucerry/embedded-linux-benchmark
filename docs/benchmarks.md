@@ -23,7 +23,7 @@ The command connects two TCP sockets through a listener bound to `127.0.0.1` on 
 
 ## Peripherals
 
-UART and GPIO run only when requested directly. The automatic stress suite never accesses them.
+UART, I2C, SPI, and GPIO run only when requested directly. The automatic stress suite never accesses them.
 
 ### UART loopback
 
@@ -39,7 +39,28 @@ The result is verified payload bytes per second over the loopback, including bot
 
 The UART implementation uses the Linux tty ABI for x86, x86-64, Arm, AArch64, and MIPS32 targets with glibc or musl. Other Linux targets return an explicit UART error before accessing a device. [Linux device numbers](https://docs.kernel.org/admin-guide/devices.html) · [Generic kernel termios ABI](https://github.com/torvalds/linux/blob/v6.12/include/uapi/asm-generic/termbits.h) · [MIPS kernel termios ABI](https://github.com/torvalds/linux/blob/v6.12/arch/mips/include/uapi/asm/termbits.h)
 
-### GPIO input read latency
+### I2C fixture read latency
+
+Use a dedicated adapter and a fixture documented to support standalone reads of the selected length at the selected address. Reads can have side effects, including consuming queued data, clearing status, or advancing a device pointer. Choose an isolated fixture without equipment that relies on that device state.
+
+```sh
+./target/release/embedded-linux-benchmark i2c --adapter /dev/i2c-1 --address 0x48 \
+  --fixture --read-bytes 2 --samples 100
+```
+
+The adapter must expose Linux `i2c-dev` with raw I2C support. Enter one unreserved 7-bit address from `0x08` through `0x77` in decimal or hexadecimal. The command uses the kernel's ordinary address selection and respects a busy address. Each sample issues exactly one fixed-length read. The command has no address scan, forced selection, write transaction, or register selection. It reports received bytes and mean userspace read latency. `--read-bytes` accepts 1–32 and defaults to 1. `--samples` accepts 1–1024 and defaults to 32. [Linux I2C userspace interface](https://docs.kernel.org/i2c/dev-interface.html)
+
+### SPI fixture throughput
+
+Connect the controller's MOSI to its MISO on a dedicated loopback fixture with compatible signal levels. Keep other peripherals disconnected from that bus. The controller can toggle clock and chip select during the test. Use an existing Linux `spidev` node with an 8-bit, single-lane full-duplex configuration.
+
+```sh
+./target/release/embedded-linux-benchmark spi --device /dev/spidev0.0 --loopback --bytes 4096
+```
+
+The command uses the existing SPI mode and transfer settings and reports the configured maximum clock. It does not write mode, word size, or speed settings. Each full-duplex transfer is at most 1024 bytes, and the result counts only received bytes that match the sent payload. `--bytes` accepts 1–65536 and defaults to 4096. The reported userspace rate includes transfers and verification. [Linux spidev interface](https://docs.kernel.org/spi/spidev.html)
+
+### GPIO input read latency (legacy sysfs)
 
 Use the Linux sysfs GPIO number of a line already exported and configured as an input. The example assumes an existing `gpio23` input. Sysfs GPIO is a legacy interface and may be missing from the target kernel. The benchmark requires a readable `direction` attribute equal to `in` and a readable `value` attribute. It opens both read-only and leaves export, pin direction, and pin state under the board's existing configuration. Keep the line exported as an input throughout the run. [Linux sysfs GPIO ABI](https://docs.kernel.org/userspace-api/gpio/sysfs.html)
 
@@ -48,6 +69,19 @@ Use the Linux sysfs GPIO number of a line already exported and configured as an 
 ```
 
 `--samples` accepts 1–100000 and defaults to 1000. `--timeout-ms` accepts 1–30000 and defaults to 5000. The command reports the mean time for userspace to rewind and read one value, along with the number of high samples. Electrical propagation and edge timing require separate instrumentation. The deadline is checked between samples and cannot interrupt a stalled kernel GPIO read.
+
+### GPIO input read latency (chardev v2)
+
+Select an available spare input by its character-device chip and chip-relative line offset. The command checks the kernel-reported direction, requests the line exclusively as-is, then checks the direction again before reading. It leaves direction, bias, and logical polarity as configured, respects a line already in use, and releases the line descriptor at exit. The result reports userspace value-read latency and counts logical active values. The kernel controls the line's default state after release. [Linux GPIO v2 line requests](https://docs.kernel.org/userspace-api/gpio/gpio-v2-get-line-ioctl.html)
+
+```sh
+./target/release/embedded-linux-benchmark gpio --chip /dev/gpiochip0 --offset 7 \
+  --input-fixture --samples 1000
+```
+
+The chardev mode uses the same sample limits as legacy GPIO. It requires the GPIO v2 ABI, which entered mainline in Linux 5.10 and depends on the target kernel configuration. A legacy-only kernel can use `--pin` if the sysfs input exists. The two GPIO modes require separate invocations. [Linux GPIO chardev API](https://docs.kernel.org/userspace-api/gpio/chardev.html)
+
+I2C, SPI, and GPIO chardev accept `--timeout-ms` from 1–30000 with a 5000 ms default. Each run is foreground and checks its monotonic deadline between operations. A blocked kernel driver call can delay that check. These three commands require sysfs device identity records and the Linux device ABI on x86, x86-64, Arm, AArch64, or MIPS32 with glibc or musl. Other ABIs fail before accessing the device.
 
 ## Automatic stress
 
@@ -127,6 +161,24 @@ The peripheral packages were built and inspected with matching OpenWrt SDKs. Pac
 | Jetson Linux 39.2.2 QEMU user mode | Host kernel | Jetson kernel availability unverified |
 
 Physical UART rates, GPIO read latency, and GPIO availability on actual boards remain unverified.
+
+### I2C, SPI, and GPIO chardev verification
+
+Rust fixtures cover full and short I2C reads, SPI chunking and received-data verification, and GPIO direction, busy-line, and release behavior. CLI tests cover missing fixture acknowledgment, invalid addresses and limits, and rejection of unrelated device nodes. The C assertions check the request encodings and structures against native Linux and SDK headers, including both MIPS32 byte orders. Use the SDK C compiler in place of `cc` for a cross check. For Linux 5.4 headers, add `-DEXPECT_LEGACY_GPIO_HEADERS` to check the interfaces those headers expose.
+
+```sh
+cargo test --release --locked
+cc -std=c11 -Wall -Wextra -Werror -c tests/linux_uapi.c -o /tmp/benchmark-uapi.o
+```
+
+| Environment | Verified in this change |
+| --- | --- |
+| OpenWrt 25.12.6 `armsr/armv7` and `armsr/armv8` | Matching APK build, install, invalid-input checks, and removal in QEMU. GPIO v2 read counts, busy refusal, offset validation, and line release passed on an emulated PL061 chip. |
+| OpenWrt 21.02.7 `armvirt/64` | Matching IPK build and guest lifecycle passed. Linux 5.4 rejected GPIO v2 on the emulated PL061 and the CLI reported it as unavailable. |
+| OpenWrt 24.10.8 `malta/le` and `malta/be` | Matching IPK builds and guest lifecycle passed, including invalid I2C, SPI, and GPIO inputs. Rust ABI and mock transaction tests passed in QEMU user mode in both byte orders. |
+| Jetson Linux 39.2.2 AArch64 | SDK build and ABI checks passed. Mock transactions and CLI rejection passed under QEMU user mode with matching sample libraries. |
+
+I2C and SPI transaction validation used mocks. Physical bus transfers, physical GPIO latency, and Jetson kernel peripheral availability remain unverified.
 
 | Current build | Execution evidence |
 | --- | --- |
