@@ -2,20 +2,20 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=embedded-linux-benchmark
 PKG_VERSION:=0.1.0
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_LICENSE:=MIT
 PKG_LICENSE_FILES:=LICENSE
-PKG_BUILD_DEPENDS:=rust/host
 
 include $(INCLUDE_DIR)/package.mk
-include $(TOPDIR)/feeds/packages/lang/rust/rust-package.mk
+
+OPENWRT_RUST_TARGET ?=
 
 define Package/embedded-linux-benchmark
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=Single-board CPU and RAM copy benchmarks
   URL:=https://github.com/brucerry/embedded-linux-benchmark
-  DEPENDS:=$(RUST_ARCH_DEPENDS) +libgcc
+  DEPENDS:=+libgcc
 endef
 
 define Package/embedded-linux-benchmark/description
@@ -23,8 +23,17 @@ define Package/embedded-linux-benchmark/description
 endef
 
 define Build/Compile
-	$(call Build/Compile/Cargo,,--offline)
+	@test -n "$(OPENWRT_RUST_TARGET)" || \
+		{ echo "Set OPENWRT_RUST_TARGET to the Rust target matching this SDK" >&2; exit 1; }
+	cd "$(PKG_BUILD_DIR)" && \
+		CARGO_TARGET_DIR="$(PKG_BUILD_DIR)/target" \
+		RUSTFLAGS="-C linker=$(TARGET_CC_NOCACHE) -C target-feature=-crt-static" \
+		cargo build --release --locked --offline --target "$(OPENWRT_RUST_TARGET)"
 endef
 
-$(eval $(call RustBinPackage,embedded-linux-benchmark))
+define Package/embedded-linux-benchmark/install
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/target/$(OPENWRT_RUST_TARGET)/release/embedded-linux-benchmark $(1)/usr/bin/
+endef
+
 $(eval $(call BuildPackage,embedded-linux-benchmark))

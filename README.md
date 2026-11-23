@@ -23,7 +23,7 @@ CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=/path/to/sdk/bin/target-cc \
 
 Use your SDK's actual linker path and any flags or sysroot it requires. The crate sets no target, linker, or C library. Copy the resulting binary from `target/<target>/release/` to the matching board and run it there.
 
-For an installable OpenWrt APK, use the [opt-in SDK package overlay](docs/openwrt-package.md).
+For installable OpenWrt packages, use the [SDK overlay and compatibility matrix](docs/openwrt-compatibility.md). The SDK selects IPK or APK for its release.
 
 ## Reading the results
 
@@ -36,7 +36,8 @@ For an installable OpenWrt APK, use the [opt-in SDK package overlay](docs/openwr
 | Target | Evidence |
 | --- | --- |
 | x86_64 Linux GNU | Native release build and CLI checks on a Debian development host with Rust 1.66.0 |
-| OpenWrt 25.12.6 `armsr/armv8` | [SDK APK build and QEMU guest installation](docs/openwrt-package.md), plus a [standalone binary smoke test](docs/openwrt-25.12.6.md) |
+| OpenWrt 21.02 through pinned upstream `main` on AArch64 | [Per-release SDK builds and QEMU guest installation](docs/openwrt-compatibility.md) |
+| OpenWrt 25.12.6 `armsr/armv8` with the release-pinned Rust helper | [Separate SDK APK and QEMU guest proof](docs/openwrt-package.md), plus a [standalone binary smoke test](docs/openwrt-25.12.6.md) |
 | Actual embedded Linux boards | No board runs recorded |
 
 A native build checks the development host. An emulated smoke test checks whether the target binary starts and produces valid output under emulation. Board performance requires a run on the actual board and firmware.

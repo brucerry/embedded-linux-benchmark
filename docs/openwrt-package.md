@@ -1,6 +1,6 @@
 # OpenWrt 25.12.6 `armsr/armv8` package
 
-The [package recipe](../openwrt/Makefile) stages the Cargo crate as local SDK source and delegates compilation and installation to the packages feed's Rust helper. It produces `embedded-linux-benchmark-0.1.0-r1.apk` for `aarch64_generic`, with `/usr/bin/embedded-linux-benchmark` and runtime dependencies on `libc` and `libgcc1`.
+This records the separate `r1` build using the [recipe at `45e2867`](https://github.com/brucerry/embedded-linux-benchmark/blob/45e286739130fc59d606dff24d149e952a514df0/openwrt/Makefile) and the packages feed's Rust helper. It produced `embedded-linux-benchmark-0.1.0-r1.apk` for `aarch64_generic`, with `/usr/bin/embedded-linux-benchmark` and runtime dependencies on `libc` and `libgcc1`. The [current overlay](openwrt-compatibility.md) shares one package recipe across release SDKs.
 
 ## Build in the release SDK
 
@@ -29,8 +29,8 @@ test "$(git -C feeds/packages rev-parse HEAD)" = 093d551675b1119a06ef224d419905e
 ./scripts/feeds install -p packages rust
 
 overlay=package/embedded-linux-benchmark
-install -D -m 0644 "$checkout/openwrt/Makefile" "$overlay/Makefile"
 mkdir -p "$overlay/src"
+git -C "$checkout" show 45e286739130fc59d606dff24d149e952a514df0:openwrt/Makefile > "$overlay/Makefile"
 cp "$checkout/Cargo.toml" "$checkout/Cargo.lock" "$checkout/LICENSE" "$overlay/src/"
 cp -R "$checkout/src" "$overlay/src/"
 printf 'CONFIG_PACKAGE_embedded-linux-benchmark=m\n' > .config
