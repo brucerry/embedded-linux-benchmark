@@ -1,1 +1,40 @@
 # embedded-linux-benchmark
+
+A small Rust CLI for measuring individual components of one embedded Linux board. The first version provides single-threaded CPU integer throughput and RAM copy throughput.
+
+## Build and run
+
+Use Rust and Cargo 1.66 or newer. The crate has no external Rust dependencies.
+
+```sh
+cargo build --release --locked
+./target/release/embedded-linux-benchmark --help
+./target/release/embedded-linux-benchmark cpu
+./target/release/embedded-linux-benchmark ram --duration-ms 500 --buffer-kib 1024
+```
+
+For a cross-build, use the Rust target and standard library that match your firmware's architecture and ABI. With your SDK environment loaded, select the target and, when required, its linker through Cargo. For example, for a 64-bit Arm musl board:
+
+```sh
+rustup target add aarch64-unknown-linux-musl
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=/path/to/sdk/bin/target-cc \
+  cargo build --release --locked --target aarch64-unknown-linux-musl
+```
+
+Use your SDK's actual linker path and any flags or sysroot it requires. The crate sets no target, linker, or C library. Copy the resulting binary from `target/<target>/release/` to the matching board and run it there.
+
+## Reading the results
+
+- **CPU** reports iterations per second for a fixed 32-bit xorshift loop, with a checksum of the final state. Each iteration applies three shift-and-XOR updates to the same integer.
+- **RAM** reports MiB/s for copying one preallocated buffer into another. It prints the size of each buffer and the combined working set. Each copy counts the source size once. Cache residency and the copy routine affect the result, so interpret it as application-level copy throughput.
+- Both use one thread and monotonic elapsed time. `--duration-ms` defaults to 1000 and accepts 1–60000. Elapsed time can exceed the requested duration by a batch or copy and any scheduling delay. The RAM benchmark accepts 4–32768 KiB per buffer, defaults to 4096 KiB per buffer, and uses up to 64 MiB for both buffers. It initializes the buffers before timing and checks the final contents after timing.
+
+## Validation
+
+| Target | Evidence |
+| --- | --- |
+| x86_64 Linux GNU | Native release build and CLI checks on a Debian development host with Rust 1.66.0 |
+| OpenWrt 25.12.6 `armsr/armv8` | [SDK-linked cross-build and QEMU user-mode smoke test](docs/openwrt-25.12.6.md) |
+| Actual embedded Linux boards | No board runs recorded |
+
+A native build checks the development host. An emulated smoke test checks whether the target binary starts and produces valid output under emulation. Board performance requires a run on the actual board and firmware.

@@ -1,0 +1,8 @@
+[package]
+name = "embedded-linux-benchmark"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.66"
+description = "Single-board CPU and RAM copy benchmarks for embedded Linux"
+license = "MIT"
+repository = "https://github.com/brucerry/embedded-linux-benchmark"
