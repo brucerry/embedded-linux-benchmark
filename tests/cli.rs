@@ -496,70 +496,79 @@ fn category_parameters_are_validated_before_load_or_writes() {
 }
 
 #[cfg(target_os = "linux")]
-#[test]
-fn failed_writes_remove_scratch_files_and_stop_stress() {
-    let directory = ScratchDirectory::create();
-    for (args, stress) in [
-        (
-            vec!["storage", "--dir", directory.path(), "--size-mib", "1"],
-            false,
-        ),
-        (
-            vec![
-                "stress",
-                "auto",
-                "--rounds",
-                "2",
-                "--duration-ms",
-                "1",
-                "--buffer-kib",
-                "4",
-                "--network-mib",
-                "1",
-                "--storage-dir",
-                directory.path(),
-                "--storage-mib",
-                "1",
-            ],
-            true,
-        ),
-        (
-            vec![
-                "stress",
-                "auto",
-                "--test",
-                "storage",
-                "--rounds",
-                "2",
-                "--storage-dir",
-                directory.path(),
-                "--storage-mib",
-                "1",
-            ],
-            true,
-        ),
-    ] {
-        // Ignore SIGXFSZ so exceeding the child file-size limit returns a write error.
-        let output = Command::new("/bin/sh")
-            .args(["-c", "trap '' XFSZ && ulimit -f 1 && exec \"$@\"", "sh"])
-            .arg(env!("CARGO_BIN_EXE_embedded-linux-benchmark"))
-            .args(&args)
-            .output()
-            .unwrap();
-        assert_eq!(output.status.code(), Some(1), "{args:?}: {output:?}");
-        assert!(String::from_utf8(output.stderr)
-            .unwrap()
-            .contains("storage write failed"));
-        let stdout = String::from_utf8(output.stdout).unwrap();
-        if stress {
-            assert!(stdout.contains("Storage: FAIL"));
-            assert!(stdout.contains("Stress result: FAIL (0/2 rounds completed)"));
-            assert!(!stdout.contains("Round 2/2"));
-        } else {
-            assert!(stdout.is_empty());
-        }
-        assert!(directory.names().is_empty(), "{args:?}");
+fn assert_storage_write_failure(directory: &ScratchDirectory, args: &[&str], stress: bool) {
+    // Ignore SIGXFSZ so exceeding the child file-size limit returns a write error.
+    let output = Command::new("/bin/sh")
+        .args(["-c", "trap '' XFSZ && ulimit -f 1 && exec \"$@\"", "sh"])
+        .arg(env!("CARGO_BIN_EXE_embedded-linux-benchmark"))
+        .args(args)
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{args:?}: {output:?}");
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("storage write failed"), "{args:?}: {stderr}");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    if stress {
+        assert!(stdout.contains("Storage: FAIL"));
+        assert!(stdout.contains("Stress result: FAIL (0/2 rounds completed)"));
+        assert!(!stdout.contains("Round 2/2"));
+    } else {
+        assert!(stdout.is_empty());
     }
+    assert!(directory.names().is_empty(), "{args:?}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn failed_writes_remove_scratch_files_without_network() {
+    let directory = ScratchDirectory::create();
+    assert_storage_write_failure(
+        &directory,
+        &["storage", "--dir", directory.path(), "--size-mib", "1"],
+        false,
+    );
+    assert_storage_write_failure(
+        &directory,
+        &[
+            "stress",
+            "auto",
+            "--test",
+            "storage",
+            "--rounds",
+            "2",
+            "--storage-dir",
+            directory.path(),
+            "--storage-mib",
+            "1",
+        ],
+        true,
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn failed_writes_remove_scratch_files_and_stop_concurrent_stress() {
+    let directory = ScratchDirectory::create();
+    assert_storage_write_failure(
+        &directory,
+        &[
+            "stress",
+            "auto",
+            "--rounds",
+            "2",
+            "--duration-ms",
+            "1",
+            "--buffer-kib",
+            "4",
+            "--network-mib",
+            "1",
+            "--storage-dir",
+            directory.path(),
+            "--storage-mib",
+            "1",
+        ],
+        true,
+    );
 }
 
 #[test]
