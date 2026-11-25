@@ -506,7 +506,10 @@ fn assert_storage_write_failure(directory: &ScratchDirectory, args: &[&str], str
         .unwrap();
     assert_eq!(output.status.code(), Some(1), "{args:?}: {output:?}");
     let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(stderr.contains("storage write failed"), "{args:?}: {stderr}");
+    assert!(
+        stderr.contains("storage write failed"),
+        "{args:?}: {stderr}"
+    );
     let stdout = String::from_utf8(output.stdout).unwrap();
     if stress {
         assert!(stdout.contains("Storage: FAIL"));
