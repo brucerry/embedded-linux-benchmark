@@ -1,4 +1,5 @@
 use crate::common::{Deadline, DEFAULT_DURATION_MS, MAX_DURATION_MS, MIB};
+use crate::report::{identify, Subject};
 use crate::{
     camera, can, cpu, gpio, gpio_chardev, hdmi, i2c, iio, network, network_peer, pcie, ram, spi,
     storage, stress, uart, usb,
@@ -390,10 +391,10 @@ pub(crate) fn run() -> Result<(), String> {
         return Ok(());
     }
     let (command, args) = args.split_first().expect("command is present");
-    let spec = match command.as_str() {
-        "cpu" => CPU_OPTIONS,
-        "ram" => RAM_OPTIONS,
-        "storage" => STORAGE_OPTIONS,
+    let (spec, subject) = match command.as_str() {
+        "cpu" => (CPU_OPTIONS, Subject::Cpu),
+        "ram" => (RAM_OPTIONS, Subject::Ram),
+        "storage" => (STORAGE_OPTIONS, Subject::Storage),
         "network" => match args.split_first() {
             Some((role, args)) if matches!(role.as_str(), "peer-server" | "peer-client") => {
                 if help_requested(args) {
@@ -402,10 +403,10 @@ pub(crate) fn run() -> Result<(), String> {
                 }
                 return run_peer(role == "peer-server", args);
             }
-            _ => NETWORK_OPTIONS,
+            _ => (NETWORK_OPTIONS, Subject::NetworkLoopback),
         },
-        "uart" => UART_OPTIONS,
-        "usb" => USB_OPTIONS,
+        "uart" => (UART_OPTIONS, Subject::Uart),
+        "usb" => (USB_OPTIONS, Subject::Usb),
         "can" => {
             if help_requested(args) {
                 help();
@@ -420,8 +421,8 @@ pub(crate) fn run() -> Result<(), String> {
             }
             return run_pcie(args);
         }
-        "iio" => IIO_OPTIONS,
-        "camera" => CAMERA_OPTIONS,
+        "iio" => (IIO_OPTIONS, Subject::Iio),
+        "camera" => (CAMERA_OPTIONS, Subject::Camera),
         "hdmi" => {
             if help_requested(args) {
                 help();
@@ -429,9 +430,9 @@ pub(crate) fn run() -> Result<(), String> {
             }
             return run_hdmi(args);
         }
-        "i2c" => I2C_OPTIONS,
-        "spi" => SPI_OPTIONS,
-        "gpio" => GPIO_OPTIONS,
+        "i2c" => (I2C_OPTIONS, Subject::I2c),
+        "spi" => (SPI_OPTIONS, Subject::Spi),
+        "gpio" => (GPIO_OPTIONS, Subject::GpioSysfs),
         "stress" => {
             if help_requested(args) {
                 help();
@@ -453,6 +454,7 @@ pub(crate) fn run() -> Result<(), String> {
         return Ok(());
     }
     let options = Options::parse(command, args, spec)?;
+    identify(subject);
     match command.as_str() {
         "cpu" => cpu::run(options.duration(DEFAULT_DURATION_MS), None),
         "ram" => ram::run(
@@ -563,10 +565,13 @@ fn run_pcie(args: &[String]) -> Result<(), String> {
     }
     match command.as_str() {
         "link" => {
-            pcie::link(Options::parse("pcie link", args, PCIE_LINK_OPTIONS)?.text("--device")?)
+            let options = Options::parse("pcie link", args, PCIE_LINK_OPTIONS)?;
+            identify(Subject::PcieLink);
+            pcie::link(options.text("--device")?)
         }
         "throughput" => {
             let options = Options::parse("pcie throughput", args, PCIE_THROUGHPUT_OPTIONS)?;
+            identify(Subject::PcieThroughput);
             pcie::throughput(options.text("--device")?, options.flag("--fixture"))
         }
         _ => Err("expected 'pcie link' or 'pcie throughput'".into()),
@@ -601,6 +606,11 @@ fn run_can(args: &[String]) -> Result<(), String> {
     if config.tx == config.rx {
         return Err("CAN transmit and receive IDs must be distinct".into());
     }
+    identify(if sender {
+        Subject::CanSend
+    } else {
+        Subject::CanReceive
+    });
     can::run(&config, sender, Deadline::after(options.timeout(10_000)))
 }
 
@@ -613,9 +623,11 @@ fn run_hdmi(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
     match command.as_str() {
-        "status" => hdmi::status(
-            Options::parse("hdmi status", args, HDMI_STATUS_OPTIONS)?.text("--connector")?,
-        ),
+        "status" => {
+            let options = Options::parse("hdmi status", args, HDMI_STATUS_OPTIONS)?;
+            identify(Subject::HdmiStatus);
+            hdmi::status(options.text("--connector")?)
+        }
         "capture" => run_camera(
             Options::parse("hdmi capture", args, HDMI_CAPTURE_OPTIONS)?,
             true,
@@ -632,6 +644,9 @@ fn run_camera(options: Options<'_>, hdmi: bool) -> Result<(), String> {
         return Err(
             "HDMI capture requires '--fixture' to acknowledge a dedicated capture fixture".into(),
         );
+    }
+    if hdmi {
+        identify(Subject::HdmiCapture);
     }
     camera::run(
         device,
@@ -666,8 +681,10 @@ fn run_peer(server: bool, args: &[String]) -> Result<(), String> {
     };
     let deadline = Deadline::after(options.timeout(network_peer::MAX_TIMEOUT_MS));
     if server {
+        identify(Subject::NetworkPeerServer);
         network_peer::server(&config, deadline)
     } else {
+        identify(Subject::NetworkPeerClient);
         network_peer::client(&config, deadline)
     }
 }
@@ -690,6 +707,7 @@ fn run_gpio(options: Options<'_>) -> Result<(), String> {
                 "GPIO chardev requires '--input-fixture' to acknowledge a spare input".into(),
             );
         }
+        identify(Subject::GpioCharacterDevice);
         return gpio_chardev::run(chip, offset, samples, deadline);
     }
     gpio::run(

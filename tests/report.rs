@@ -21,7 +21,7 @@ fn command() -> Command {
     Command::new(env!("CARGO_BIN_EXE_embedded-linux-benchmark"))
 }
 
-fn run_report(args: &[&str]) -> ReportFiles {
+fn run_report(args: &[&str], expected_slug: &str) -> ReportFiles {
     let output = command().args(args).output().unwrap();
     assert!(
         output.status.success() && output.stderr.is_empty(),
@@ -46,8 +46,27 @@ fn run_report(args: &[&str]) -> ReportFiles {
         .to_string_lossy()
         .starts_with("embedded-linux-benchmark-"));
     assert_eq!(pdf.parent().unwrap(), directory);
-    assert_eq!(markdown.file_name().unwrap(), "report.md");
-    assert_eq!(pdf.file_name().unwrap(), "plots.pdf");
+    assert_eq!(markdown.extension().unwrap(), "md");
+    assert_eq!(pdf.extension().unwrap(), "pdf");
+    assert_eq!(markdown.file_stem(), pdf.file_stem());
+    let contents = fs::read_to_string(&markdown).unwrap();
+    let start = contents
+        .lines()
+        .find_map(|line| line.strip_prefix("| Start (UTC) | "))
+        .and_then(|line| line.strip_suffix(" |"))
+        .unwrap();
+    assert!(start.contains('T') && start.ends_with('Z'));
+    let stamp = start.replace(':', "-");
+    assert_eq!(
+        markdown.file_stem().unwrap(),
+        format!("{expected_slug}_{stamp}").as_str()
+    );
+    assert!(contents.contains(&format!(
+        "[PDF report]({})",
+        pdf.file_name().unwrap().to_str().unwrap()
+    )));
+    let pdf_contents = fs::read(&pdf).unwrap();
+    assert!(String::from_utf8_lossy(&pdf_contents).contains(&format!(r"Start \(UTC\): {start}")));
     ReportFiles {
         directory,
         markdown,
@@ -57,8 +76,8 @@ fn run_report(args: &[&str]) -> ReportFiles {
 
 #[test]
 fn cpu_command_creates_private_markdown_and_vector_pdf() {
-    let first = run_report(&["cpu", "--duration-ms", "1"]);
-    let second = run_report(&["cpu", "--duration-ms", "1"]);
+    let first = run_report(&["cpu", "--duration-ms", "1"], "cpu");
+    let second = run_report(&["cpu", "--duration-ms", "1"], "cpu");
     assert_ne!(first.directory, second.directory);
     assert_eq!(
         fs::metadata(&first.directory).unwrap().mode() & 0o777,
@@ -71,6 +90,8 @@ fn cpu_command_creates_private_markdown_and_vector_pdf() {
         assert_eq!(metadata.nlink(), 1);
     }
     let markdown = fs::read_to_string(&first.markdown).unwrap();
+    assert!(markdown.starts_with("# Embedded Linux Benchmark report: CPU\n"));
+    assert!(markdown.contains("| Test item | CPU |"));
     assert!(markdown.contains("| Status | Completed |"));
     assert!(markdown.contains("| CPU throughput |"));
     assert!(markdown.contains("| iterations/s |"));
@@ -86,7 +107,7 @@ fn cpu_command_creates_private_markdown_and_vector_pdf() {
 
 #[test]
 fn storage_plots_independent_measured_read_and_write_values() {
-    let report = run_report(&["storage", "--dir", "/tmp", "--size-mib", "1"]);
+    let report = run_report(&["storage", "--dir", "/tmp", "--size-mib", "1"], "storage");
     let markdown = fs::read_to_string(&report.markdown).unwrap();
     assert!(markdown.contains("Sequential write throughput"));
     assert!(markdown.contains("Sequential read throughput"));
@@ -116,17 +137,23 @@ fn help_and_validation_errors_have_no_report_output() {
 
 #[test]
 fn stress_reports_aggregate_measurements() {
-    let report = run_report(&[
-        "stress",
-        "auto",
-        "--test",
-        "cpu",
-        "--rounds",
-        "2",
-        "--duration-ms",
-        "1",
-    ]);
+    let report = run_report(
+        &[
+            "stress",
+            "auto",
+            "--test",
+            "cpu",
+            "--rounds",
+            "2",
+            "--duration-ms",
+            "1",
+        ],
+        "stress-cpu",
+    );
     let markdown = fs::read_to_string(&report.markdown).unwrap();
+    assert!(markdown.starts_with("# Embedded Linux Benchmark report: Stress: CPU\n"));
+    assert!(markdown.contains("| Selected workloads | CPU |"));
+    assert!(!markdown.contains("| Passive observations |"));
     assert!(markdown.contains("Stress result: PASS (2/2 rounds completed)"));
     assert!(markdown.contains("| Stress CPU throughput |"));
     assert!(markdown.contains("CPU iterations:"));
@@ -134,6 +161,48 @@ fn stress_reports_aggregate_measurements() {
     assert!(!markdown.contains("Checksum:"));
     let pdf = fs::read(&report.pdf).unwrap();
     let pdf = String::from_utf8_lossy(&pdf);
+    assert!(pdf.contains("Stress: CPU"));
     assert!(pdf.contains("Stress CPU throughput"));
     assert!(!pdf.contains("Stress RAM copy throughput"));
+}
+
+#[test]
+fn mixed_stress_identifies_selected_workloads_and_separates_passive_observations() {
+    let base_args = [
+        "stress",
+        "auto",
+        "--rounds",
+        "1",
+        "--duration-ms",
+        "1",
+        "--buffer-kib",
+        "4",
+        "--network-mib",
+        "1",
+    ];
+    for include_storage in [false, true] {
+        let mut args = base_args.to_vec();
+        let (slug, items) = if include_storage {
+            args.extend(["--storage-dir", "/tmp", "--storage-mib", "1"]);
+            (
+                "stress-cpu-ram-tcp-loopback-storage",
+                "CPU, RAM, TCP loopback, storage",
+            )
+        } else {
+            ("stress-cpu-ram-tcp-loopback", "CPU, RAM, TCP loopback")
+        };
+        let report = run_report(&args, slug);
+        let markdown = fs::read_to_string(&report.markdown).unwrap();
+        assert!(markdown.contains(&format!("| Selected workloads | {items} |")));
+        assert!(markdown.contains("| Passive observations | PCIe, USB, HDMI (read-only"));
+        assert!(!markdown.contains("| HDMI status observation |"));
+        let bytes = fs::read(&report.pdf).unwrap();
+        let pdf = String::from_utf8_lossy(&bytes);
+        assert!(pdf.contains(&format!("Stress: {items}")));
+        assert!(pdf.contains("Passive observations: PCIe, USB, HDMI"));
+        assert_eq!(
+            markdown.contains("| Stress storage verified round-trip throughput |"),
+            include_storage
+        );
+    }
 }

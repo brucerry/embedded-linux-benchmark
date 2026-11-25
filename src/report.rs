@@ -4,7 +4,7 @@ use std::fs::{self, DirBuilder, OpenOptions};
 use std::io::{self, Write as _};
 use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const REPORT_ROOT: &str = "/tmp";
 const TRANSCRIPT_LIMIT: usize = 8192;
@@ -23,9 +23,133 @@ struct Metric {
     unit: &'static str,
 }
 
+// Subject names are fixed program values, never user arguments or device output.
+#[derive(Clone, Copy)]
+pub(crate) enum Subject {
+    Cpu,
+    Ram,
+    Storage,
+    NetworkLoopback,
+    NetworkPeerServer,
+    NetworkPeerClient,
+    Uart,
+    Usb,
+    CanSend,
+    CanReceive,
+    PcieLink,
+    PcieThroughput,
+    Iio,
+    Camera,
+    HdmiStatus,
+    HdmiCapture,
+    I2c,
+    Spi,
+    GpioSysfs,
+    GpioCharacterDevice,
+    Stress {
+        test: Option<crate::stress::Test>,
+        storage: bool,
+    },
+}
+
+impl Subject {
+    fn names(self) -> (&'static str, &'static str) {
+        use crate::stress::Test;
+        match self {
+            Self::Cpu => ("cpu", "CPU"),
+            Self::Ram => ("ram", "RAM"),
+            Self::Storage => ("storage", "Storage"),
+            Self::NetworkLoopback => ("tcp-loopback", "TCP loopback"),
+            Self::NetworkPeerServer => ("tcp-peer-server", "TCP peer server"),
+            Self::NetworkPeerClient => ("tcp-peer-client", "TCP peer client"),
+            Self::Uart => ("uart-loopback", "UART loopback"),
+            Self::Usb => ("usb-loopback", "USB loopback"),
+            Self::CanSend => ("can-send", "CAN send"),
+            Self::CanReceive => ("can-receive", "CAN receive"),
+            Self::PcieLink => ("pcie-link", "PCIe link observation"),
+            Self::PcieThroughput => ("pcie-throughput", "PCIe throughput"),
+            Self::Iio => ("iio", "IIO sampling"),
+            Self::Camera => ("camera", "Camera capture"),
+            Self::HdmiStatus => ("hdmi-status", "HDMI status observation"),
+            Self::HdmiCapture => ("hdmi-capture", "HDMI capture"),
+            Self::I2c => ("i2c-read", "I2C read"),
+            Self::Spi => ("spi-loopback", "SPI loopback"),
+            Self::GpioSysfs => ("gpio-sysfs", "GPIO sysfs input"),
+            Self::GpioCharacterDevice => ("gpio-chardev", "GPIO character-device input"),
+            Self::Stress {
+                test: Some(Test::Cpu),
+                ..
+            } => ("stress-cpu", "CPU"),
+            Self::Stress {
+                test: Some(Test::Ram),
+                ..
+            } => ("stress-ram", "RAM"),
+            Self::Stress {
+                test: Some(Test::Network),
+                ..
+            } => ("stress-tcp-loopback", "TCP loopback"),
+            Self::Stress {
+                test: Some(Test::Storage),
+                ..
+            } => ("stress-storage", "Storage"),
+            Self::Stress {
+                test: None,
+                storage: false,
+            } => ("stress-cpu-ram-tcp-loopback", "CPU, RAM, TCP loopback"),
+            Self::Stress {
+                test: None,
+                storage: true,
+            } => (
+                "stress-cpu-ram-tcp-loopback-storage",
+                "CPU, RAM, TCP loopback, storage",
+            ),
+        }
+    }
+
+    fn is_stress(self) -> bool {
+        matches!(self, Self::Stress { .. })
+    }
+
+    fn observes_hardware(self) -> bool {
+        matches!(self, Self::Stress { test: None, .. })
+    }
+}
+
+struct Identity {
+    subject: Subject,
+    utc: String,
+    stem: String,
+}
+
+impl Identity {
+    fn new(subject: Subject, started_at: Option<Duration>) -> Self {
+        let utc = started_at.map_or_else(|| "unavailable".into(), utc);
+        let stem = format!("{}_{}", subject.names().0, utc.replace(':', "-"));
+        Self { subject, utc, stem }
+    }
+
+    fn title(&self) -> String {
+        let items = self.subject.names().1;
+        if self.subject.is_stress() {
+            format!("Stress: {items}")
+        } else {
+            items.into()
+        }
+    }
+
+    fn item_label(&self) -> &'static str {
+        if self.subject.is_stress() {
+            "Selected workloads"
+        } else {
+            "Test item"
+        }
+    }
+}
+
 struct Report {
     start: Instant,
-    started_unix: Option<u64>,
+    started_at: Option<Duration>,
+    subject: Option<Subject>,
     output: String,
     truncated: bool,
     metrics: Vec<Metric>,
@@ -35,14 +159,20 @@ pub(crate) fn begin() {
     CAPTURE.with(|state| {
         *state.borrow_mut() = Some(Report {
             start: Instant::now(),
-            started_unix: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .ok()
-                .map(|time| time.as_secs()),
+            started_at: SystemTime::now().duration_since(UNIX_EPOCH).ok(),
+            subject: None,
             output: String::new(),
             truncated: false,
             metrics: Vec::new(),
         });
+    });
+}
+
+pub(crate) fn identify(subject: Subject) {
+    CAPTURE.with(|state| {
+        if let Some(report) = state.borrow_mut().as_mut() {
+            report.subject = Some(subject);
+        }
     });
 }
 
@@ -78,7 +208,12 @@ pub(crate) fn metric(label: &'static str, value: f64, unit: &'static str) {
     }
 }
 
-pub(crate) fn finish(result: &Result<(), String>) -> io::Result<Option<PathBuf>> {
+pub(crate) struct Files {
+    pub(crate) markdown: PathBuf,
+    pub(crate) pdf: PathBuf,
+}
+
+pub(crate) fn finish(result: &Result<(), String>) -> io::Result<Option<Files>> {
     let report = CAPTURE.with(|state| state.borrow_mut().take());
     let Some(mut report) = report.filter(|report| !report.output.is_empty()) else {
         return Ok(None);
@@ -90,8 +225,16 @@ pub(crate) fn finish(result: &Result<(), String>) -> io::Result<Option<PathBuf>>
         report.append(error);
     }
     let status = if success { "Completed" } else { "Failed" };
+    let subject = report
+        .subject
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "missing benchmark identity"))?;
     report
-        .write(Path::new(REPORT_ROOT), status, elapsed)
+        .write(
+            Path::new(REPORT_ROOT),
+            &Identity::new(subject, report.started_at),
+            status,
+            elapsed,
+        )
         .map(Some)
 }
 
@@ -115,30 +258,51 @@ impl Report {
         }
     }
 
-    fn write(&self, root: &Path, status: &str, elapsed: f64) -> io::Result<PathBuf> {
+    fn write(
+        &self,
+        root: &Path,
+        identity: &Identity,
+        status: &str,
+        elapsed: f64,
+    ) -> io::Result<Files> {
         let directory = private_directory(root)?;
+        let pdf_name = format!("{}.pdf", identity.stem);
+        let markdown = directory.join(format!("{}.md", identity.stem));
+        let pdf = directory.join(&pdf_name);
         let result = (|| {
             write_new(
-                &directory.join("report.md"),
-                self.markdown(status, elapsed).as_bytes(),
+                &markdown,
+                self.markdown(identity, &pdf_name, status, elapsed)
+                    .as_bytes(),
             )?;
-            write_new(&directory.join("plots.pdf"), &self.pdf(status, elapsed))
+            write_new(&pdf, &self.pdf(identity, status, elapsed))
         })();
         if result.is_err() {
             // Only remove names within this freshly created, owner-only directory.
-            let _ = fs::remove_file(directory.join("report.md"));
-            let _ = fs::remove_file(directory.join("plots.pdf"));
+            let _ = fs::remove_file(&markdown);
+            let _ = fs::remove_file(&pdf);
             let _ = fs::remove_dir(&directory);
         }
-        result.map(|_| directory)
+        result.map(|_| Files { markdown, pdf })
     }
 
-    fn markdown(&self, status: &str, elapsed: f64) -> String {
+    fn markdown(&self, identity: &Identity, pdf_name: &str, status: &str, elapsed: f64) -> String {
         let mut out = format!(
-            "# Embedded Linux Benchmark report\n\n| Run | Value |\n| --- | --- |\n| Status | {status} |\n| Wall time | {elapsed:.3} s |\n"
+            "# Embedded Linux Benchmark report: {}\n\n| Run | Value |\n| --- | --- |\n| Status | {status} |\n| Wall time | {elapsed:.3} s |\n",
+            identity.title()
         );
-        let start = self.started_unix.map_or_else(|| "unavailable".into(), utc);
-        let _ = writeln!(out, "| Start (UTC) | {start} |");
+        let _ = writeln!(
+            out,
+            "| {} | {} |\n| Start (UTC) | {} |",
+            identity.item_label(),
+            identity.subject.names().1,
+            identity.utc
+        );
+        if identity.subject.observes_hardware() {
+            out.push_str(
+                "| Passive observations | PCIe, USB, HDMI (read-only, when available) |\n",
+            );
+        }
         let _ = writeln!(
             out,
             "| Platform | {} / {} |",
@@ -155,8 +319,11 @@ impl Report {
             for m in &self.metrics {
                 let _ = writeln!(out, "| {} | {} | {} |", m.label, number(m.value), m.unit);
             }
-            out.push_str("\n[Vector plots](plots.pdf) group measurements by unit.\n");
         }
+        let _ = writeln!(
+            out,
+            "\n[PDF report]({pdf_name}) shows measurements grouped by unit, or observations when there are no measurements."
+        );
         out.push_str("\n## Benchmark output\n\n");
         for line in self.output.lines() {
             let _ = writeln!(out, "    {line}");
@@ -167,8 +334,7 @@ impl Report {
         out
     }
 
-    fn pdf(&self, status: &str, elapsed: f64) -> Vec<u8> {
-        let first = self.output.lines().next().unwrap_or("Benchmark");
+    fn pdf(&self, identity: &Identity, status: &str, elapsed: f64) -> Vec<u8> {
         let mut groups: Vec<(&str, Vec<Metric>)> = Vec::new();
         for &metric in &self.metrics {
             if let Some((_, entries)) = groups.iter_mut().find(|(unit, _)| *unit == metric.unit) {
@@ -179,30 +345,30 @@ impl Report {
         }
         let mut pages = Vec::new();
         if groups.is_empty() {
-            let mut page = page_title(first, status, elapsed);
+            let mut page = page_title(identity, status, elapsed);
             pdf_text(
                 &mut page,
                 45,
-                650,
+                631,
                 13,
                 "Observations (no quantitative plot)",
             );
             for (i, line) in self.output.lines().take(TEXT_ROWS).enumerate() {
-                pdf_text(&mut page, 45, 622 - i * 17, 10, line);
+                pdf_text(&mut page, 45, 606 - i * 17, 10, line);
             }
             pdf_text(
                 &mut page,
                 45,
                 65,
                 10,
-                "See report.md for the benchmark output.",
+                "See the paired Markdown report for the benchmark output.",
             );
             pages.push(page);
         } else {
             for (unit, metrics) in groups {
                 let maximum = metrics.iter().map(|m| m.value).fold(0.0_f64, f64::max);
                 for rows in metrics.chunks(CHART_ROWS) {
-                    let mut page = page_title(first, status, elapsed);
+                    let mut page = page_title(identity, status, elapsed);
                     draw_chart(&mut page, unit, maximum, rows);
                     pages.push(page);
                 }
@@ -243,7 +409,8 @@ fn write_new(path: &Path, contents: &[u8]) -> io::Result<()> {
         .write_all(contents)
 }
 
-fn utc(seconds: u64) -> String {
+fn utc(timestamp: Duration) -> String {
+    let seconds = timestamp.as_secs();
     // Shift from the Unix epoch to a March-based Gregorian calendar so leap day is last.
     let days = seconds / 86_400 + 719_468;
     let cycle = days / 146_097;
@@ -259,7 +426,8 @@ fn utc(seconds: u64) -> String {
     let hour = seconds / 3600 % 24;
     let minute = seconds / 60 % 60;
     let second = seconds % 60;
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}Z")
+    let nanos = timestamp.subsec_nanos();
+    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{nanos:09}Z")
 }
 
 fn number(value: f64) -> String {
@@ -270,22 +438,38 @@ fn number(value: f64) -> String {
     }
 }
 
-fn page_title(title: &str, status: &str, elapsed: f64) -> String {
+fn page_title(identity: &Identity, status: &str, elapsed: f64) -> String {
     let mut page = String::new();
     pdf_text(&mut page, 45, 745, 20, "Embedded Linux Benchmark");
-    pdf_text(&mut page, 45, 718, 11, title);
+    pdf_text(&mut page, 45, 718, 13, &identity.title());
     pdf_text(
         &mut page,
         45,
-        697,
+        698,
+        11,
+        &format!("Start (UTC): {}", identity.utc),
+    );
+    pdf_text(
+        &mut page,
+        45,
+        678,
         11,
         &format!("{status}  |  Wall time {elapsed:.3} s"),
     );
+    if identity.subject.observes_hardware() {
+        pdf_text(
+            &mut page,
+            45,
+            657,
+            10,
+            "Passive observations: PCIe, USB, HDMI (read-only, when available)",
+        );
+    }
     page
 }
 
 fn draw_chart(page: &mut String, unit: &str, maximum: f64, metrics: &[Metric]) {
-    pdf_text(page, 45, 650, 13, &format!("Measured values ({unit})"));
+    pdf_text(page, 45, 631, 13, &format!("Measured values ({unit})"));
     for (i, metric) in metrics.iter().enumerate() {
         let y = 600 - i * 48;
         pdf_text(page, 45, y + 16, 10, metric.label);
@@ -373,9 +557,26 @@ mod tests {
 
     #[test]
     fn timestamps_use_utc_including_leap_days() {
-        assert_eq!(utc(0), "1970-01-01T00:00:00Z");
-        assert_eq!(utc(951_827_696), "2000-02-29T12:34:56Z");
-        assert_eq!(utc(4_107_542_400), "2100-03-01T00:00:00Z");
+        assert_eq!(utc(Duration::ZERO), "1970-01-01T00:00:00.000000000Z");
+        assert_eq!(
+            utc(Duration::new(951_827_696, 123)),
+            "2000-02-29T12:34:56.000000123Z"
+        );
+        assert_eq!(
+            utc(Duration::from_secs(4_107_542_400)),
+            "2100-03-01T00:00:00.000000000Z"
+        );
+    }
+
+    #[test]
+    fn filename_identity_is_safe_and_does_not_invent_a_timestamp() {
+        let at = Some(Duration::new(951_827_696, 123));
+        let identity = Identity::new(Subject::HdmiStatus, at);
+        assert_eq!(identity.stem, "hdmi-status_2000-02-29T12-34-56.000000123Z");
+        assert_eq!(identity.title(), "HDMI status observation");
+        let identity = Identity::new(Subject::Uart, None);
+        assert_eq!(identity.stem, "uart-loopback_unavailable");
+        assert_eq!(identity.utc, "unavailable");
     }
 
     #[test]
@@ -404,12 +605,33 @@ mod tests {
             let report = state.as_mut().unwrap();
             report.append("CPU (fixture) \\ value");
             assert_eq!(report.metrics.len(), 2);
-            let pdf = report.pdf("Completed", 0.1);
+            let identity = Identity::new(Subject::Cpu, Some(Duration::ZERO));
+            let pdf = report.pdf(&identity, "Completed", 0.1);
             let text = String::from_utf8_lossy(&pdf);
             assert!(text.contains("/Count 2"));
-            assert!(text.contains(r"CPU \(fixture\) \\ value"));
+            assert!(!text.contains("fixture"));
+            assert!(text.contains(r"Start \(UTC\): 1970-01-01T00:00:00.000000000Z"));
             assert!(text.contains("Measured values \\(MiB/s\\)"));
             assert!(!text.contains("NaN"));
+        });
+    }
+
+    #[test]
+    fn observation_report_has_identity_without_inventing_a_plot() {
+        begin();
+        CAPTURE.with(|state| {
+            let mut state = state.borrow_mut();
+            let report = state.as_mut().unwrap();
+            report.append("HDMI (fixture) \\ value");
+            let identity = Identity::new(Subject::HdmiStatus, Some(Duration::ZERO));
+            let markdown = report.markdown(&identity, "test.pdf", "Completed", 0.1);
+            assert!(markdown.contains("No quantitative measurements were recorded."));
+            assert!(markdown.contains("[PDF report](test.pdf)"));
+            let bytes = report.pdf(&identity, "Completed", 0.1);
+            let pdf = String::from_utf8_lossy(&bytes);
+            assert!(pdf.contains("HDMI status observation"));
+            assert!(pdf.contains(r"HDMI \(fixture\) \\ value"));
+            assert!(!pdf.contains("Measured values"));
         });
     }
 }

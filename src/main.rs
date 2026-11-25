@@ -33,9 +33,9 @@ fn main() -> ExitCode {
     report::begin();
     let result = cli::run();
     match report::finish(&result) {
-        Ok(Some(directory)) => {
-            println!("Report: {}", directory.join("report.md").display());
-            println!("Plots: {}", directory.join("plots.pdf").display());
+        Ok(Some(files)) => {
+            println!("Report: {}", files.markdown.display());
+            println!("Plots: {}", files.pdf.display());
         }
         Ok(None) => {}
         Err(error) => {

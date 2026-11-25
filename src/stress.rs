@@ -418,6 +418,10 @@ fn describe_totals(plan: &Plan, totals: &Totals) {
 }
 
 pub(crate) fn run(plan: Plan) -> Result<(), String> {
+    crate::report::identify(crate::report::Subject::Stress {
+        test: plan.test,
+        storage: plan.storage.is_some(),
+    });
     let (target, fixed) = match plan.schedule {
         Schedule::Rounds { count, timeout } => (timeout, Some(count)),
         Schedule::Timed(target) => (target, None),

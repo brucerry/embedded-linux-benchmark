@@ -30,20 +30,22 @@ and a vector PDF in a new owner-only `/tmp/embedded-linux-benchmark-…/` direct
 For example:
 
 ```text
-Report: /tmp/embedded-linux-benchmark-…/report.md
-Plots: /tmp/embedded-linux-benchmark-…/plots.pdf
+Report: /tmp/embedded-linux-benchmark-…/cpu_2026-11-25T09-30-00.123456789Z.md
+Plots: /tmp/embedded-linux-benchmark-…/cpu_2026-11-25T09-30-00.123456789Z.pdf
 ```
 
-The Markdown file records the result, elapsed time, measurements with units, and
-benchmark output. The PDF plots measured values within their own units; it does
-not rank different components or combine their rates into one score. Commands
-that only observe device status get a PDF summary without fabricated plots.
-Reports don't include the original arguments, so session tokens aren't copied
-from the command line. Stress reports summarize completed work and partial rounds, not every progress
-line. The captured output and metric count are bounded; an early error before
-benchmark output is still reported on the console. The files need
-no external graphing tools, and `/tmp` may be RAM-backed or cleared at reboot.
-Copy out reports you want to keep.
+The paired names identify the test and its UTC start time, which also appear in
+both reports. The Markdown file records the result, elapsed time, measurements
+with units, and benchmark output. The PDF plots measured values within their
+own units; it does not rank components or combine their rates into one score.
+Commands that only observe device status get a PDF summary without fabricated
+plots. Stress reports list selected workloads separately from read-only
+observations and summarize completed work and partial rounds, not every
+progress line. Names and headings never include raw arguments or device paths.
+The captured output and metric count are bounded; an early error before
+benchmark output is still reported on the console. No external graphing tools
+are needed. Keep the pair together so the Markdown link opens the PDF, and copy
+out reports you want to retain because `/tmp` may be cleared at reboot.
 
 ## Build for a target
 
