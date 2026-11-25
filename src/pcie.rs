@@ -68,10 +68,10 @@ fn read_link(device: &Path) -> Result<[Option<String>; 4], String> {
 pub(crate) fn link(device: &str) -> Result<(), String> {
     let device = bdf(device)?;
     let link = read_link(&Path::new("/sys/bus/pci/devices").join(&device))?;
-    println!("PCIe link information (read-only sysfs)");
-    println!("Device: {device}");
+    report_line!("PCIe link information (read-only sysfs)");
+    report_line!("Device: {device}");
     for ((_, label), value) in LINK_ATTRIBUTES.into_iter().zip(&link) {
-        println!("{label}: {}", value.as_deref().unwrap_or("unavailable"));
+        report_line!("{label}: {}", value.as_deref().unwrap_or("unavailable"));
     }
     Ok(())
 }

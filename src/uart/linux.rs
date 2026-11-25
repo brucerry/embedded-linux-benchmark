@@ -334,10 +334,11 @@ pub(super) fn run(device: &Path, bytes: usize, deadline: Deadline) -> Result<(),
         (Err(error), Err(restore)) => return Err(format!("{error}; {restore}")),
     };
     let seconds = elapsed.as_secs_f64();
-    println!("UART throughput (verified loopback, 115200 8N1)");
-    println!("Device: {}", path.display());
-    println!("Bytes verified: {bytes}");
-    println!("Elapsed: {seconds:.6} s");
-    println!("Throughput: {:.2} B/s", bytes as f64 / seconds);
+    crate::report::metric("UART loopback throughput", bytes as f64 / seconds, "B/s");
+    report_line!("UART throughput (verified loopback, 115200 8N1)");
+    report_line!("Device: {}", path.display());
+    report_line!("Bytes verified: {bytes}");
+    report_line!("Elapsed: {seconds:.6} s");
+    report_line!("Throughput: {:.2} B/s", bytes as f64 / seconds);
     Ok(())
 }

@@ -30,15 +30,29 @@ pub(crate) fn run(duration: Duration, deadline: Option<Deadline>) -> Result<(), 
     if sample.elapsed < duration {
         return Err(RunError::Deadline.into());
     }
+    describe(&sample, state, true);
+    Ok(())
+}
+
+pub(crate) fn describe(sample: &Sample, state: u32, record: bool) {
     let iterations = sample.count;
     let seconds = sample.elapsed.as_secs_f64();
-    println!(
-        "CPU throughput (single thread, 32-bit xorshift)\n\
+    if record {
+        crate::report::metric(
+            "CPU throughput",
+            iterations as f64 / seconds,
+            "iterations/s",
+        );
+    }
+    crate::report::emit(
+        record,
+        format_args!(
+            "CPU throughput (single thread, 32-bit xorshift)\n\
          Elapsed: {seconds:.6} s\n\
          Iterations: {iterations}\n\
          Throughput: {:.2} iterations/s\n\
          Checksum: {state:08x}",
-        iterations as f64 / seconds,
+            iterations as f64 / seconds,
+        ),
     );
-    Ok(())
 }

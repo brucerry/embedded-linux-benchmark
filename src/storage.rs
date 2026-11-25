@@ -178,6 +178,18 @@ pub(crate) fn run(
     deadline: Deadline,
 ) -> Result<(), String> {
     let (write_elapsed, read_elapsed) = benchmark(directory, bytes, sync, deadline, &mut 0)?;
+    describe(directory, bytes, sync, write_elapsed, read_elapsed, true);
+    Ok(())
+}
+
+pub(crate) fn describe(
+    directory: &Path,
+    bytes: u64,
+    sync: bool,
+    write_elapsed: Duration,
+    read_elapsed: Duration,
+    record: bool,
+) {
     let write_mode = if sync {
         "buffered, includes sync_data"
     } else {
@@ -186,8 +198,14 @@ pub(crate) fn run(
     let write_seconds = write_elapsed.as_secs_f64();
     let read_seconds = read_elapsed.as_secs_f64();
     let mib = bytes as f64 / MIB as f64;
-    println!(
-        "Storage throughput (sequential filesystem I/O)\n\
+    if record {
+        crate::report::metric("Sequential write throughput", mib / write_seconds, "MiB/s");
+        crate::report::metric("Sequential read throughput", mib / read_seconds, "MiB/s");
+    }
+    crate::report::emit(
+        record,
+        format_args!(
+            "Storage throughput (sequential filesystem I/O)\n\
          Directory: {}\n\
          Write mode: {write_mode}\n\
          Write bytes: {bytes}\n\
@@ -197,9 +215,9 @@ pub(crate) fn run(
          Read bytes: {bytes}\n\
          Read elapsed: {read_seconds:.6} s\n\
          Read throughput: {:.2} MiB/s",
-        directory.display(),
-        mib / write_seconds,
-        mib / read_seconds,
+            directory.display(),
+            mib / write_seconds,
+            mib / read_seconds,
+        ),
     );
-    Ok(())
 }

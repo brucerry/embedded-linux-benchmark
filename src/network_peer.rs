@@ -230,10 +230,15 @@ pub(crate) fn server(config: &Config, deadline: Deadline) -> Result<(), String> 
     }
     let elapsed = start.elapsed();
     wire.write(&bytes.to_be_bytes())?;
-    println!("Peer throughput (TCP receiver, verified payload)");
-    println!("Bytes verified: {bytes}");
-    println!("Elapsed: {:.6} s", elapsed.as_secs_f64());
-    println!(
+    crate::report::metric(
+        "TCP peer receive throughput",
+        config.mib as f64 / elapsed.as_secs_f64(),
+        "MiB/s",
+    );
+    report_line!("Peer throughput (TCP receiver, verified payload)");
+    report_line!("Bytes verified: {bytes}");
+    report_line!("Elapsed: {:.6} s", elapsed.as_secs_f64());
+    report_line!(
         "Throughput: {:.2} MiB/s",
         config.mib as f64 / elapsed.as_secs_f64()
     );
@@ -275,20 +280,32 @@ pub(crate) fn client(config: &Config, deadline: Deadline) -> Result<(), String> 
     samples.sort_unstable();
     let mean = samples.iter().map(|time| time.as_secs_f64()).sum::<f64>() / samples.len() as f64;
     let p95 = samples[(95 * samples.len() + 99) / 100 - 1].as_secs_f64();
-    println!(
+    crate::report::metric(
+        "Minimum TCP round trip",
+        samples[0].as_secs_f64() * 1000.0,
+        "ms",
+    );
+    crate::report::metric("Mean TCP round trip", mean * 1000.0, "ms");
+    crate::report::metric("TCP round trip p95", p95 * 1000.0, "ms");
+    crate::report::metric(
+        "TCP peer send throughput",
+        config.mib as f64 / elapsed.as_secs_f64(),
+        "MiB/s",
+    );
+    report_line!(
         "Peer latency (application TCP round trip)\nProbes: {}",
         samples.len()
     );
-    println!(
+    report_line!(
         "RTT min / mean / p95: {:.3} / {:.3} / {:.3} ms",
         samples[0].as_secs_f64() * 1000.0,
         mean * 1000.0,
         p95 * 1000.0
     );
-    println!("Peer throughput (TCP sender, including final acknowledgment)");
-    println!("Bytes verified by peer: {bytes}");
-    println!("Elapsed: {:.6} s", elapsed.as_secs_f64());
-    println!(
+    report_line!("Peer throughput (TCP sender, including final acknowledgment)");
+    report_line!("Bytes verified by peer: {bytes}");
+    report_line!("Elapsed: {:.6} s", elapsed.as_secs_f64());
+    report_line!(
         "Throughput: {:.2} MiB/s",
         config.mib as f64 / elapsed.as_secs_f64()
     );

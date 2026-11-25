@@ -276,7 +276,7 @@ fn stress_selector_runs_only_the_selected_component_each_round() {
     let cases: &[(&str, &[&str])] = &[
         ("cpu", &["--duration-ms", "1"]),
         ("ram", &["--duration-ms", "1", "--buffer-kib", "4"]),
-        ("network", &["--network-mib", "1"]),
+        ("network", &["--network-mib", "1", "--duration-ms", "1"]),
         (
             "storage",
             &[
@@ -358,10 +358,10 @@ fn stress_rejects_invalid_selectors_and_conflicting_options_before_work() {
         ),
         (
             &["--test", "ram", "--timeout-ms", "750"],
-            "selected test's total phase duration",
+            "total scheduled load duration",
         ),
         (
-            &["--test", "network", "--duration-ms", "1"],
+            &["--test", "storage", "--duration-ms", "1"],
             "'--duration-ms' cannot be used",
         ),
         (
@@ -446,12 +446,12 @@ fn category_parameters_are_validated_before_load_or_writes() {
             "integer between 1 and 5",
         ),
         (
-            &["stress", "auto", "--duration-ms", "5001"],
-            "integer between 1 and 5000",
+            &["stress", "auto", "--duration-ms", "60001"],
+            "integer between 1 and 60000",
         ),
         (
             &["stress", "auto", "--timeout-ms", "1"],
-            "combined CPU and RAM phase durations",
+            "total scheduled load duration",
         ),
         (
             &["stress", "auto", "--storage-dir", directory.path()],
@@ -592,6 +592,51 @@ fn timed_cpu_stops_at_the_global_deadline_inside_a_long_phase() {
 }
 
 #[test]
+fn short_elapsed_target_runs_all_safe_loads_and_reports_a_partial_round() {
+    let output = successful_output(&["stress", "auto", "--duration", "1s", "--network-mib", "1"]);
+    assert!(elapsed(&output) >= 0.999);
+    assert_eq!(field(&output, "Rounds completed: "), "0");
+    assert_eq!(field(&output, "Partial rounds: "), "1");
+    for label in [
+        "CPU iterations: ",
+        "RAM bytes copied: ",
+        "Network bytes received: ",
+    ] {
+        assert!(!field(&output, label).starts_with("0 "), "{output}");
+    }
+    assert!(
+        output.contains("PCIe links:")
+            && output.contains("HDMI encoder states:")
+            && output.contains("USB link speeds:")
+    );
+    assert!(output.contains("Fixture-only device, peer and accelerator tests: skipped"));
+    assert_eq!(field(&output, "Stop reason: "), "duration reached");
+}
+
+#[test]
+fn fixed_round_loads_overlap_and_loopback_keeps_transferring() {
+    let output = successful_output(&[
+        "stress",
+        "auto",
+        "--rounds",
+        "1",
+        "--duration-ms",
+        "200",
+        "--buffer-kib",
+        "4",
+        "--network-mib",
+        "1",
+    ]);
+    assert!(output.contains("Stress auto (concurrent load)"));
+    assert!(output.contains("Stress result: PASS (1/1 rounds completed)"));
+    let received: u64 = field(&output, "Bytes received: ").parse().unwrap();
+    assert!(received >= 1_048_576);
+    for label in ["CPU: PASS", "RAM: PASS", "Network: PASS"] {
+        assert!(output.contains(label), "{output}");
+    }
+}
+
+#[test]
 fn timed_suite_uses_one_storage_budget_and_keeps_running() {
     let directory = ScratchDirectory::create();
     let output = successful_output(&[
@@ -621,7 +666,7 @@ fn timed_suite_uses_one_storage_budget_and_keeps_running() {
         assert!(!field(&output, label).starts_with("0 "));
     }
     assert_eq!(field(&output, "Stop reason: "), "duration reached");
-    assert!(output.lines().count() < 20, "{output}");
+    assert!(output.lines().count() <= 20, "{output}");
     assert!(directory.names().is_empty());
 }
 
@@ -654,6 +699,15 @@ fn timed_storage_only_finishes_early_after_using_its_budget() {
 fn timed_stress_rejects_conflicts_and_out_of_range_durations_before_work() {
     let cases: &[(&[&str], &str)] = &[
         (&["--duration-secs", "0"], "integer between 1 and 1209600"),
+        (&["--duration", "15d"], "1s through 14d"),
+        (
+            &["--duration", "1h", "--duration-secs", "1"],
+            "cannot be used with",
+        ),
+        (
+            &["--duration", "1h", "--rounds", "1"],
+            "cannot be used with",
+        ),
         (
             &["--duration-secs", "1209601"],
             "integer between 1 and 1209600",

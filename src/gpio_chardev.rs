@@ -227,13 +227,18 @@ pub(crate) fn run(
         ));
     }
     let (elapsed, active) = sample_input(&device, offset, samples, deadline)?;
-    println!("GPIO read latency (userspace chardev v2 ioctl)");
-    println!("Chip: {}", chip.display());
-    println!("Line offset: {offset}");
-    println!("Samples: {samples}");
-    println!("Active samples: {active}");
-    println!("Measured elapsed: {:.6} s", elapsed.as_secs_f64());
-    println!(
+    crate::report::metric(
+        "Mean GPIO read latency",
+        elapsed.as_secs_f64() * 1_000_000.0 / samples as f64,
+        "us",
+    );
+    report_line!("GPIO read latency (userspace chardev v2 ioctl)");
+    report_line!("Chip: {}", chip.display());
+    report_line!("Line offset: {offset}");
+    report_line!("Samples: {samples}");
+    report_line!("Active samples: {active}");
+    report_line!("Measured elapsed: {:.6} s", elapsed.as_secs_f64());
+    report_line!(
         "Mean read latency: {:.3} us",
         elapsed.as_secs_f64() * 1_000_000.0 / samples as f64
     );

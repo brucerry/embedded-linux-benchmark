@@ -231,20 +231,30 @@ pub(crate) fn run(config: &Config<'_>, sender: bool, deadline: Deadline) -> Resu
     )?;
     let elapsed = start.elapsed().as_secs_f64();
     let payload_bytes = u64::from(config.frames) * (config.mtu() - HEADER) as u64;
-    println!(
+    report_line!(
         "{} (isolated SocketCAN peer fixture)",
         if config.fd { "CAN FD" } else { "Classic CAN" }
     );
-    println!("Interface: {}", config.interface);
-    println!("Frames verified: {}", config.frames);
-    println!("Payload bytes verified: {payload_bytes}");
-    println!("Elapsed: {elapsed:.6} s");
+    report_line!("Interface: {}", config.interface);
+    report_line!("Frames verified: {}", config.frames);
+    report_line!("Payload bytes verified: {payload_bytes}");
+    report_line!("Elapsed: {elapsed:.6} s");
     if sender {
-        println!(
+        crate::report::metric(
+            "CAN round trip rate",
+            f64::from(config.frames) / elapsed,
+            "round trips/s",
+        );
+        crate::report::metric(
+            "Mean CAN round-trip cycle",
+            elapsed * 1000.0 / f64::from(config.frames),
+            "ms",
+        );
+        report_line!(
             "Verified round trips/s: {:.2}",
             f64::from(config.frames) / elapsed
         );
-        println!(
+        report_line!(
             "Mean round-trip cycle: {:.3} ms",
             elapsed * 1000.0 / f64::from(config.frames)
         );

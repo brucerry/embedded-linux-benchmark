@@ -48,19 +48,33 @@ pub(crate) fn run(
     if sample.elapsed < duration {
         return Err(RunError::Deadline.into());
     }
+    describe(&sample, buffer_kib, true);
+    Ok(())
+}
+
+pub(crate) fn describe(sample: &Sample, buffer_kib: u64, record: bool) {
     let bytes_copied = sample.count;
     let copies = bytes_copied / (buffer_kib * 1_024);
     let seconds = sample.elapsed.as_secs_f64();
-    println!(
-        "RAM copy throughput (single thread)\n\
+    if record {
+        crate::report::metric(
+            "RAM copy throughput",
+            bytes_copied as f64 / (MIB as f64 * seconds),
+            "MiB/s",
+        );
+    }
+    crate::report::emit(
+        record,
+        format_args!(
+            "RAM copy throughput (single thread)\n\
          Buffer size: {buffer_kib} KiB each\n\
          Working set: {} KiB (source + destination)\n\
          Elapsed: {seconds:.6} s\n\
          Copies: {copies}\n\
          Bytes copied: {bytes_copied}\n\
          Throughput: {:.2} MiB/s",
-        buffer_kib * 2,
-        bytes_copied as f64 / (MIB as f64 * seconds),
+            buffer_kib * 2,
+            bytes_copied as f64 / (MIB as f64 * seconds),
+        ),
     );
-    Ok(())
 }

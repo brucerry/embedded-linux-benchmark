@@ -15,6 +15,7 @@ enum Kind {
     Text,
     Flag,
     StressTest,
+    StressDuration,
     I2cAddress,
 }
 
@@ -118,6 +119,7 @@ const STRESS_OPTIONS: &[(&str, Kind)] = &[
     ("--test", Kind::StressTest),
     ("--rounds", Number(1, stress::MAX_ROUNDS)),
     ("--duration-secs", Number(1, stress::MAX_DURATION_SECS)),
+    ("--duration", Kind::StressDuration),
     ("--duration-ms", Number(1, stress::MAX_DURATION_MS)),
     (
         "--buffer-kib",
@@ -175,6 +177,7 @@ impl<'a> Options<'a> {
                 Kind::Path => Value::Path(Path::new(raw)),
                 Kind::Text => Value::Text(raw),
                 Kind::I2cAddress => Value::Number(u64::from(i2c::address(raw)?)),
+                Kind::StressDuration => Value::Number(stress::parse_duration(raw)?),
                 Kind::StressTest => Value::StressTest(match raw.as_str() {
                     "cpu" => stress::Test::Cpu,
                     "ram" => stress::Test::Ram,
@@ -226,7 +229,7 @@ impl<'a> Options<'a> {
             _ => return Ok(None),
         };
         for (option, permitted) in [
-            ("--duration-ms", matches!(test, Cpu | Ram)),
+            ("--duration-ms", matches!(test, Cpu | Ram | Network)),
             ("--buffer-kib", test == Ram),
             ("--network-mib", test == Network),
             ("--storage-dir", test == Storage),
@@ -278,7 +281,7 @@ fn help() {
     --session HEX --fixture [--fd] [--frames N] [--timeout-ms MS]
   embedded-linux-benchmark hdmi status --connector NAME
   embedded-linux-benchmark hdmi capture --device PATH --fixture [--frames N] [--timeout-ms MS]
-  embedded-linux-benchmark stress auto [--test cpu|ram|network|storage] [--rounds N | --duration-secs SEC]
+  embedded-linux-benchmark stress auto [--test cpu|ram|network|storage] [--rounds N | --duration TIME | --duration-secs SEC]
     [--duration-ms MS] [--buffer-kib KIB]
     [--network-mib MIB] [--timeout-ms MS] [--storage-dir DIR --storage-mib MIB [--storage-sync]]
 
@@ -297,9 +300,10 @@ iio       Userspace cadence and jitter for raw IIO input samples
 usb       Verified bulk throughput on a dedicated usbfs loopback fixture
 can       Classic CAN or CAN FD round trips with an isolated SocketCAN peer
 hdmi      DRM connector observations or V4L2 capture-fixture delivery measurements
-stress    Up to 5 sequential rounds of CPU, RAM, and TCP loopback (default 3)
-          --duration-secs sets a total run target of 1–{max_duration_secs} seconds
-          --duration-ms controls each CPU/RAM phase, including timed runs
+stress    Up to 5 rounds of concurrent CPU, RAM, and TCP loopback (default 3)
+          Read-only PCIe, USB and HDMI observations; no device I/O without a separate request
+          --duration accepts 30m, 12h, 14d or 2w (whole s/m/h/d/w); --duration-secs accepts 1–{max_duration_secs}
+          --duration-ms sets the minimum CPU/RAM/loopback phase time ({default_phase_ms} ms, max {max_phase_ms})
           --test runs one component per round and accepts only its options
           Storage requires both a directory and a total write budget
 
@@ -307,6 +311,8 @@ cpu/ram --duration-ms  1–{MAX_DURATION_MS} (default {DEFAULT_DURATION_MS})
 ram --buffer-kib       4–32768 per buffer (default 4096)
 -h, --help  Show this help",
         max_duration_secs = stress::MAX_DURATION_SECS,
+        default_phase_ms = stress::DEFAULT_DURATION_MS,
+        max_phase_ms = stress::MAX_DURATION_MS,
     );
 }
 
@@ -318,11 +324,21 @@ fn parse_stress(args: &[String]) -> Result<stress::Plan, String> {
     let options = Options::parse("stress auto", args, STRESS_OPTIONS)?;
     let test = options.stress_test()?;
     let duration = options.duration(stress::DEFAULT_DURATION_MS);
-    let schedule = match options.number("--duration-secs") {
+    let seconds = options.number("--duration-secs");
+    let human_duration = options.number("--duration");
+    if seconds.is_some() && human_duration.is_some() {
+        return Err("'--duration' cannot be used with '--duration-secs'".into());
+    }
+    let schedule = match seconds.or(human_duration) {
         Some(seconds) => {
+            let timed_option = if human_duration.is_some() {
+                "--duration"
+            } else {
+                "--duration-secs"
+            };
             for option in ["--rounds", "--timeout-ms"] {
                 if options.number(option).is_some() {
-                    return Err(format!("'{option}' cannot be used with '--duration-secs'"));
+                    return Err(format!("'{option}' cannot be used with '{timed_option}'"));
                 }
             }
             stress::Schedule::Timed(Duration::from_secs(seconds))
@@ -330,18 +346,8 @@ fn parse_stress(args: &[String]) -> Result<stress::Plan, String> {
         None => {
             let count = options.number("--rounds").unwrap_or(stress::DEFAULT_ROUNDS);
             let timeout = options.timeout(stress::DEFAULT_TIMEOUT_MS);
-            let timed_phases = match test {
-                None => 2,
-                Some(stress::Test::Cpu | stress::Test::Ram) => 1,
-                Some(_) => 0,
-            };
-            if timeout <= duration * (timed_phases * count as u32) {
-                let phases = if test.is_none() {
-                    "combined CPU and RAM phase durations"
-                } else {
-                    "selected test's total phase duration"
-                };
-                return Err(format!("'--timeout-ms' must exceed the {phases}"));
+            if test != Some(stress::Test::Storage) && timeout <= duration * count as u32 {
+                return Err("'--timeout-ms' must exceed the total scheduled load duration".into());
             }
             stress::Schedule::Rounds { count, timeout }
         }
@@ -705,6 +711,65 @@ mod tests {
             assert!(
                 matches!(plan.schedule, stress::Schedule::Timed(duration) if duration == Duration::from_secs(seconds))
             );
+        }
+    }
+
+    #[test]
+    fn parses_sustained_defaults_and_maximum_fixed_round_plan() {
+        let default = parse_stress(&[]).expect("default stress plan");
+        assert_eq!(default.duration, Duration::from_secs(10));
+        assert_eq!(default.buffer_kib, 1024);
+        assert!(matches!(
+            default.schedule,
+            stress::Schedule::Rounds { count: 3, timeout } if timeout == Duration::from_secs(60)
+        ));
+
+        let max = [
+            "--rounds",
+            "5",
+            "--duration-ms",
+            "60000",
+            "--timeout-ms",
+            "360000",
+        ]
+        .map(String::from);
+        let plan = parse_stress(&max).expect("maximum duration and round count");
+        assert_eq!(plan.duration, Duration::from_secs(60));
+        assert!(matches!(
+            plan.schedule,
+            stress::Schedule::Rounds { count: 5, timeout } if timeout == Duration::from_secs(360)
+        ));
+    }
+
+    #[test]
+    fn parses_friendly_durations_without_starting_work() {
+        for (input, seconds) in [
+            ("1s", 1),
+            ("30m", 1800),
+            ("12h", 43200),
+            ("14d", 1209600),
+            ("2w", 1209600),
+            ("1209600", 1209600),
+        ] {
+            let args = ["--duration".into(), input.into()];
+            let plan = parse_stress(&args).expect("valid stress duration");
+            assert!(
+                matches!(plan.schedule, stress::Schedule::Timed(duration) if duration == Duration::from_secs(seconds))
+            );
+        }
+        for input in [
+            "0",
+            "0h",
+            "15d",
+            "3w",
+            "1.5h",
+            "99999999999999999999w",
+            "2weeks",
+            "",
+            "2週",
+        ] {
+            let args = ["--duration".into(), input.into()];
+            assert!(parse_stress(&args).is_err(), "{input}");
         }
     }
 }

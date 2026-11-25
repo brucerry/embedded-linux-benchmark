@@ -42,7 +42,7 @@ A peer fixture using two distinct loopback addresses passed natively and with th
 
 ## Peripherals
 
-Peripheral benchmarks run only when requested directly. The automatic stress suite never accesses them.
+Active peripheral benchmarks run only when requested directly. Automatic stress only observes allowlisted PCIe, USB and HDMI status attributes in sysfs; it never opens a peripheral device node or initiates an external test.
 
 ### PCIe link information
 
@@ -188,9 +188,13 @@ I2C, SPI, and GPIO chardev accept `--timeout-ms` from 1–30000 with a 5000 ms d
   --storage-dir /path/to/writable-directory --storage-mib 16 --storage-sync
 ```
 
-By default each round runs CPU, RAM, and loopback in sequence. Supplying both `--storage-dir` and `--storage-mib` adds storage after loopback. `--storage-mib` is the total 1–64 MiB write budget across all rounds. The suite divides it among rounds, with any remaining bytes in the final round. `--storage-sync` is optional with storage enabled.
+Each automatic round overlaps three sustained workloads: one integer CPU worker, RAM copies, and verified TCP loopback transfers. Workers keep running for at least the configured phase length, subject to the global deadline. Loopback reuses one connection within a round and continuously transfers data after reaching the initial minimum byte count. There is no sleep inserted between rounds.
 
-Use one `--test` selector to repeat a single component. Each selection accepts `--rounds` and `--timeout-ms`. CPU and RAM accept `--duration-ms`, RAM accepts `--buffer-kib`, and network accepts `--network-mib`. Storage-only requires both the directory and total write budget and accepts `--storage-sync`. Options for other components produce an error before the run starts.
+The suite also reads available PCIe link width, USB link speed, and HDMI encoder status once per round. These are **passive observations, not active hardware benchmarks**. Missing or inaccessible attributes are reported as unavailable or skipped. Device discovery is capped at 256 entries per class and 32 candidates per class, and it runs only once at startup. Camera, bus, GPIO/IIO, accelerator, and network peer workloads stay out of automatic stress because they require an explicit device, fixture, or peer. Use their standalone commands to run them.
+
+Supplying both `--storage-dir` and `--storage-mib` adds bounded filesystem work alongside the other loads. `--storage-mib` is the **total** 1–64 MiB write budget across all rounds, not a per-round allowance. Fixed-round mode divides it among rounds, putting any remainder in the final round. Add `--storage-sync` to include `sync_data()`.
+
+Use one `--test` selector to repeat a single component without passive observations. CPU, RAM and network accept `--duration-ms`, RAM accepts `--buffer-kib`, and network accepts `--network-mib`. Storage-only requires both the directory and the total write budget and accepts `--storage-sync`. Options for other components produce an error before the run starts.
 
 ```sh
 ./target/release/embedded-linux-benchmark stress auto --test cpu --rounds 3 --duration-ms 500
@@ -203,32 +207,31 @@ Use one `--test` selector to repeat a single component. Each selection accepts `
 | Option | Default | Accepted values |
 | --- | --- | --- |
 | `--rounds` | 3 | 1–5 |
-| `--duration-ms` | 250 per CPU or RAM phase | 1–5000 |
-| `--buffer-kib` | 1024 per RAM buffer | 4–32768 |
-| `--network-mib` | 8 per round | 1–64 |
-| `--timeout-ms` | 15000 for the full run | 1–120000, greater than the total duration of all scheduled CPU and RAM phases |
+| `--duration-ms` | 10000 per CPU, RAM and loopback phase | 1–60000 |
+| `--buffer-kib` | 1024 per RAM buffer (2048 total) | 4–32768 |
+| `--network-mib` | 8 minimum per complete loopback phase | 1–64 |
+| `--timeout-ms` | 60000 for the full fixed-round run | 1–360000, greater than round count × phase duration unless storage-only |
 
 ### Elapsed-time runs
 
-Use `--duration-secs` for a foreground run with a total elapsed target from 1 through 1209600 seconds (14 days). It applies to the suite or any individual `--test`. This mode replaces `--rounds` and `--timeout-ms`. `--duration-ms` still sets the CPU or RAM phase length, and the last phase may run for less time as the deadline approaches.
+Use `--duration TIME` or `--duration-secs SEC` for a foreground elapsed target from 1 second through 14 days. `TIME` accepts whole seconds, minutes, hours, days, or weeks, with suffixes `s`, `m`, `h`, `d` and `w`. Either duration option replaces `--rounds` and `--timeout-ms`.
 
 ```sh
-./target/release/embedded-linux-benchmark stress auto --duration-secs 60
-./target/release/embedded-linux-benchmark stress auto --test cpu --duration-secs 1209600
-./target/release/embedded-linux-benchmark stress auto --test ram --duration-secs 300 --duration-ms 500
-./target/release/embedded-linux-benchmark stress auto --test storage --duration-secs 300 \
+./target/release/embedded-linux-benchmark stress auto --duration 30m
+./target/release/embedded-linux-benchmark stress auto --duration 2w
+./target/release/embedded-linux-benchmark stress auto --duration-secs 1209600
+./target/release/embedded-linux-benchmark stress auto --test ram --duration 1h --duration-ms 500
+./target/release/embedded-linux-benchmark stress auto --test storage --duration 5m \
   --storage-dir /path/to/writable-directory --storage-mib 16
 ```
 
-Elapsed-time runs keep fixed-size totals, emit progress at most once every five minutes, and print the measured elapsed time and stop reason. CPU and RAM totals include shortened measured phases. Network and verified storage totals include completed operations. The storage write count includes bytes written before a cutoff. Loopback operations retain their configured byte cap and a five-second timeout. Each storage operation uses at most 1 MiB of the explicit total write budget and a ten-second deadline. These operation deadlines are also limited by the remaining run time.
+A complete round finishes all active phases at their configured duration or byte count. Near the deadline, they still start together but the shortened final round is counted separately as partial, never as complete. Partial CPU/RAM work and payload-verified loopback bytes still contribute to totals. Storage accounts for bytes actually written even if readback did not finish before the deadline, and only completed readbacks contribute to verified bytes. A workload error or a per-operation timeout before the global deadline fails the run.
 
-The storage write budget is shared across the entire run at any duration. The suite announces when it reaches that budget and continues the other selected phases. Storage-only finishes early after verifying its final write. The stress suite measures workload activity and leaves thermal and throttling controls to the operating system and firmware.
+A timed run keeps fixed-size totals, prints progress at most once every five minutes, and reports the elapsed time and stop reason. CPU, RAM and loopback workers are reused between rounds. Loopback fails if it stalls for five seconds before the global deadline. A timed storage operation uses at most 1 MiB of the total write budget and a ten-second operation deadline, shortened by the global deadline. When the write budget is spent, storage is skipped in subsequent suite rounds; storage-only instead finishes early after verifying its final write. The RAM cap is two 32 MiB buffers. Other workload buffers and passive observations have fixed limits.
 
-The suite validates settings before starting and stops at the first failure. An elapsed-time run succeeds when it reaches its requested duration or completes a storage-only write budget. A failed component, a component operation timeout before the run deadline, or a round-based run exceeding its timeout produces a nonzero exit status. The RAM working set is bounded by two buffers, with a maximum of 64 MiB. Storage and network use fixed-size application buffers.
+Run a soak on a board with adequate cooling and power. This is a foreground workload, not a watchdog or recovery service: firmware limits, suspend, reboot, power loss, and process termination can interrupt it; it does not restart automatically. The monotonic clock excludes system suspend on Linux. Deadlines are checked between CPU batches, RAM copies, I/O chunks, and phases. An OS-scheduled delay or in-progress kernel I/O such as `sync_data()` can delay a check; the tool does not forcibly stop a driver operation. Sudden termination can leave a `.embedded-linux-benchmark-*` scratch file in a selected storage directory.
 
-The elapsed-time CPU summary measures workload completion and reports total iterations. The timed suite performs no CPU checksum comparison. The standalone `cpu` command reports its checksum, and the standalone CLI tests independently recompute it from the measured iteration count.
-
-Deadlines are checked during the run between CPU batches, RAM copies, I/O chunks, and phases. An in-progress filesystem call such as `sync_data()`, time spent waiting for the OS scheduler, or allocation and page faults can delay the next check. Sudden termination, including default `SIGINT` handling, or power loss can leave a `.embedded-linux-benchmark-*` file in the selected directory.
+The elapsed CPU summary counts work completed; it is not an independent CPU correctness proof. The standalone `cpu` command reports its checksum. The standalone CLI tests independently recompute it from the measured iteration count.
 
 ## Validation
 

@@ -1,16 +1,47 @@
 use crate::common::{Deadline, RunError, Sample, MIB};
 use crate::{cpu, network, ram, storage};
 use std::path::PathBuf;
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
+use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
+
+#[path = "stress_probe.rs"]
+mod probes;
 
 pub(crate) const DEFAULT_ROUNDS: u64 = 3;
 pub(crate) const MAX_ROUNDS: u64 = 5;
-pub(crate) const DEFAULT_DURATION_MS: u64 = 250;
-pub(crate) const MAX_DURATION_MS: u64 = 5_000;
+pub(crate) const DEFAULT_DURATION_MS: u64 = 10_000;
+pub(crate) const MAX_DURATION_MS: u64 = 60_000;
 pub(crate) const DEFAULT_BUFFER_KIB: u64 = 1_024;
-pub(crate) const DEFAULT_TIMEOUT_MS: u64 = 15_000;
-pub(crate) const MAX_TIMEOUT_MS: u64 = 120_000;
+pub(crate) const DEFAULT_TIMEOUT_MS: u64 = 60_000;
+pub(crate) const MAX_TIMEOUT_MS: u64 = 360_000;
 pub(crate) const MAX_DURATION_SECS: u64 = 14 * 24 * 60 * 60;
+
+pub(crate) fn parse_duration(value: &str) -> Result<u64, String> {
+    let (number, scale) = match value.as_bytes().last() {
+        Some(b's') => (&value[..value.len() - 1], 1),
+        Some(b'm') => (&value[..value.len() - 1], 60),
+        Some(b'h') => (&value[..value.len() - 1], 60 * 60),
+        Some(b'd') => (&value[..value.len() - 1], 24 * 60 * 60),
+        Some(b'w') => (&value[..value.len() - 1], 7 * 24 * 60 * 60),
+        _ => (value, 1),
+    };
+    if !number.is_empty() && number.bytes().all(|byte| byte.is_ascii_digit()) {
+        if let Some(seconds) = number
+            .parse::<u64>()
+            .ok()
+            .and_then(|n| n.checked_mul(scale))
+        {
+            if (1..=MAX_DURATION_SECS).contains(&seconds) {
+                return Ok(seconds);
+            }
+        }
+    }
+    Err(
+        "'--duration' must be a whole duration from 1s through 14d (for example 30m, 12h, 2w)"
+            .into(),
+    )
+}
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(300);
 const STORAGE_CHUNK_BYTES: u64 = MIB;
 
@@ -31,15 +62,6 @@ impl Test {
             Self::Storage => "storage",
         }
     }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Cpu => "CPU",
-            Self::Ram => "RAM",
-            Self::Network => "Network",
-            Self::Storage => "Storage",
-        }
-    }
 }
 
 pub(crate) struct Storage {
@@ -57,97 +79,16 @@ pub(crate) struct Plan {
     pub(crate) storage: Option<Storage>,
 }
 
+#[derive(Clone, Copy)]
 pub(crate) enum Schedule {
     Rounds { count: u64, timeout: Duration },
     Timed(Duration),
 }
 
 impl Plan {
-    fn tests(&self) -> impl Iterator<Item = Test> + '_ {
-        [Test::Cpu, Test::Ram, Test::Network, Test::Storage]
-            .into_iter()
-            .filter(|&test| {
-                self.test.map_or(true, |selected| selected == test)
-                    && (test != Test::Storage || self.storage.is_some())
-            })
+    fn includes(&self, test: Test) -> bool {
+        self.test.map_or(true, |selected| selected == test)
     }
-}
-
-fn phase(
-    name: &str,
-    deadline: Deadline,
-    run: impl FnOnce() -> Result<(), String>,
-) -> Result<(), String> {
-    let result = deadline
-        .check()
-        .map_err(String::from)
-        .and_then(|()| run())
-        .and_then(|()| deadline.check().map_err(String::from));
-    match result {
-        Ok(()) => {
-            println!("{name}: PASS");
-            Ok(())
-        }
-        Err(error) => {
-            println!("{name}: FAIL");
-            Err(format!("{name}: {error}"))
-        }
-    }
-}
-
-fn run_round(plan: &Plan, round: u64, rounds: u64, deadline: Deadline) -> Result<(), String> {
-    for test in plan.tests() {
-        phase(test.label(), deadline, || match test {
-            Test::Cpu => cpu::run(plan.duration, Some(deadline)),
-            Test::Ram => ram::run(plan.duration, plan.buffer_kib, Some(deadline)),
-            Test::Network => network::run(plan.network_bytes, deadline),
-            Test::Storage => {
-                let storage = plan.storage.as_ref().expect("storage is enabled");
-                let mut bytes = storage.total_bytes / rounds;
-                if round == rounds {
-                    bytes += storage.total_bytes % rounds;
-                }
-                storage::run(&storage.directory, bytes, storage.sync, deadline)
-            }
-        })?;
-    }
-    Ok(())
-}
-
-fn describe_tests(plan: &Plan) {
-    if let Some(test) = plan.test {
-        println!("Test: {}", test.name());
-    }
-    match (&plan.storage, plan.test) {
-        (Some(storage), _) => println!(
-            "Storage write budget: {} bytes across all rounds",
-            storage.total_bytes
-        ),
-        (None, None) => println!("Storage: disabled"),
-        (None, Some(_)) => (),
-    }
-}
-
-fn run_rounds(plan: &Plan, rounds: u64, timeout: Duration) -> Result<(), String> {
-    let deadline = Deadline::after(timeout);
-    println!(
-        "Stress auto (sequential)\nRounds: {rounds}\nTime limit: {} ms",
-        timeout.as_millis()
-    );
-    describe_tests(plan);
-    for round in 1..=rounds {
-        println!("Round {round}/{rounds}");
-        if let Err(error) = run_round(plan, round, rounds, deadline) {
-            println!(
-                "Stress result: FAIL ({}/{} rounds completed)",
-                round - 1,
-                rounds
-            );
-            return Err(format!("stress round {round}: {error}"));
-        }
-    }
-    println!("Stress result: PASS ({rounds}/{rounds} rounds completed)");
-    Ok(())
 }
 
 #[derive(Default)]
@@ -159,21 +100,206 @@ struct Totals {
     storage_verified: Sample,
 }
 
-fn timed_storage(
-    storage: &Storage,
+struct Worker<T> {
+    name: &'static str,
+    commands: Option<SyncSender<Deadline>>,
+    results: Receiver<Result<(T, bool), RunError>>,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl<T: Send + 'static> Worker<T> {
+    fn new(
+        name: &'static str,
+        run: impl Fn(Deadline) -> Result<(T, bool), RunError> + Send + 'static,
+    ) -> Result<Self, String> {
+        let (send_command, commands) = sync_channel(1);
+        let (send_result, results) = sync_channel(1);
+        let thread = thread::Builder::new()
+            .name(format!("benchmark-{name}"))
+            .spawn(move || {
+                while let Ok(deadline) = commands.recv() {
+                    if send_result.send(run(deadline)).is_err() {
+                        break;
+                    }
+                }
+            })
+            .map_err(|error| format!("{name}: failed to start stress worker: {error}"))?;
+        Ok(Self {
+            name,
+            commands: Some(send_command),
+            results,
+            thread: Some(thread),
+        })
+    }
+
+    fn start(&self, deadline: Deadline) -> Result<(), String> {
+        self.commands
+            .as_ref()
+            .expect("worker still active")
+            .send(deadline)
+            .map_err(|_| format!("{}: stress worker exited early", self.name))
+    }
+
+    fn finish(&self, deadline: Deadline, print: bool) -> Result<Option<(T, bool)>, String> {
+        let result = self
+            .results
+            .recv()
+            .map_err(|_| format!("{}: stress worker exited early", self.name))?;
+        match result {
+            Ok(sample) => Ok(Some(sample)),
+            Err(RunError::Deadline) if deadline.check().is_err() => Ok(None),
+            Err(error) => {
+                if print {
+                    println!("{}: FAIL", self.name);
+                }
+                Err(format!("{}: {error}", self.name))
+            }
+        }
+    }
+}
+
+impl<T> Drop for Worker<T> {
+    fn drop(&mut self) {
+        drop(self.commands.take());
+        // There is at most one pending result per worker and a queue slot for it.
+        // A failed sibling therefore cannot leave a worker blocked trying to report.
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+type CpuWorker = Worker<(Sample, u32)>;
+
+struct Workers {
+    cpu: Option<CpuWorker>,
+    ram: Option<Worker<Sample>>,
+    network: Option<Worker<Sample>>,
+}
+
+impl Workers {
+    fn new(plan: &Plan) -> Result<Self, String> {
+        let duration = plan.duration;
+        let buffer_kib = plan.buffer_kib;
+        let network_bytes = plan.network_bytes;
+        Ok(Self {
+            cpu: if plan.includes(Test::Cpu) {
+                Some(Worker::new("CPU", move |deadline| {
+                    let result = cpu::benchmark(duration, Some(deadline))?;
+                    let full = result.0.elapsed >= duration && deadline.check().is_ok();
+                    Ok((result, full))
+                })?)
+            } else {
+                None
+            },
+            ram: if plan.includes(Test::Ram) {
+                Some(Worker::new("RAM", move |deadline| {
+                    let result = ram::benchmark(duration, buffer_kib, Some(deadline))?;
+                    let full = result.elapsed >= duration && deadline.check().is_ok();
+                    Ok((result, full))
+                })?)
+            } else {
+                None
+            },
+            network: if plan.includes(Test::Network) {
+                Some(Worker::new("Network", move |deadline| {
+                    network::sustained(network_bytes, duration, deadline)
+                })?)
+            } else {
+                None
+            },
+        })
+    }
+
+    fn start(&self, deadline: Deadline) -> Result<(), String> {
+        if let Some(worker) = &self.cpu {
+            worker.start(deadline)?;
+        }
+        if let Some(worker) = &self.ram {
+            worker.start(deadline)?;
+        }
+        if let Some(worker) = &self.network {
+            worker.start(deadline)?;
+        }
+        Ok(())
+    }
+
+    fn finish(
+        &self,
+        plan: &Plan,
+        totals: &mut Totals,
+        deadline: Deadline,
+        print: bool,
+    ) -> Result<bool, String> {
+        let mut full = true;
+        if let Some(worker) = &self.cpu {
+            match worker.finish(deadline, print)? {
+                Some(((sample, state), done)) => {
+                    if print && done {
+                        cpu::describe(&sample, state, false);
+                        println!("CPU: PASS");
+                    }
+                    totals.cpu.add(sample);
+                    full &= done;
+                }
+                None => full = false,
+            }
+        }
+        if let Some(worker) = &self.ram {
+            match worker.finish(deadline, print)? {
+                Some((sample, done)) => {
+                    if print && done {
+                        ram::describe(&sample, plan.buffer_kib, false);
+                        println!("RAM: PASS");
+                    }
+                    totals.ram.add(sample);
+                    full &= done;
+                }
+                None => full = false,
+            }
+        }
+        if let Some(worker) = &self.network {
+            match worker.finish(deadline, print)? {
+                Some((sample, done)) => {
+                    if print && done {
+                        network::describe(&sample, false);
+                        println!("Network: PASS");
+                    }
+                    totals.network.add(sample);
+                    full &= done;
+                }
+                None => full = false,
+            }
+        }
+        Ok(full)
+    }
+}
+
+fn service_storage(
+    plan: &Plan,
     totals: &mut Totals,
     deadline: Deadline,
-) -> Result<(), RunError> {
+    fixed_round: Option<(u64, u64)>,
+) -> Result<bool, String> {
+    let storage = match &plan.storage {
+        Some(storage) => storage,
+        None => return Ok(true),
+    };
     let remaining = storage.total_bytes - totals.storage_written;
     if remaining == 0 {
-        return Ok(());
+        return Ok(true); // Explicit wear budget exhausted, not an additional storage pass.
     }
-    let bytes = remaining.min(STORAGE_CHUNK_BYTES);
+    let bytes = match fixed_round {
+        Some((round, rounds)) if round == rounds => remaining,
+        Some((_, rounds)) => storage.total_bytes / rounds,
+        None => remaining.min(STORAGE_CHUNK_BYTES),
+    };
+    let bounded = deadline.capped(Duration::from_millis(storage::DEFAULT_TIMEOUT_MS));
     let result = storage::benchmark(
         &storage.directory,
         bytes,
         storage.sync,
-        deadline,
+        bounded,
         &mut totals.storage_written,
     );
     if totals.storage_written == storage.total_bytes {
@@ -182,71 +308,178 @@ fn timed_storage(
             storage.total_bytes
         );
     }
-    let (write, read) = result?;
-    totals.storage_verified.add(Sample {
-        count: bytes,
-        elapsed: write + read,
-    });
-    Ok(())
-}
-
-fn timed_round(plan: &Plan, totals: &mut Totals, deadline: Deadline) -> Result<bool, String> {
-    for test in plan.tests() {
-        if deadline.check().is_err() {
-            return Ok(false);
+    match result {
+        Ok((write, read)) => {
+            if fixed_round.is_some() {
+                storage::describe(&storage.directory, bytes, storage.sync, write, read, false);
+                println!("Storage: PASS");
+            }
+            totals.storage_verified.add(Sample {
+                count: bytes,
+                elapsed: write + read,
+            });
+            Ok(true)
         }
-        let operation_deadline = match test {
-            Test::Network => deadline.capped(Duration::from_millis(network::DEFAULT_TIMEOUT_MS)),
-            Test::Storage => deadline.capped(Duration::from_millis(storage::DEFAULT_TIMEOUT_MS)),
-            Test::Cpu | Test::Ram => deadline,
-        };
-        let result = match test {
-            Test::Cpu => cpu::benchmark(plan.duration, Some(operation_deadline))
-                .map(|(sample, _)| totals.cpu.add(sample)),
-            Test::Ram => ram::benchmark(plan.duration, plan.buffer_kib, Some(operation_deadline))
-                .map(|sample| totals.ram.add(sample)),
-            Test::Network => network::benchmark(plan.network_bytes, operation_deadline)
-                .map(|sample| totals.network.add(sample)),
-            Test::Storage => timed_storage(
-                plan.storage.as_ref().expect("storage is enabled"),
-                totals,
-                operation_deadline,
-            ),
-        };
-        match result {
-            Ok(()) => (),
-            Err(RunError::Deadline) if operation_deadline == deadline => return Ok(false),
-            Err(error) => return Err(format!("{}: {error}", test.label())),
+        Err(RunError::Deadline) if bounded == deadline => Ok(false),
+        Err(error) => {
+            println!("Storage: FAIL");
+            Err(format!("Storage: {error}"))
         }
     }
-    Ok(true)
 }
 
-fn run_timed(plan: &Plan, target: Duration) -> Result<(), String> {
+fn run_round(
+    plan: &Plan,
+    workers: &Workers,
+    probes: &mut Option<probes::Probes>,
+    totals: &mut Totals,
+    deadline: Deadline,
+    fixed_round: Option<(u64, u64)>,
+) -> Result<bool, String> {
+    workers.start(deadline)?;
+    // Keep CPU/RAM/loopback busy while storage and passive observations run.
+    let storage = service_storage(plan, totals, deadline, fixed_round);
+    let observed = probes
+        .as_mut()
+        .map_or(true, |probe| probe.observe(deadline));
+    let core = workers.finish(plan, totals, deadline, fixed_round.is_some())?;
+    let storage = storage?;
+    Ok(core && storage && observed)
+}
+
+fn describe_tests(plan: &Plan) {
+    if let Some(test) = plan.test {
+        report_line!("Test: {}", test.name());
+    } else {
+        report_line!(
+            "Automatic load: CPU, RAM, TCP loopback; read-only PCIe, USB and HDMI observations"
+        );
+        report_line!("Fixture-only device, peer and accelerator tests: skipped (run separately)");
+    }
+    if plan.test != Some(Test::Storage) {
+        report_line!("Target per load phase: {} ms", plan.duration.as_millis());
+    }
+    match (&plan.storage, plan.test) {
+        (Some(storage), _) => report_line!(
+            "Storage write budget: {} bytes across all rounds",
+            storage.total_bytes
+        ),
+        (None, None) => {
+            report_line!("Storage: disabled (explicit directory and write budget required)")
+        }
+        (None, Some(_)) => (),
+    }
+}
+
+fn describe_totals(plan: &Plan, totals: &Totals) {
+    for (test, name, sample) in [
+        (Test::Cpu, "CPU iterations", &totals.cpu),
+        (Test::Ram, "RAM bytes copied", &totals.ram),
+        (Test::Network, "Network bytes received", &totals.network),
+        (
+            Test::Storage,
+            "Storage bytes verified",
+            &totals.storage_verified,
+        ),
+    ] {
+        if plan.includes(test) && (test != Test::Storage || plan.storage.is_some()) {
+            if test == Test::Storage {
+                report_line!("Storage bytes written: {}", totals.storage_written);
+            }
+            report_line!(
+                "{name}: {} (measured {:.3} s)",
+                sample.count,
+                sample.elapsed.as_secs_f64()
+            );
+            let seconds = sample.elapsed.as_secs_f64();
+            if seconds > 0.0 {
+                let (label, quantity, unit) = match test {
+                    Test::Cpu => ("Stress CPU throughput", sample.count as f64, "iterations/s"),
+                    Test::Ram => (
+                        "Stress RAM copy throughput",
+                        sample.count as f64 / crate::common::MIB as f64,
+                        "MiB/s",
+                    ),
+                    Test::Network => (
+                        "Stress TCP loopback throughput",
+                        sample.count as f64 / crate::common::MIB as f64,
+                        "MiB/s",
+                    ),
+                    Test::Storage => (
+                        "Stress storage verified round-trip throughput",
+                        sample.count as f64 / crate::common::MIB as f64,
+                        "MiB/s",
+                    ),
+                };
+                crate::report::metric(label, quantity / seconds, unit);
+            }
+        }
+    }
+}
+
+pub(crate) fn run(plan: Plan) -> Result<(), String> {
+    let (target, fixed) = match plan.schedule {
+        Schedule::Rounds { count, timeout } => (timeout, Some(count)),
+        Schedule::Timed(target) => (target, None),
+    };
     let start = Instant::now();
     let deadline = Deadline::after(target);
-    println!(
-        "Stress auto (sequential)\nDuration target: {} s",
-        target.as_secs()
-    );
-    describe_tests(plan);
+    let workers = Workers::new(&plan)?;
+    let mut probes = plan
+        .test
+        .is_none()
+        .then(|| probes::Probes::discover(deadline));
+    report_line!("Stress auto (concurrent load)");
+    if let Some(rounds) = fixed {
+        report_line!("Rounds: {rounds}\nTime limit: {} ms", target.as_millis());
+    } else {
+        report_line!("Duration target: {} s", target.as_secs());
+    }
+    describe_tests(&plan);
 
     let mut totals = Totals::default();
     let mut rounds = 0u64;
+    let mut partial = 0u64;
     let mut last_progress = start;
-    let stop = loop {
-        match timed_round(plan, &mut totals, deadline) {
-            Ok(true) => rounds = rounds.saturating_add(1),
-            Ok(false) => break Ok("duration reached"),
-            Err(error) => break Err(error),
+    let result = loop {
+        if fixed == Some(rounds) {
+            break Ok("round target reached");
         }
-        if plan.test == Some(Test::Storage)
+        if deadline.check().is_err() {
+            break if fixed.is_some() {
+                Err("time limit reached".into())
+            } else {
+                Ok("duration reached")
+            };
+        }
+        let next_round = rounds + 1;
+        if let Some(total) = fixed {
+            println!("Round {next_round}/{total}");
+        }
+        match run_round(
+            &plan,
+            &workers,
+            &mut probes,
+            &mut totals,
+            deadline,
+            fixed.map(|total| (next_round, total)),
+        ) {
+            Ok(true) => rounds += 1,
+            Ok(false) if fixed.is_none() => {
+                partial = 1;
+                break Ok("duration reached");
+            }
+            Ok(false) => break Err(format!("stress round {next_round}: time limit reached")),
+            Err(error) => break Err(format!("stress round {next_round}: {error}")),
+        }
+        if fixed.is_none()
+            && plan.test == Some(Test::Storage)
             && plan.storage.as_ref().map(|storage| storage.total_bytes)
                 == Some(totals.storage_written)
         {
             break Ok("storage write budget reached");
         }
-        if last_progress.elapsed() >= PROGRESS_INTERVAL {
+        if fixed.is_none() && last_progress.elapsed() >= PROGRESS_INTERVAL {
             println!(
                 "Progress: {} s elapsed, {rounds} rounds completed",
                 start.elapsed().as_secs()
@@ -255,41 +488,24 @@ fn run_timed(plan: &Plan, target: Duration) -> Result<(), String> {
         }
     };
 
-    println!(
-        "Elapsed: {:.3} s\nRounds completed: {rounds}",
-        start.elapsed().as_secs_f64()
-    );
-    for test in plan.tests() {
-        let (name, sample) = match test {
-            Test::Cpu => ("CPU iterations", &totals.cpu),
-            Test::Ram => ("RAM bytes copied", &totals.ram),
-            Test::Network => ("Network bytes received", &totals.network),
-            Test::Storage => {
-                println!("Storage bytes written: {}", totals.storage_written);
-                ("Storage bytes verified", &totals.storage_verified)
-            }
-        };
-        println!(
-            "{name}: {} (measured {:.3} s)",
-            sample.count,
-            sample.elapsed.as_secs_f64()
-        );
+    report_line!("Elapsed: {:.6} s", start.elapsed().as_secs_f64());
+    if let Some(probes) = &probes {
+        report_line!("Passive observations: {}", probes.describe());
     }
-    match stop {
-        Ok(reason) => {
-            println!("Stop reason: {reason}\nStress result: PASS");
-            Ok(())
+    if let Some(expected) = fixed {
+        describe_totals(&plan, &totals);
+        if result.is_ok() {
+            report_line!("Stress result: PASS ({rounds}/{expected} rounds completed)");
+        } else {
+            report_line!("Stress result: FAIL ({rounds}/{expected} rounds completed)");
         }
-        Err(error) => {
-            println!("Stress result: FAIL");
-            Err(error)
+    } else {
+        report_line!("Rounds completed: {rounds}\nPartial rounds: {partial}");
+        describe_totals(&plan, &totals);
+        match &result {
+            Ok(reason) => report_line!("Stop reason: {reason}\nStress result: PASS"),
+            Err(_) => report_line!("Stress result: FAIL"),
         }
     }
-}
-
-pub(crate) fn run(plan: Plan) -> Result<(), String> {
-    match plan.schedule {
-        Schedule::Rounds { count, timeout } => run_rounds(&plan, count, timeout),
-        Schedule::Timed(target) => run_timed(&plan, target),
-    }
+    result.map(|_| ())
 }

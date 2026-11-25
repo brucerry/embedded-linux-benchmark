@@ -118,13 +118,18 @@ pub(crate) fn run(device: &Path, bytes: usize, deadline: Deadline) -> Result<(),
     let file = peripheral::open_device(device, Kind::Spi, true)?;
     let (mode, speed_hz) = existing_config(&file)?;
     let elapsed = loopback(bytes, deadline, |tx, rx| exchange(&file, tx, rx))?;
-    println!("SPI throughput (verified full-duplex loopback)");
-    println!("Device: {}", device.display());
-    println!("Configured mode flags: 0x{mode:x}");
-    println!("Configured maximum speed: {speed_hz} Hz");
-    println!("Bytes verified: {bytes}");
-    println!("Elapsed: {:.6} s", elapsed.as_secs_f64());
-    println!(
+    crate::report::metric(
+        "SPI loopback throughput",
+        bytes as f64 / elapsed.as_secs_f64(),
+        "B/s",
+    );
+    report_line!("SPI throughput (verified full-duplex loopback)");
+    report_line!("Device: {}", device.display());
+    report_line!("Configured mode flags: 0x{mode:x}");
+    report_line!("Configured maximum speed: {speed_hz} Hz");
+    report_line!("Bytes verified: {bytes}");
+    report_line!("Elapsed: {:.6} s", elapsed.as_secs_f64());
+    report_line!(
         "Throughput: {:.2} B/s",
         bytes as f64 / elapsed.as_secs_f64()
     );

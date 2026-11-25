@@ -53,19 +53,19 @@ fn observe(root: &Path, connector: &str) -> Result<(String, String, String), Str
 
 pub(crate) fn status(connector: &str) -> Result<(), String> {
     let (status, enabled, modes) = observe(Path::new("/sys/class/drm"), connector)?;
-    println!("HDMI connector (read-only DRM sysfs)");
-    println!("Connector: {connector}");
-    println!("Connection status: {}", status.trim());
-    println!("Encoder status: {}", enabled.trim());
+    report_line!("HDMI connector (read-only DRM sysfs)");
+    report_line!("Connector: {connector}");
+    report_line!("Connection status: {}", status.trim());
+    report_line!("Encoder status: {}", enabled.trim());
     if modes.trim().is_empty() {
-        println!("Advertised modes: none");
+        report_line!("Advertised modes: none");
     } else {
-        println!("Advertised modes:");
+        report_line!("Advertised modes:");
         for mode in modes.lines() {
-            println!("  {mode}");
+            report_line!("  {mode}");
         }
     }
-    println!("Active timing is unavailable from these connector attributes.");
+    report_line!("Active timing is unavailable from these connector attributes.");
     Ok(())
 }
 

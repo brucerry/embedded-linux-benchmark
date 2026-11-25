@@ -506,7 +506,7 @@ pub(crate) fn run(path: &Path, frames: u64, deadline: Deadline, hdmi: bool) -> R
             }
         })
         .collect();
-    println!(
+    report_line!(
         "{} (V4L2 userspace dequeues)",
         if hdmi {
             "HDMI capture fixture"
@@ -514,34 +514,40 @@ pub(crate) fn run(path: &Path, frames: u64, deadline: Deadline, hdmi: bool) -> R
             "Camera capture"
         }
     );
-    println!("Device: {}", path.display());
-    println!(
+    report_line!("Device: {}", path.display());
+    report_line!(
         "Format: {}x{} {format:?}, {} plane(s), field mode {}",
-        settings.width, settings.height, settings.planes, settings.field
+        settings.width,
+        settings.height,
+        settings.planes,
+        settings.field
     );
     if let Some((numerator, denominator)) = settings.interval {
-        println!("Driver frame interval: {numerator}/{denominator} s");
+        report_line!("Driver frame interval: {numerator}/{denominator} s");
     }
-    println!("Capture buffers allocated: {}", stream.count);
-    println!("Received buffers: {}", stats.count);
-    println!("Buffers marked erroneous: {}", stats.errors);
-    println!("Driver sequence gaps: {}", stats.gaps);
-    println!("Repeated or reset sequences: {}", stats.repeated_or_reset);
+    report_line!("Capture buffers allocated: {}", stream.count);
+    report_line!("Received buffers: {}", stats.count);
+    report_line!("Buffers marked erroneous: {}", stats.errors);
+    report_line!("Driver sequence gaps: {}", stats.gaps);
+    report_line!("Repeated or reset sequences: {}", stats.repeated_or_reset);
     if stats.mean > 0.0 {
         let unit = if settings.field == FIELD_ALTERNATE {
             "fields/s"
         } else {
             "frames/s"
         };
-        println!("Observed delivery rate: {:.2} {unit}", 1.0 / stats.mean);
+        crate::report::metric("Observed delivery rate", 1.0 / stats.mean, unit);
+        report_line!("Observed delivery rate: {:.2} {unit}", 1.0 / stats.mean);
     }
-    println!("Inter-arrival mean: {:.3} ms", stats.mean * 1000.0);
-    println!(
+    crate::report::metric("Inter-arrival mean", stats.mean * 1000.0, "ms");
+    crate::report::metric("Inter-arrival jitter", stats.jitter() * 1000.0, "ms");
+    report_line!("Inter-arrival mean: {:.3} ms", stats.mean * 1000.0);
+    report_line!(
         "Inter-arrival jitter (standard deviation): {:.3} ms",
         stats.jitter() * 1000.0
     );
     if hdmi {
-        println!("Delivery at capture only. Output-to-capture latency requires a synchronized stimulus and reference.");
+        report_line!("Delivery at capture only. Output-to-capture latency requires a synchronized stimulus and reference.");
     }
     Ok(())
 }

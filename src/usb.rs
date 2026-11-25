@@ -251,16 +251,22 @@ pub(crate) fn run(config: &Config<'_>, deadline: Deadline) -> Result<(), String>
     let release = interface.release();
     let elapsed = measured?;
     release?;
-    println!("USB throughput (verified bulk loopback)");
-    println!("Fixture: {}", config.device.display());
-    println!("Interface: {}, alternate {alternate}", config.interface);
-    println!(
-        "Endpoints: OUT 0x{:02x}, IN 0x{:02x}",
-        config.output, config.input
+    crate::report::metric(
+        "USB bulk loopback throughput",
+        config.bytes as f64 / elapsed.as_secs_f64(),
+        "B/s",
     );
-    println!("Bytes verified: {}", config.bytes);
-    println!("Elapsed: {:.6} s", elapsed.as_secs_f64());
-    println!(
+    report_line!("USB throughput (verified bulk loopback)");
+    report_line!("Fixture: {}", config.device.display());
+    report_line!("Interface: {}, alternate {alternate}", config.interface);
+    report_line!(
+        "Endpoints: OUT 0x{:02x}, IN 0x{:02x}",
+        config.output,
+        config.input
+    );
+    report_line!("Bytes verified: {}", config.bytes);
+    report_line!("Elapsed: {:.6} s", elapsed.as_secs_f64());
+    report_line!(
         "Throughput: {:.2} B/s",
         config.bytes as f64 / elapsed.as_secs_f64()
     );

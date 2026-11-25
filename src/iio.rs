@@ -114,39 +114,51 @@ pub(crate) fn run(
     let mut file = open_attribute(&path)
         .map_err(|error| format!("cannot open IIO input {}: {error}", path.display()))?;
     let result = collect(samples, deadline, || read_raw(&mut file))?;
-    println!("IIO raw sampling (read-only userspace sysfs)");
-    println!("Device: {device}");
-    println!("Channel: {channel}_raw");
-    println!("Samples: {}", result.count);
-    println!(
-        "Raw code min / max: {} / {}",
-        result.raw_min, result.raw_max
+    crate::report::metric(
+        "Mean seek + read time",
+        result.read_seconds * 1_000_000.0 / result.count as f64,
+        "us",
     );
-    println!(
+    report_line!("IIO raw sampling (read-only userspace sysfs)");
+    report_line!("Device: {device}");
+    report_line!("Channel: {channel}_raw");
+    report_line!("Samples: {}", result.count);
+    report_line!(
+        "Raw code min / max: {} / {}",
+        result.raw_min,
+        result.raw_max
+    );
+    report_line!(
         "Raw code mean: {:.3}",
         result.raw_sum as f64 / result.count as f64
     );
-    println!(
+    report_line!(
         "Mean seek + read time: {:.3} us",
         result.read_seconds * 1_000_000.0 / result.count as f64
     );
     if result.interval_mean > 0.0 {
-        println!(
+        crate::report::metric(
+            "Userspace sampling cadence",
+            1.0 / result.interval_mean,
+            "samples/s",
+        );
+        report_line!(
             "Userspace cadence: {:.2} samples/s",
             1.0 / result.interval_mean
         );
     } else {
-        println!("Userspace cadence: below timer resolution");
+        report_line!("Userspace cadence: below timer resolution");
     }
     let jitter = (result.interval_m2 / (result.count - 1) as f64)
         .max(0.0)
         .sqrt();
-    println!(
+    crate::report::metric("Userspace interval jitter", jitter * 1_000_000.0, "us");
+    report_line!(
         "Userspace interval jitter (standard deviation): {:.3} us",
         jitter * 1_000_000.0
     );
-    println!("Hardware timestamps: unavailable in raw sysfs sampling");
-    println!("Calibration: raw codes");
+    report_line!("Hardware timestamps: unavailable in raw sysfs sampling");
+    report_line!("Calibration: raw codes");
     Ok(())
 }
 

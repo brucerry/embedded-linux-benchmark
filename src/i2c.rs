@@ -70,13 +70,18 @@ pub(crate) fn run(
         }
     })?;
     let measured = sample_reads(file, bytes, samples, deadline)?;
-    println!("I2C read latency (userspace pure read)");
-    println!("Adapter: {}", adapter.display());
-    println!("Address: 0x{address:02x}");
-    println!("Samples: {samples}");
-    println!("Bytes received: {}", samples * bytes as u64);
-    println!("Measured elapsed: {:.6} s", measured.as_secs_f64());
-    println!(
+    crate::report::metric(
+        "Mean I2C read latency",
+        measured.as_secs_f64() * 1_000_000.0 / samples as f64,
+        "us",
+    );
+    report_line!("I2C read latency (userspace pure read)");
+    report_line!("Adapter: {}", adapter.display());
+    report_line!("Address: 0x{address:02x}");
+    report_line!("Samples: {samples}");
+    report_line!("Bytes received: {}", samples * bytes as u64);
+    report_line!("Measured elapsed: {:.6} s", measured.as_secs_f64());
+    report_line!(
         "Mean read latency: {:.3} us",
         measured.as_secs_f64() * 1_000_000.0 / samples as f64
     );

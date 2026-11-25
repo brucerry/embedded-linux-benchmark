@@ -21,7 +21,29 @@ cargo build --release --locked
 ./target/release/embedded-linux-benchmark stress auto
 ```
 
-The default stress run uses CPU, RAM, and TCP loopback. Storage writes require a directory and an explicit size budget. Peer networking and peripheral benchmarks require an explicitly selected peer, device, or fixture. See the [benchmark guide](docs/benchmarks.md) for commands, limits, and how to interpret results.
+The default stress run runs three roughly 10-second rounds of overlapping CPU, RAM, and sustained TCP loopback, and checks available PCIe, USB, and HDMI status without opening a device node. Run a soak for up to 14 days with `stress auto --duration 2w`. Storage writes require a directory and an explicit size budget; peer networking and active peripheral tests remain separate, explicit commands. See the [benchmark guide](docs/benchmarks.md) for commands, limits, and how to interpret results.
+
+## Reports and plots
+
+After a benchmark produces results, the CLI prints the paths to a Markdown report
+and a vector PDF in a new owner-only `/tmp/embedded-linux-benchmark-…/` directory.
+For example:
+
+```text
+Report: /tmp/embedded-linux-benchmark-…/report.md
+Plots: /tmp/embedded-linux-benchmark-…/plots.pdf
+```
+
+The Markdown file records the result, elapsed time, measurements with units, and
+benchmark output. The PDF plots measured values within their own units; it does
+not rank different components or combine their rates into one score. Commands
+that only observe device status get a PDF summary without fabricated plots.
+Reports don't include the original arguments, so session tokens aren't copied
+from the command line. Stress reports summarize completed work and partial rounds, not every progress
+line. The captured output and metric count are bounded; an early error before
+benchmark output is still reported on the console. The files need
+no external graphing tools, and `/tmp` may be RAM-backed or cleared at reboot.
+Copy out reports you want to keep.
 
 ## Build for a target
 

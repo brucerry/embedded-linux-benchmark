@@ -73,18 +73,61 @@ fn connect(deadline: Deadline) -> Result<(TcpStream, TcpStream), RunError> {
 }
 
 pub(crate) fn benchmark(bytes: u64, deadline: Deadline) -> Result<Sample, RunError> {
-    // Pump both ends without blocking either side or creating a receiver thread.
-    let (mut sender, mut receiver) = connect(deadline)?;
+    pump(bytes, Duration::ZERO, deadline, false).map(|(sample, _)| sample)
+}
+
+/// Keep the same loopback connection busy for a whole phase rather than
+/// repeatedly reconnecting and filling the TCP TIME_WAIT table during a soak.
+pub(crate) fn sustained(
+    bytes: u64,
+    minimum: Duration,
+    deadline: Deadline,
+) -> Result<(Sample, bool), RunError> {
+    pump(bytes, minimum, deadline, true)
+}
+
+fn pump(
+    bytes: u64,
+    minimum: Duration,
+    deadline: Deadline,
+    partial: bool,
+) -> Result<(Sample, bool), RunError> {
+    let idle_limit = Duration::from_millis(DEFAULT_TIMEOUT_MS);
+    let connection_deadline = if partial {
+        deadline.capped(idle_limit)
+    } else {
+        deadline
+    };
+    let (mut sender, mut receiver) = connect(connection_deadline)?;
     let payload = [0xa5u8; CHUNK_BYTES];
     let mut buffer = [0u8; CHUNK_BYTES];
-    let mut sent = 0;
-    let mut received = 0;
+    let mut sent = 0u64;
+    let mut received = 0u64;
     let start = Instant::now();
-    while received < bytes {
-        deadline.check()?;
+    let mut last_progress = start;
+    // In a stress phase, bytes is the initial minimum traffic and the maximum
+    // outstanding window. The memory used by the pump is fixed either way.
+    while received < bytes || start.elapsed() < minimum {
+        if deadline.check().is_err() {
+            if partial {
+                return Ok((
+                    Sample {
+                        count: received,
+                        elapsed: start.elapsed(),
+                    },
+                    false,
+                ));
+            }
+            return Err(RunError::Deadline);
+        }
         let previous = (sent, received);
-        if sent < bytes {
-            let len = (bytes - sent).min(CHUNK_BYTES as u64) as usize;
+        let capacity = if partial {
+            bytes - (sent - received)
+        } else {
+            bytes - sent
+        };
+        if capacity > 0 {
+            let len = capacity.min(CHUNK_BYTES as u64) as usize;
             sent += transferred(sender.write(&payload[..len]), "send")? as u64;
         }
         if received < sent {
@@ -98,28 +141,66 @@ pub(crate) fn benchmark(bytes: u64, deadline: Deadline) -> Result<Sample, RunErr
             received += count as u64;
         }
         if (sent, received) == previous {
-            pause(deadline)?;
+            if partial && last_progress.elapsed() >= idle_limit {
+                return Err(RunError::Failed(
+                    "TCP loopback made no progress for five seconds".into(),
+                ));
+            }
+            if let Err(error) = pause(deadline) {
+                if partial {
+                    return Ok((
+                        Sample {
+                            count: received,
+                            elapsed: start.elapsed(),
+                        },
+                        false,
+                    ));
+                }
+                return Err(error);
+            }
+        } else if partial {
+            last_progress = Instant::now();
         }
     }
     let elapsed = start.elapsed();
-    deadline.check()?;
-    Ok(Sample {
-        count: received,
-        elapsed,
-    })
+    let full = deadline.check().is_ok();
+    if !partial && !full {
+        return Err(RunError::Deadline);
+    }
+    Ok((
+        Sample {
+            count: received,
+            elapsed,
+        },
+        full,
+    ))
 }
 
 pub(crate) fn run(bytes: u64, deadline: Deadline) -> Result<(), String> {
     let sample = benchmark(bytes, deadline)?;
+    describe(&sample, true);
+    Ok(())
+}
+
+pub(crate) fn describe(sample: &Sample, record: bool) {
     let received = sample.count;
     let seconds = sample.elapsed.as_secs_f64();
-    println!(
-        "Network throughput (TCP loopback, single thread)\n\
+    if record {
+        crate::report::metric(
+            "TCP loopback throughput",
+            received as f64 / (MIB as f64 * seconds),
+            "MiB/s",
+        );
+    }
+    crate::report::emit(
+        record,
+        format_args!(
+            "Network throughput (TCP loopback, single thread)\n\
          Address: 127.0.0.1\n\
          Bytes received: {received}\n\
          Elapsed: {seconds:.6} s\n\
          Throughput: {:.2} MiB/s",
-        received as f64 / (MIB as f64 * seconds),
+            received as f64 / (MIB as f64 * seconds),
+        ),
     );
-    Ok(())
 }

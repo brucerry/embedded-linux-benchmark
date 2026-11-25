@@ -1,3 +1,7 @@
+macro_rules! report_line {
+    ($($arg:tt)*) => { $crate::report::line(format_args!($($arg)*)) };
+}
+
 mod camera;
 mod can;
 mod cli;
@@ -15,6 +19,7 @@ mod network_peer;
 mod pcie;
 mod peripheral;
 mod ram;
+mod report;
 mod spi;
 mod storage;
 mod stress;
@@ -25,7 +30,22 @@ mod usb;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    match cli::run() {
+    report::begin();
+    let result = cli::run();
+    match report::finish(&result) {
+        Ok(Some(directory)) => {
+            println!("Report: {}", directory.join("report.md").display());
+            println!("Plots: {}", directory.join("plots.pdf").display());
+        }
+        Ok(None) => {}
+        Err(error) => {
+            eprintln!("Error: could not write benchmark report under /tmp: {error}");
+            if result.is_ok() {
+                return ExitCode::FAILURE;
+            }
+        }
+    }
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("Error: {error}");

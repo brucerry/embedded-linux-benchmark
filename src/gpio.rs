@@ -64,12 +64,17 @@ fn input_benchmark(
 pub(crate) fn run(pin: u32, samples: u64, deadline: Deadline) -> Result<(), String> {
     let path = Path::new("/sys/class/gpio").join(format!("gpio{pin}"));
     let (measured, high) = input_benchmark(&path, samples, deadline)?;
-    println!("GPIO read latency (userspace sysfs seek + read)");
-    println!("GPIO: {pin}");
-    println!("Samples: {samples}");
-    println!("High samples: {high}");
-    println!("Measured elapsed: {:.6} s", measured.as_secs_f64());
-    println!(
+    crate::report::metric(
+        "Mean GPIO read latency",
+        measured.as_secs_f64() * 1_000_000.0 / samples as f64,
+        "us",
+    );
+    report_line!("GPIO read latency (userspace sysfs seek + read)");
+    report_line!("GPIO: {pin}");
+    report_line!("Samples: {samples}");
+    report_line!("High samples: {high}");
+    report_line!("Measured elapsed: {:.6} s", measured.as_secs_f64());
+    report_line!(
         "Mean read latency: {:.3} us",
         measured.as_secs_f64() * 1_000_000.0 / samples as f64
     );
