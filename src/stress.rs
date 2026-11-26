@@ -1,5 +1,8 @@
 use crate::common::{Deadline, RunError, Sample, MIB};
 use crate::{cpu, network, ram, storage};
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
@@ -77,6 +80,7 @@ pub(crate) struct Plan {
     pub(crate) buffer_kib: u64,
     pub(crate) network_bytes: u64,
     pub(crate) storage: Option<Storage>,
+    pub(crate) summary_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy)]
@@ -417,7 +421,40 @@ fn describe_totals(plan: &Plan, totals: &Totals) {
     }
 }
 
+fn metrics_json(plan: &Plan, totals: &Totals) -> String {
+    let rows = [
+        (Test::Cpu, "iterations", &totals.cpu),
+        (Test::Ram, "bytes_copied", &totals.ram),
+        (Test::Network, "loopback_bytes_received", &totals.network),
+        (Test::Storage, "bytes_verified", &totals.storage_verified),
+    ];
+    let mut metrics = Vec::new();
+    for (test, unit, sample) in rows {
+        if plan.includes(test) && (test != Test::Storage || plan.storage.is_some()) {
+            metrics.push(format!(
+                r#""{}":{{"unit":"{unit}","count":"{}","measured_ns":"{}"}}"#,
+                test.name(),
+                sample.count,
+                sample.elapsed.as_nanos()
+            ));
+        }
+    }
+    format!("{{{}}}", metrics.join(","))
+}
+
 pub(crate) fn run(plan: Plan) -> Result<(), String> {
+    let mut summary = plan
+        .summary_path
+        .as_ref()
+        .map(|path| {
+            OpenOptions::new()
+                .write(true)
+                .mode(0o600)
+                .create_new(true)
+                .open(path)
+        })
+        .transpose()
+        .map_err(|e| format!("cannot create stress summary (choose a new path): {e}"))?;
     crate::report::identify(crate::report::Subject::Stress {
         test: plan.test,
         storage: plan.storage.is_some(),
@@ -509,6 +546,36 @@ pub(crate) fn run(plan: Plan) -> Result<(), String> {
         match &result {
             Ok(reason) => report_line!("Stop reason: {reason}\nStress result: PASS"),
             Err(_) => report_line!("Stress result: FAIL"),
+        }
+    }
+    if let Some(file) = summary.as_mut() {
+        let target_rounds = fixed.map_or_else(|| "null".to_owned(), |n| n.to_string());
+        let (status, reason) = match &result {
+            Ok("round target reached") => ("completed", "round_target"),
+            Ok("duration reached") => ("completed", "duration_limit"),
+            Ok("storage write budget reached") => ("completed", "storage_budget"),
+            Ok(_) => ("completed", "other"),
+            Err(_) => ("failed", "execution_error"),
+        };
+        let storage_written = plan.storage.as_ref().map_or_else(
+            || "null".to_owned(),
+            |_| format!(r#""{}""#, totals.storage_written),
+        );
+        let write_result = (|| -> std::io::Result<()> {
+            writeln!(
+                file,
+                r#"{{"summary_schema_version":1,"kind":"stress_auto","status":"{status}","stop_reason":"{reason}","target_rounds":{target_rounds},"rounds_completed":{rounds},"final_partial_rounds":{partial},"elapsed_monotonic_ms":{},"storage_bytes_written":{storage_written},"workload_metrics":{}}}"#,
+                start.elapsed().as_millis(),
+                metrics_json(&plan, &totals)
+            )?;
+            file.sync_all()
+        })();
+        if let Err(error) = write_result {
+            let prefix = result
+                .as_ref()
+                .err()
+                .map_or(String::new(), |e| format!("{e}; "));
+            return Err(format!("{prefix}cannot save stress summary: {error}"));
         }
     }
     result.map(|_| ())

@@ -151,6 +151,7 @@ const STRESS_OPTIONS: &[(&str, Kind)] = &[
     ("--storage-dir", Kind::Path),
     ("--storage-mib", Number(1, storage::MAX_MIB)),
     ("--storage-sync", Flag),
+    ("--summary-json", Kind::Path),
 ];
 
 enum Value<'a> {
@@ -332,6 +333,7 @@ stress    Up to 5 rounds of concurrent CPU, RAM, and TCP loopback (default 3)
           --duration-ms sets the minimum CPU/RAM/loopback phase time ({default_phase_ms} ms, max {max_phase_ms})
           --test runs one component per round and accepts only its options
           Storage requires both a directory and a total write budget
+          --summary-json NEW_PATH saves one private machine-readable run summary
 
 cpu/ram --duration-ms  1–{MAX_DURATION_MS} (default {DEFAULT_DURATION_MS})
 ram --buffer-kib       4–32768 per buffer (default 4096)
@@ -403,6 +405,7 @@ fn parse_stress(args: &[String]) -> Result<stress::Plan, String> {
             .unwrap_or(network::DEFAULT_MIB)
             * MIB,
         storage,
+        summary_path: options.path("--summary-json").map(Path::to_path_buf),
     })
 }
 

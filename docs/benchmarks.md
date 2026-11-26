@@ -371,6 +371,18 @@ The peripheral packages were built and inspected with matching OpenWrt SDKs. Pac
 
 Physical UART rates, GPIO read latency, and GPIO availability on actual boards remain unverified.
 
+#### Optional final JSON summary
+
+Add `--summary-json ./stress-summary.json` to write a versioned summary with
+the stop reason, completed rounds, elapsed duration and selected workload
+totals. The command reserves a new private file before starting load, never
+overwrites an existing file, and leaves normal reports unchanged. The file
+is populated at the end; startup failure or interruption can leave it empty
+or incomplete. Treat it as successful evidence only when the owned process
+exited successfully and the summary says `completed`. Count and measured
+nanosecond values are decimal strings. This is not a stream, a peripheral
+qualification result, or evidence that every metric remained healthy.
+
 ### I2C, SPI, and GPIO chardev verification
 
 Rust fixtures cover full and short I2C reads, SPI chunking and received-data verification, and GPIO direction, busy-line, and release behavior. CLI tests cover missing fixture acknowledgment, invalid addresses and limits, and rejection of unrelated device nodes. The C assertions check the request encodings and structures against native Linux and SDK headers, including both MIPS32 byte orders. Use the SDK C compiler in place of `cc` for a cross check. For Linux 5.4 headers, add `-DEXPECT_LEGACY_GPIO_HEADERS` to check the interfaces those headers expose.
