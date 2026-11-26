@@ -448,7 +448,7 @@ pub(crate) fn run() -> Result<(), String> {
             }
             return Ok(());
         }
-        "power" if args.first().is_some_and(|name| name == "ina3221") => {
+        "power" if args.first().map_or(false, |name| name == "ina3221") => {
             let options = Options::parse("power ina3221", &args[1..], &[("--node", Kind::Text)])?;
             crate::ina3221::run(options.text("--node")?)?;
             return Ok(());
@@ -463,7 +463,7 @@ pub(crate) fn run() -> Result<(), String> {
             )?;
             return Ok(());
         }
-        "qualify" if args.first().is_some_and(|role| role == "plan") => {
+        "qualify" if args.first().map_or(false, |role| role == "plan") => {
             let options = Options::parse("qualify plan", &args[1..], QUALIFICATION_PLAN_OPTIONS)?;
             println!(
                 "{}",
@@ -474,7 +474,7 @@ pub(crate) fn run() -> Result<(), String> {
             );
             return Ok(());
         }
-        "qualify" if args.first().is_some_and(|role| role == "passive") => {
+        "qualify" if args.first().map_or(false, |role| role == "passive") => {
             let options =
                 Options::parse("qualify passive", &args[1..], QUALIFICATION_PASSIVE_OPTIONS)?;
             println!(
@@ -486,7 +486,7 @@ pub(crate) fn run() -> Result<(), String> {
         "qualify" => return Err("expected 'qualify plan' or 'qualify passive'. See --help.".into()),
         "cpu" => (CPU_OPTIONS, Subject::Cpu),
         "ram" => (RAM_OPTIONS, Subject::Ram),
-        "storage" if args.first().is_some_and(|role| role == "nvme-health") => {
+        "storage" if args.first().map_or(false, |role| role == "nvme-health") => {
             let options = Options::parse("storage nvme-health", &args[1..], NVME_HEALTH_OPTIONS)?;
             return crate::nvme_health::run(options.text("--controller")?);
         }

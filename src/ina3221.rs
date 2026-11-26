@@ -5,7 +5,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 fn node_name(node: &str) -> Result<&str, String> {
-    let valid = node.split_once('-').is_some_and(|(bus, address)| {
+    let valid = node.split_once('-').map_or(false, |(bus, address)| {
         sysfs::name_digits(bus)
             && bus.len() <= 5
             && (bus == "0" || !bus.starts_with('0'))
@@ -80,7 +80,7 @@ fn scan(node: &str, driver: &Path, devices: &Path) -> Result<Vec<String>, &'stat
         let Some(name) = name.to_str() else { continue };
         if !name
             .strip_prefix("hwmon")
-            .is_some_and(|v| v.len() <= 10 && sysfs::name_digits(v))
+            .map_or(false, |v| v.len() <= 10 && sysfs::name_digits(v))
         {
             continue;
         }

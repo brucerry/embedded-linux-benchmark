@@ -59,7 +59,7 @@ fn scan(
         let Some(name) = name.to_str() else { continue };
         if !name
             .strip_prefix("hwmon")
-            .is_some_and(|s| s.len() <= 10 && sysfs::name_digits(s))
+            .map_or(false, |s| s.len() <= 10 && sysfs::name_digits(s))
         {
             continue;
         }

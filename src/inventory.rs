@@ -289,7 +289,7 @@ struct BoardProfile {
 
 fn specific_compatible(s: &str) -> bool {
     s.len() <= 128
-        && s.split_once(',').is_some_and(|(vendor, board)| {
+        && s.split_once(',').map_or(false, |(vendor, board)| {
             [vendor, board].into_iter().all(|v| {
                 !v.is_empty()
                     && v.bytes().all(|b| {
@@ -357,7 +357,7 @@ fn id_count(input: &str) -> Option<u32> {
                 (n, n)
             }
         };
-        if end < start || last.is_some_and(|previous| start <= previous) {
+        if end < start || last.map_or(false, |previous| start <= previous) {
             return None;
         }
         count = count.checked_add(end - start + 1)?;

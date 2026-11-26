@@ -41,9 +41,9 @@ fn names(class_dir: &Path, prefix: &str) -> Result<(Vec<String>, bool), &'static
     for entry in listing.by_ref().take(MAX_CLASS_ENTRIES) {
         let name = entry.map_err(error)?.file_name();
         if let Some(s) = name.to_str() {
-            if s.strip_prefix(prefix)
-                .is_some_and(|suffix| suffix.len() <= 10 && sysfs::name_digits(suffix))
-            {
+            if s.strip_prefix(prefix).map_or(false, |suffix| {
+                suffix.len() <= 10 && sysfs::name_digits(suffix)
+            }) {
                 rows.push(s.to_owned());
             }
         }
