@@ -425,6 +425,94 @@ fn resources() -> String {
     )
 }
 
+fn thermal_id(name: &str) -> Option<u32> {
+    let id = name.strip_prefix("thermal_zone")?;
+    if id.is_empty() || id.len() > 7 || !id.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n = id.parse::<u32>().ok()?;
+    (n.to_string() == id).then_some(n)
+}
+
+fn thermal_value(raw: &str) -> Option<String> {
+    let v = raw.trim();
+    let digits = v.strip_prefix('-').unwrap_or(v);
+    if digits.is_empty() || digits.len() > 8 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n = v.parse::<i32>().ok()?;
+    (-273_150..=300_000).contains(&n).then(|| n.to_string())
+}
+
+fn thermal(index: &Path, devices: &Path) -> String {
+    let result = |status, rows: &str| format!(r#"{{"status":"{status}","zones":[{rows}]}}"#);
+    let entries = match fs::read_dir(index) {
+        Ok(v) => v,
+        Err(e) => {
+            return result(
+                match e.kind() {
+                    io::ErrorKind::PermissionDenied => "inaccessible",
+                    io::ErrorKind::NotFound => "unavailable",
+                    _ => "invalid",
+                },
+                "",
+            )
+        }
+    };
+    let mut ids = Vec::new();
+    for (seen, row) in entries.enumerate() {
+        if seen >= 256 {
+            return result("truncated", "");
+        }
+        let Ok(row) = row else {
+            return result("invalid", "");
+        };
+        if let Some(id) = row.file_name().to_str().and_then(thermal_id) {
+            ids.push(id);
+        }
+    }
+    ids.sort_unstable();
+    let status = if ids.len() > 32 {
+        "truncated"
+    } else {
+        "observed"
+    };
+    let rows = ids
+        .into_iter()
+        .take(32)
+        .map(|id| {
+            let name = format!("thermal_zone{id}");
+            let path = index.join(&name);
+            let allowed = devices.join(&name);
+            let probe = |leaf: &str, parse: fn(&str) -> Option<String>| match bounded(
+                &allowed.join(leaf),
+            ) {
+                Ok(value) => parse(&value).map_or(Observation::Invalid, Observation::Available),
+                Err(e) => Observation::error(e),
+            };
+            let approved = || fs::canonicalize(&path).ok().as_ref() == Some(&allowed);
+            let (kind, temp) = if approved() {
+                let a = probe("type", text_value);
+                let b = probe("temp", thermal_value);
+                if approved() {
+                    (a, b)
+                } else {
+                    (Observation::Unavailable, Observation::Unavailable)
+                }
+            } else {
+                (Observation::Unavailable, Observation::Unavailable)
+            };
+            format!(
+                r#"{{"zone":"{name}","type":{},"temperature_millicelsius":{}}}"#,
+                kind.json(),
+                temp.json()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    result(status, &rows)
+}
+
 pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result<(), String> {
     if required.is_some() && profile_path.is_some() {
         return Err("--require-pcie and --board-profile cannot be combined".into());
@@ -498,9 +586,13 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
         format!(r#","required_pcie":[{rows}]"#)
     };
     println!(
-        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{}{profile_context}{profile}}}"#,
+        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{}{profile_context}{profile}}}"#,
         json_string(std::env::consts::ARCH),
-        resources()
+        resources(),
+        thermal(
+            Path::new("/sys/class/thermal"),
+            Path::new("/sys/devices/virtual/thermal")
+        )
     );
     Ok(())
 }
@@ -508,6 +600,31 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn thermal_reads_signed_millicelsius_and_fixed_paths_only() {
+        use std::os::unix::fs::symlink;
+        assert_eq!(thermal_value("-2000\n"), Some("-2000".into()));
+        assert_eq!(thermal_value("0"), Some("0".into()));
+        assert_eq!(thermal_value("310000"), None);
+        assert_eq!(thermal_value("17 C"), None);
+        assert_eq!(thermal_id("thermal_zone02"), None);
+        let root = std::env::temp_dir().join(format!("eld-thermal-{}", std::process::id()));
+        let index = root.join("index");
+        let devices = root.join("devices");
+        let zone = devices.join("thermal_zone0");
+        assert!(thermal(&index, &devices).contains(r#""status":"unavailable""#));
+        fs::create_dir_all(&zone).unwrap();
+        fs::create_dir(&index).unwrap();
+        fs::write(zone.join("type"), "cpu-fixture\n").unwrap();
+        fs::write(zone.join("temp"), "0\n").unwrap();
+        symlink(&zone, index.join("thermal_zone0")).unwrap();
+        symlink(&root, index.join("thermal_zone1")).unwrap();
+        let value = thermal(&index, &devices);
+        assert!(value.contains(r#""type":{"status":"observed","value":"cpu-fixture"},"temperature_millicelsius":{"status":"observed","value":"0"}"#));
+        assert!(value.contains(r#""zone":"thermal_zone1","type":{"status":"unavailable"}"#));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn resources_count_without_expansion_or_inventing_missing_memory() {

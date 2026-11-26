@@ -69,6 +69,9 @@ Use the complete PCI domain, bus, device and function for the device you intend 
 kernel's total and available memory. Measurements come from the visible Linux
 sysfs and procfs, not container resource limits or a performance test. Observed
 values are decimal strings; absent or unreadable files are not zero counts.
+The thermal section reports zone type and temperature in millidegrees Celsius,
+with at most 32 thermal zones and explicit truncation or unavailable status.
+It reads recognized sysfs thermal attributes without changing trips, fans, or policy.
 
 ### Check expected PCI devices
 
