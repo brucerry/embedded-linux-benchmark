@@ -1,11 +1,11 @@
 <div align="center">
 
-# Embedded Linux Benchmark
+# Embedded Linux Diagnostic Engine
 
-[![CI](https://github.com/brucerry/embedded-linux-benchmark/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/brucerry/embedded-linux-benchmark/actions/workflows/ci.yml?query=branch%3Amain)
+[![CI](https://github.com/brucerry/embedded-linux-diagnostic-engine/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/brucerry/embedded-linux-diagnostic-engine/actions/workflows/ci.yml?query=branch%3Amain)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A dependency-free Rust CLI for measuring individual components of a Linux system or embedded board.
+Hardware benchmarks and diagnostics for Linux boards and servers, in a dependency-free Rust CLI.
 
 </div>
 
@@ -17,10 +17,10 @@ Install Rust and Cargo 1.66 or newer and a native C linker on Linux.
 
 ```sh
 cargo build --release --locked
-./target/release/embedded-linux-benchmark --help
-./target/release/embedded-linux-benchmark cpu
-./target/release/embedded-linux-benchmark ram --duration-ms 500 --buffer-kib 1024
-./target/release/embedded-linux-benchmark stress auto
+./target/release/eld-engine --help
+./target/release/eld-engine cpu
+./target/release/eld-engine ram --duration-ms 500 --buffer-kib 1024
+./target/release/eld-engine stress auto
 ```
 
 The default stress run runs three roughly 10-second rounds of overlapping CPU, RAM, and sustained TCP loopback, and checks available PCIe, USB, and HDMI status without opening a device node. Run a soak for up to 14 days with `stress auto --duration 2w`. Storage writes require a directory and an explicit size budget; peer networking and active peripheral tests remain separate, explicit commands. See the [benchmark guide](docs/benchmarks.md) for commands, limits, and how to interpret results.

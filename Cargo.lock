@@ -3,5 +3,5 @@
 version = 3
 
 [[package]]
-name = "embedded-linux-benchmark"
+name = "embedded-linux-diagnostic-engine"
 version = "0.2.1"

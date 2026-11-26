@@ -32,7 +32,7 @@ jobs:
         run: |
           cargo +1.66.0 build --release --locked --offline
           cargo +1.66.0 test --release --locked --offline
-          python3 tests/uart_pty.py ./target/release/embedded-linux-benchmark
+          python3 tests/uart_pty.py ./target/release/eld-engine
 
       - name: Check Linux ABI and AArch64 compilation
         run: |

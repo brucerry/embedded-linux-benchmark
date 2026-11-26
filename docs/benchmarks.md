@@ -1,14 +1,14 @@
 # Storage, network, peripherals, and automatic stress
 
-Use `cargo build --release --locked` and run `./target/release/embedded-linux-benchmark --help` for the commands. All workloads run on the calling thread. The `cpu` and `ram` commands also run independently with their existing settings.
+Use `cargo build --release --locked` and run `./target/release/eld-engine --help` for the commands. All workloads run on the calling thread. The `cpu` and `ram` commands also run independently with their existing settings.
 
 ## Storage
 
 Select an existing writable directory and a size of 1–64 MiB. The command creates a uniquely named regular file with owner-only permissions, writes the requested payload sequentially, then reads and verifies the same byte count. Exclusive creation protects existing files. The command removes the scratch file on success or a handled error and reports the path if removal fails.
 
 ```sh
-./target/release/embedded-linux-benchmark storage --dir /path/to/writable-directory --size-mib 16
-./target/release/embedded-linux-benchmark storage --dir /path/to/writable-directory --size-mib 16 --sync
+./target/release/eld-engine storage --dir /path/to/writable-directory --size-mib 16
+./target/release/eld-engine storage --dir /path/to/writable-directory --size-mib 16 --sync
 ```
 
 The write and read rates are separate. Writes go through buffered filesystem I/O. With `--sync`, write timing includes `sync_data()` on the file. Reads are page-cache eligible and include payload verification. The output measures this filesystem path, including its caching and writeback behavior. The size budget covers application payload bytes, and filesystem metadata and device writeback can add physical I/O. `--timeout-ms` accepts 1–60000 and defaults to 10000.
@@ -16,7 +16,7 @@ The write and read rates are separate. Writes go through buffered filesystem I/O
 ## TCP loopback
 
 ```sh
-./target/release/embedded-linux-benchmark network --size-mib 8 --timeout-ms 5000
+./target/release/eld-engine network --size-mib 8 --timeout-ms 5000
 ```
 
 The command connects two TCP sockets through a listener bound to `127.0.0.1` on an ephemeral port. Timing starts after connection setup and covers one-way application throughput, including receiving and verifying the payload. The result covers the local TCP stack. Physical NIC throughput requires a separate measurement. The command uses the system's existing loopback configuration. `--size-mib` accepts 1–64 and defaults to 8. `--timeout-ms` accepts 1–30000 and defaults to 5000.
@@ -27,10 +27,10 @@ Run these commands on two machines on an isolated wired or Wi-Fi test network. U
 
 ```sh
 # Receiver
-./target/release/embedded-linux-benchmark network peer-server --bind 192.168.5.10 \
+./target/release/eld-engine network peer-server --bind 192.168.5.10 \
   --peer 192.168.5.11 --port 5555 --session 0123456789abcdef0123456789abcdef
 # Sender
-./target/release/embedded-linux-benchmark network peer-client --bind 192.168.5.11 \
+./target/release/eld-engine network peer-client --bind 192.168.5.11 \
   --peer 192.168.5.10 --port 5555 --session 0123456789abcdef0123456789abcdef
 ```
 
@@ -47,7 +47,7 @@ Active peripheral benchmarks run only when requested directly. Automatic stress 
 ### PCIe link information
 
 ```sh
-./target/release/embedded-linux-benchmark pcie link --device 0000:01:00.0
+./target/release/eld-engine pcie link --device 0000:01:00.0
 ```
 
 Use the complete PCI domain, bus, device and function for the device you intend to observe. The command reads the kernel's negotiated and maximum link speed and lane width for that device. Missing attributes are reported as unavailable. The speeds are link signaling rates in GT/s, and the maximum values are capabilities. Measuring payload throughput requires a separate test. [Linux PCI sysfs implementation](https://github.com/torvalds/linux/blob/v6.12/drivers/pci/pci-sysfs.c)
@@ -57,7 +57,7 @@ Use the complete PCI domain, bus, device and function for the device you intend 
 ### IIO raw input cadence
 
 ```sh
-./target/release/embedded-linux-benchmark iio --device iio:device0 --channel in_voltage0 --samples 100
+./target/release/eld-engine iio --device iio:device0 --channel in_voltage0 --samples 100
 ```
 
 Select an available input channel by its sysfs stem. This example reads `in_voltage0_raw` as a signed integer. Use a spare input where repeated reads are appropriate. The command rewinds and reads the same attribute for every sample. It reports the raw range and mean, mean userspace seek-plus-read time, and cadence and standard deviation between successive read completions.
@@ -71,7 +71,7 @@ PCIe and IIO validation used inert sysfs fixtures and CLI rejection tests. OpenW
 Use an explicit V4L2 video node from a dedicated, already configured capture source. The command reports the driver's current dimensions, pixel format, plane count, field mode, and frame interval when available. It uses the streaming MMAP queue, with single-plane and multi-plane capture support, and discards buffers without saving or recording frames. It leaves the device's format and controls as configured.
 
 ```sh
-./target/release/embedded-linux-benchmark camera --device /dev/video0 --frames 120
+./target/release/eld-engine camera --device /dev/video0 --frames 120
 ```
 
 `--frames` accepts 2–10000 (default 120). `--timeout-ms` accepts 1–30000 (default 10000). The command asks the driver for four buffers and limits each mapped buffer to 24 MiB and the total mappings to 96 MiB. The deadline is checked between operations. A stalled driver call can extend the run. Capture currently uses the verified 64-bit V4L2 buffer ABI on Linux x86-64 and AArch64 with glibc or musl. Other ABIs return a clear error before opening a node. [Linux V4L2 streaming API](https://docs.kernel.org/userspace-api/media/v4l/mmap.html)
@@ -81,8 +81,8 @@ The delivery rate and interval standard deviation use monotonic userspace dequeu
 ### HDMI connector observations and capture delivery
 
 ```sh
-./target/release/embedded-linux-benchmark hdmi status --connector card0-HDMI-A-1
-./target/release/embedded-linux-benchmark hdmi capture --device /dev/video2 --fixture --frames 120
+./target/release/eld-engine hdmi status --connector card0-HDMI-A-1
+./target/release/eld-engine hdmi capture --device /dev/video2 --fixture --frames 120
 ```
 
 `hdmi status` reads the explicit DRM sysfs connector's connection status, encoder state, and advertised mode names. Those attributes do not expose active timing. The command does not set display modes. [Linux DRM connector attributes](https://github.com/torvalds/linux/blob/v6.12/drivers/gpu/drm/drm_sysfs.c)
@@ -96,7 +96,7 @@ V4L2 ABI checks passed with native Linux and the OpenWrt AArch64 and Jetson SDK 
 Use a dedicated fixture with the selected port's TX connected to its RX at the voltage and signaling levels specified for that port. Across separate connectors, share a ground and use compatible levels. Keep the boot console, login terminals, and any attached equipment out of the fixture. Use TX/RX only for the loopback. RS-232 signaling requires a suitable transceiver before it can connect to a logic-level UART.
 
 ```sh
-./target/release/embedded-linux-benchmark uart --device /dev/ttyUSB0 --loopback --bytes 4096
+./target/release/eld-engine uart --device /dev/ttyUSB0 --loopback --bytes 4096
 ```
 
 `--loopback` acknowledges the dedicated fixture. The command checks the Linux console records, rejects standard streams and the controlling terminal, and accepts recognized `/dev` serial tty nodes such as `ttyUSB`, `ttyS`, and Jetson `ttyTHS` nodes, their aliases, or `/dev/pts/N` for testing. It requires the standard tty line discipline and a nonzero existing baud rate. The benchmark uses 115200 baud, 8 data bits, no parity, one stop bit, and no flow control. `--bytes` accepts 1–65536 and defaults to 4096. `--timeout-ms` accepts 1–30000 and defaults to 10000.
@@ -111,10 +111,10 @@ Use two endpoints on a dedicated isolated CAN bus with matching existing bitrate
 
 ```sh
 # Receiver
-./target/release/embedded-linux-benchmark can receive --interface can0 --tx-id 0x124 \
+./target/release/eld-engine can receive --interface can0 --tx-id 0x124 \
   --rx-id 0x123 --session 1234abcd --fixture --frames 128
 # Sender
-./target/release/embedded-linux-benchmark can send --interface can0 --tx-id 0x123 \
+./target/release/eld-engine can send --interface can0 --tx-id 0x123 \
   --rx-id 0x124 --session 1234abcd --fixture --frames 128
 ```
 
@@ -127,7 +127,7 @@ Verification covers Classic CAN and CAN FD wire formats and round trips with moc
 Use an isolated USB fixture with firmware that echoes each bulk OUT transfer onto its bulk IN endpoint. Select the device node, current interface number, and both endpoint addresses explicitly. The interface must be unbound from kernel drivers and expose both bulk endpoints in its current configuration and alternate setting.
 
 ```sh
-./target/release/embedded-linux-benchmark usb --device /dev/bus/usb/001/011 \
+./target/release/eld-engine usb --device /dev/bus/usb/001/011 \
   --interface 0 --out-endpoint 0x01 --in-endpoint 0x81 --loopback --bytes 4096
 ```
 
@@ -140,7 +140,7 @@ USB validation used an inert sysfs interface fixture and mocked transfers, inclu
 Use a dedicated adapter and a fixture documented to support standalone reads of the selected length at the selected address. Reads can have side effects, including consuming queued data, clearing status, or advancing a device pointer. Choose an isolated fixture without equipment that relies on that device state.
 
 ```sh
-./target/release/embedded-linux-benchmark i2c --adapter /dev/i2c-1 --address 0x48 \
+./target/release/eld-engine i2c --adapter /dev/i2c-1 --address 0x48 \
   --fixture --read-bytes 2 --samples 100
 ```
 
@@ -151,7 +151,7 @@ The adapter must expose Linux `i2c-dev` with raw I2C support. Enter one unreserv
 Connect the controller's MOSI to its MISO on a dedicated loopback fixture with compatible signal levels. Keep other peripherals disconnected from that bus. The controller can toggle clock and chip select during the test. Use an existing Linux `spidev` node with an 8-bit, single-lane full-duplex configuration.
 
 ```sh
-./target/release/embedded-linux-benchmark spi --device /dev/spidev0.0 --loopback --bytes 4096
+./target/release/eld-engine spi --device /dev/spidev0.0 --loopback --bytes 4096
 ```
 
 The command uses the existing SPI mode and transfer settings and reports the configured maximum clock. It does not write mode, word size, or speed settings. Each full-duplex transfer is at most 1024 bytes, and the result counts only received bytes that match the sent payload. `--bytes` accepts 1–65536 and defaults to 4096. The reported userspace rate includes transfers and verification. [Linux spidev interface](https://docs.kernel.org/spi/spidev.html)
@@ -161,7 +161,7 @@ The command uses the existing SPI mode and transfer settings and reports the con
 Use the Linux sysfs GPIO number of a line already exported and configured as an input. The example assumes an existing `gpio23` input. Sysfs GPIO is a legacy interface and may be missing from the target kernel. The benchmark requires a readable `direction` attribute equal to `in` and a readable `value` attribute. It opens both read-only and leaves export, pin direction, and pin state under the board's existing configuration. Keep the line exported as an input throughout the run. [Linux sysfs GPIO ABI](https://docs.kernel.org/userspace-api/gpio/sysfs.html)
 
 ```sh
-./target/release/embedded-linux-benchmark gpio --pin 23 --samples 1000
+./target/release/eld-engine gpio --pin 23 --samples 1000
 ```
 
 `--samples` accepts 1–100000 and defaults to 1000. `--timeout-ms` accepts 1–30000 and defaults to 5000. The command reports the mean time for userspace to rewind and read one value, along with the number of high samples. Electrical propagation and edge timing require separate instrumentation. The deadline is checked between samples and cannot interrupt a stalled kernel GPIO read.
@@ -171,7 +171,7 @@ Use the Linux sysfs GPIO number of a line already exported and configured as an 
 Select an available spare input by its character-device chip and chip-relative line offset. The command checks the kernel-reported direction, requests the line exclusively as-is, then checks the direction again before reading. It leaves direction, bias, and logical polarity as configured, respects a line already in use, and releases the line descriptor at exit. The result reports userspace value-read latency and counts logical active values. The kernel controls the line's default state after release. [Linux GPIO v2 line requests](https://docs.kernel.org/userspace-api/gpio/gpio-v2-get-line-ioctl.html)
 
 ```sh
-./target/release/embedded-linux-benchmark gpio --chip /dev/gpiochip0 --offset 7 \
+./target/release/eld-engine gpio --chip /dev/gpiochip0 --offset 7 \
   --input-fixture --samples 1000
 ```
 
@@ -182,9 +182,9 @@ I2C, SPI, and GPIO chardev accept `--timeout-ms` from 1–30000 with a 5000 ms d
 ## Automatic stress
 
 ```sh
-./target/release/embedded-linux-benchmark stress auto
-./target/release/embedded-linux-benchmark stress auto --rounds 2 --duration-ms 500 --network-mib 4
-./target/release/embedded-linux-benchmark stress auto --rounds 2 \
+./target/release/eld-engine stress auto
+./target/release/eld-engine stress auto --rounds 2 --duration-ms 500 --network-mib 4
+./target/release/eld-engine stress auto --rounds 2 \
   --storage-dir /path/to/writable-directory --storage-mib 16 --storage-sync
 ```
 
@@ -197,10 +197,10 @@ Supplying both `--storage-dir` and `--storage-mib` adds bounded filesystem work 
 Use one `--test` selector to repeat a single component without passive observations. CPU, RAM and network accept `--duration-ms`, RAM accepts `--buffer-kib`, and network accepts `--network-mib`. Storage-only requires both the directory and the total write budget and accepts `--storage-sync`. Options for other components produce an error before the run starts.
 
 ```sh
-./target/release/embedded-linux-benchmark stress auto --test cpu --rounds 3 --duration-ms 500
-./target/release/embedded-linux-benchmark stress auto --test ram --buffer-kib 2048
-./target/release/embedded-linux-benchmark stress auto --test network --network-mib 4
-./target/release/embedded-linux-benchmark stress auto --test storage --rounds 2 \
+./target/release/eld-engine stress auto --test cpu --rounds 3 --duration-ms 500
+./target/release/eld-engine stress auto --test ram --buffer-kib 2048
+./target/release/eld-engine stress auto --test network --network-mib 4
+./target/release/eld-engine stress auto --test storage --rounds 2 \
   --storage-dir /path/to/writable-directory --storage-mib 16 --storage-sync
 ```
 
@@ -217,11 +217,11 @@ Use one `--test` selector to repeat a single component without passive observati
 Use `--duration TIME` or `--duration-secs SEC` for a foreground elapsed target from 1 second through 14 days. `TIME` accepts whole seconds, minutes, hours, days, or weeks, with suffixes `s`, `m`, `h`, `d` and `w`. Either duration option replaces `--rounds` and `--timeout-ms`.
 
 ```sh
-./target/release/embedded-linux-benchmark stress auto --duration 30m
-./target/release/embedded-linux-benchmark stress auto --duration 2w
-./target/release/embedded-linux-benchmark stress auto --duration-secs 1209600
-./target/release/embedded-linux-benchmark stress auto --test ram --duration 1h --duration-ms 500
-./target/release/embedded-linux-benchmark stress auto --test storage --duration 5m \
+./target/release/eld-engine stress auto --duration 30m
+./target/release/eld-engine stress auto --duration 2w
+./target/release/eld-engine stress auto --duration-secs 1209600
+./target/release/eld-engine stress auto --test ram --duration 1h --duration-ms 500
+./target/release/eld-engine stress auto --test storage --duration 5m \
   --storage-dir /path/to/writable-directory --storage-mib 16
 ```
 
@@ -229,7 +229,7 @@ A complete round finishes all active phases at their configured duration or byte
 
 A timed run keeps fixed-size totals, prints progress at most once every five minutes, and reports the elapsed time and stop reason. CPU, RAM and loopback workers are reused between rounds. Loopback fails if it stalls for five seconds before the global deadline. A timed storage operation uses at most 1 MiB of the total write budget and a ten-second operation deadline, shortened by the global deadline. When the write budget is spent, storage is skipped in subsequent suite rounds; storage-only instead finishes early after verifying its final write. The RAM cap is two 32 MiB buffers. Other workload buffers and passive observations have fixed limits.
 
-Run a soak on a board with adequate cooling and power. This is a foreground workload, not a watchdog or recovery service: firmware limits, suspend, reboot, power loss, and process termination can interrupt it; it does not restart automatically. The monotonic clock excludes system suspend on Linux. Deadlines are checked between CPU batches, RAM copies, I/O chunks, and phases. An OS-scheduled delay or in-progress kernel I/O such as `sync_data()` can delay a check; the tool does not forcibly stop a driver operation. Sudden termination can leave a `.embedded-linux-benchmark-*` scratch file in a selected storage directory.
+Run a soak on a board with adequate cooling and power. This is a foreground workload, not a watchdog or recovery service: firmware limits, suspend, reboot, power loss, and process termination can interrupt it; it does not restart automatically. The monotonic clock excludes system suspend on Linux. Deadlines are checked between CPU batches, RAM copies, I/O chunks, and phases. An OS-scheduled delay or in-progress kernel I/O such as `sync_data()` can delay a check; the tool does not forcibly stop a driver operation. Sudden termination can leave a `.eld-engine-*` scratch file in a selected storage directory.
 
 The elapsed CPU summary counts work completed; it is not an independent CPU correctness proof. The standalone `cpu` command reports its checksum. The standalone CLI tests independently recompute it from the measured iteration count.
 
@@ -246,7 +246,7 @@ UART pseudoterminal tests passed natively and in the Jetson Linux 39.2.2 QEMU us
 ```sh
 cargo test --release --locked
 cargo build --release --locked
-python3 tests/uart_pty.py ./target/release/embedded-linux-benchmark
+python3 tests/uart_pty.py ./target/release/eld-engine
 ```
 
 The peripheral packages were built and inspected with matching OpenWrt SDKs. Package installation, UART pseudoterminal transfer and failure cases, Linux console refusal, missing GPIO rejection, and package removal passed in the full-system QEMU guests below. GPIO availability records whether the kernel exposed `/sys/class/gpio/export`. The tests inspected its presence without opening it or exporting a pin.

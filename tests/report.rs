@@ -18,7 +18,7 @@ impl Drop for ReportFiles {
 }
 
 fn command() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_embedded-linux-benchmark"))
+    Command::new(env!("CARGO_BIN_EXE_eld-engine"))
 }
 
 fn run_report(args: &[&str], expected_slug: &str) -> ReportFiles {
@@ -44,7 +44,7 @@ fn run_report(args: &[&str], expected_slug: &str) -> ReportFiles {
         .file_name()
         .unwrap()
         .to_string_lossy()
-        .starts_with("embedded-linux-benchmark-"));
+        .starts_with("eld-engine-"));
     assert_eq!(pdf.parent().unwrap(), directory);
     assert_eq!(markdown.extension().unwrap(), "md");
     assert_eq!(pdf.extension().unwrap(), "pdf");
@@ -90,7 +90,7 @@ fn cpu_command_creates_private_markdown_and_vector_pdf() {
         assert_eq!(metadata.nlink(), 1);
     }
     let markdown = fs::read_to_string(&first.markdown).unwrap();
-    assert!(markdown.starts_with("# Embedded Linux Benchmark report: CPU\n"));
+    assert!(markdown.starts_with("# Embedded Linux Diagnostic Engine report: CPU\n"));
     assert!(markdown.contains("| Test item | CPU |"));
     assert!(markdown.contains("| Status | Completed |"));
     assert!(markdown.contains("| CPU throughput |"));
@@ -151,7 +151,7 @@ fn stress_reports_aggregate_measurements() {
         "stress-cpu",
     );
     let markdown = fs::read_to_string(&report.markdown).unwrap();
-    assert!(markdown.starts_with("# Embedded Linux Benchmark report: Stress: CPU\n"));
+    assert!(markdown.starts_with("# Embedded Linux Diagnostic Engine report: Stress: CPU\n"));
     assert!(markdown.contains("| Selected workloads | CPU |"));
     assert!(!markdown.contains("| Passive observations |"));
     assert!(markdown.contains("Stress result: PASS (2/2 rounds completed)"));

@@ -1,6 +1,6 @@
 include $(TOPDIR)/rules.mk
 
-PKG_NAME:=embedded-linux-benchmark
+PKG_NAME:=eld-engine
 PKG_VERSION:=0.2.1
 PKG_RELEASE:=1
 PKG_LICENSE:=MIT
@@ -11,15 +11,15 @@ include $(INCLUDE_DIR)/package.mk
 OPENWRT_RUST_TARGET ?=
 OPENWRT_BUILD_STD ?= 0
 
-define Package/embedded-linux-benchmark
+define Package/eld-engine
   SECTION:=utils
   CATEGORY:=Utilities
   TITLE:=Component benchmarks for embedded Linux
-  URL:=https://github.com/brucerry/embedded-linux-benchmark
+  URL:=https://github.com/brucerry/embedded-linux-diagnostic-engine
   DEPENDS:=+libgcc
 endef
 
-define Package/embedded-linux-benchmark/description
+define Package/eld-engine/description
   Measure Linux components with bounded workloads and opt-in fixture tests.
 endef
 
@@ -37,9 +37,9 @@ define Build/Compile
 			--release --locked --offline --target "$(OPENWRT_RUST_TARGET)"
 endef
 
-define Package/embedded-linux-benchmark/install
+define Package/eld-engine/install
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) $(PKG_BUILD_DIR)/target/$(OPENWRT_RUST_TARGET)/release/embedded-linux-benchmark $(1)/usr/bin/
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/target/$(OPENWRT_RUST_TARGET)/release/eld-engine $(1)/usr/bin/
 endef
 
-$(eval $(call BuildPackage,embedded-linux-benchmark))
+$(eval $(call BuildPackage,eld-engine))

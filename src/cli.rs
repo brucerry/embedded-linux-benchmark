@@ -259,30 +259,30 @@ impl<'a> Options<'a> {
 fn help() {
     println!(
         "Usage:
-  embedded-linux-benchmark cpu [--duration-ms MS]
-  embedded-linux-benchmark ram [--duration-ms MS] [--buffer-kib KIB]
-  embedded-linux-benchmark storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]
-  embedded-linux-benchmark network [--size-mib MIB] [--timeout-ms MS]
-  embedded-linux-benchmark network peer-server|peer-client --bind IP --peer IP --port N
+  eld-engine cpu [--duration-ms MS]
+  eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
+  eld-engine storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]
+  eld-engine network [--size-mib MIB] [--timeout-ms MS]
+  eld-engine network peer-server|peer-client --bind IP --peer IP --port N
     --session HEX [--size-mib MIB] [--pings N] [--timeout-ms MS]
-  embedded-linux-benchmark uart --device PATH --loopback [--bytes N] [--timeout-ms MS]
-  embedded-linux-benchmark i2c --adapter PATH --address ADDR --fixture
+  eld-engine uart --device PATH --loopback [--bytes N] [--timeout-ms MS]
+  eld-engine i2c --adapter PATH --address ADDR --fixture
     [--read-bytes N] [--samples N] [--timeout-ms MS]
-  embedded-linux-benchmark spi --device PATH --loopback [--bytes N] [--timeout-ms MS]
-  embedded-linux-benchmark gpio --pin N [--samples N] [--timeout-ms MS]
-  embedded-linux-benchmark gpio --chip PATH --offset N --input-fixture
+  eld-engine spi --device PATH --loopback [--bytes N] [--timeout-ms MS]
+  eld-engine gpio --pin N [--samples N] [--timeout-ms MS]
+  eld-engine gpio --chip PATH --offset N --input-fixture
     [--samples N] [--timeout-ms MS]
-  embedded-linux-benchmark camera --device PATH [--frames N] [--timeout-ms MS]
-  embedded-linux-benchmark pcie link --device BDF
-  embedded-linux-benchmark pcie throughput --device BDF --fixture
-  embedded-linux-benchmark iio --device NAME --channel INPUT [--samples N] [--timeout-ms MS]
-  embedded-linux-benchmark usb --device PATH --interface N --out-endpoint ADDR --in-endpoint ADDR
+  eld-engine camera --device PATH [--frames N] [--timeout-ms MS]
+  eld-engine pcie link --device BDF
+  eld-engine pcie throughput --device BDF --fixture
+  eld-engine iio --device NAME --channel INPUT [--samples N] [--timeout-ms MS]
+  eld-engine usb --device PATH --interface N --out-endpoint ADDR --in-endpoint ADDR
     --loopback [--bytes N] [--timeout-ms MS]
-  embedded-linux-benchmark can send|receive --interface IFACE --tx-id ID --rx-id ID
+  eld-engine can send|receive --interface IFACE --tx-id ID --rx-id ID
     --session HEX --fixture [--fd] [--frames N] [--timeout-ms MS]
-  embedded-linux-benchmark hdmi status --connector NAME
-  embedded-linux-benchmark hdmi capture --device PATH --fixture [--frames N] [--timeout-ms MS]
-  embedded-linux-benchmark stress auto [--test cpu|ram|network|storage] [--rounds N | --duration TIME | --duration-secs SEC]
+  eld-engine hdmi status --connector NAME
+  eld-engine hdmi capture --device PATH --fixture [--frames N] [--timeout-ms MS]
+  eld-engine stress auto [--test cpu|ram|network|storage] [--rounds N | --duration TIME | --duration-secs SEC]
     [--duration-ms MS] [--buffer-kib KIB]
     [--network-mib MIB] [--timeout-ms MS] [--storage-dir DIR --storage-mib MIB [--storage-sync]]
 

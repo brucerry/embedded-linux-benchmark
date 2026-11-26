@@ -76,7 +76,7 @@ impl Request {
         let mut offsets = [0; MAX_LINES];
         offsets[0] = offset;
         let mut consumer = [0; NAME_SIZE];
-        let label = b"embedded-linux-benchmark";
+        let label = b"eld-engine";
         consumer[..label.len()].copy_from_slice(label);
         Self {
             offsets,

@@ -43,14 +43,14 @@ cargo +"$nightly" fetch --locked --manifest-path "$rust_src/library/Cargo.toml"
 rust_bin=$(dirname "$(rustup which --toolchain "$nightly" cargo)")
 
 # Run in the SDK after staging the overlay and running make defconfig.
-PATH="$rust_bin:$PATH" make package/embedded-linux-benchmark/compile \
+PATH="$rust_bin:$PATH" make package/eld-engine/compile \
   OPENWRT_RUST_TARGET="$target" OPENWRT_BUILD_STD=1 V=s
 ```
 
-`OPENWRT_BUILD_STD=1` selects Cargo's `-Z build-std`. The default `0` uses the selected toolchain's installed std. Run `make package/embedded-linux-benchmark/clean` when switching compiler, target, or std build mode in the same SDK.
+`OPENWRT_BUILD_STD=1` selects Cargo's `-Z build-std`. The default `0` uses the selected toolchain's installed std. Run `make package/eld-engine/clean` when switching compiler, target, or std build mode in the same SDK.
 
 ## Repeat the guest smoke test
 
 Use the kernel and root filesystem from the table's matching target directory. The x86-64 tests used QEMU `pc` with `qemu64`. The Armv7 tests used `virt` with `cortex-a15`. Both booted an uncompressed `newc` initramfs containing the OpenWrt root filesystem and the test package, following the [disposable guest procedure](openwrt-package.md#test-installation-in-a-disposable-guest). The MIPS tests used `qemu-system-mips` for big endian and `qemu-system-mipsel` for little endian, with `-machine malta -cpu 24Kc`. Stage the same files in a writable ext4 image using `mke2fs -d`, attach it with `-drive file=guest.ext4,format=raw,if=ide`, and boot with `root=/dev/sda rootfstype=ext4 rw rootwait init=/package-smoke`.
 
-Install the local IPK with `opkg install` or install the APK from the SDK-signed local index. Create `/var/lock` first if running the IPK test script as PID 1. Check `--help`, `cpu --duration-ms 4`, and `ram --duration-ms 4 --buffer-kib 4`. The RAM working set should be 8 KiB and bytes copied should equal copies times 4096. The commands `cpu --duration-ms 0` and `ram --buffer-kib 32769` should exit with status 1 and a range error. Remove the package and check that `/usr/bin/embedded-linux-benchmark` was removed.
+Install the local IPK with `opkg install` or install the APK from the SDK-signed local index. Create `/var/lock` first if running the IPK test script as PID 1. Check `--help`, `cpu --duration-ms 4`, and `ram --duration-ms 4 --buffer-kib 4`. The RAM working set should be 8 KiB and bytes copied should equal copies times 4096. The commands `cpu --duration-ms 0` and `ram --buffer-kib 32769` should exit with status 1 and a range error. Remove the package and check that `/usr/bin/eld-engine` was removed.

@@ -15,7 +15,7 @@ These are the published stable series from 21.02 through 25.12 and a published s
 | [25.12.6 `armsr/armv8`](https://downloads.openwrt.org/releases/25.12.6/targets/armsr/armv8/) | `r33311-981c978eff` | AArch64 musl | APK, `aarch64_generic` | Install, CLI, removal passed | Unverified |
 | [Snapshot `armsr/armv8`](https://downloads.openwrt.org/snapshots/targets/armsr/armv8/) | `r38523-14a07b78e9` | AArch64 musl | APK, `aarch64_generic` | Install, CLI, removal passed | Unverified |
 
-Each package contained `/usr/bin/embedded-linux-benchmark`. Inspection found `/lib/ld-musl-aarch64.so.1` as the interpreter and `libc.so` and `libgcc_s.so.1` as shared dependencies. The tests booted the checksum-verified matching OpenWrt kernels and root filesystems in QEMU 10.0.13 with no network device, installed the IPKs with `opkg` and the APKs from local repositories with signed indexes, and exercised help, the CPU checksum, the RAM working set and byte count, and invalid input. They also verified package removal. These checks cover the listed SDK and userspace pairs. Board and firmware measurements require physical runs.
+Each package contained `/usr/bin/eld-engine`. Inspection found `/lib/ld-musl-aarch64.so.1` as the interpreter and `libc.so` and `libgcc_s.so.1` as shared dependencies. The tests booted the checksum-verified matching OpenWrt kernels and root filesystems in QEMU 10.0.13 with no network device, installed the IPKs with `opkg` and the APKs from local repositories with signed indexes, and exercised help, the CPU checksum, the RAM working set and byte count, and invalid input. They also verified package removal. These checks cover the listed SDK and userspace pairs. Board and firmware measurements require physical runs.
 
 ### SDK archives and published SHA-256 values
 
@@ -43,19 +43,19 @@ rust_bin=$(dirname "$(rustup which --toolchain 1.96.0 cargo)")
 
 umask 022
 cd "$sdk"
-overlay=package/embedded-linux-benchmark
+overlay=package/eld-engine
 install -D -m 0644 "$checkout/openwrt/Makefile" "$overlay/Makefile"
 mkdir -p "$overlay/src"
 cp "$checkout/Cargo.toml" "$checkout/Cargo.lock" "$checkout/LICENSE" "$overlay/src/"
 cp -R "$checkout/src" "$overlay/src/"
-printf 'CONFIG_PACKAGE_embedded-linux-benchmark=m\n' > .config
+printf 'CONFIG_PACKAGE_eld-engine=m\n' > .config
 make defconfig
-PATH="$rust_bin:$PATH" make package/embedded-linux-benchmark/compile \
+PATH="$rust_bin:$PATH" make package/eld-engine/compile \
   OPENWRT_RUST_TARGET="$target" V=s
-find bin/packages -name 'embedded-linux-benchmark*.ipk' -o -name 'embedded-linux-benchmark*.apk'
+find bin/packages -name 'eld-engine*.ipk' -o -name 'eld-engine*.apk'
 ```
 
-The example creates `.config` in a fresh SDK directory. In a configured SDK, select `CONFIG_PACKAGE_embedded-linux-benchmark=m` in your existing configuration. Run the package `clean` target before rebuilding with a different external Rust toolchain or target.
+The example creates `.config` in a fresh SDK directory. In a configured SDK, select `CONFIG_PACKAGE_eld-engine=m` in your existing configuration. Run the package `clean` target before rebuilding with a different external Rust toolchain or target.
 
 Choose a Rust target and standard library matching the SDK's CPU ABI and libc. Rust 1.96.0 linked and ran on every row above. The crate's native minimum remains Rust 1.66, whose AArch64 musl std failed to link against SDKs 24.10.8 and 25.12.6 with undefined references to `stat64`, `open64`, and `fstat64`. Other architecture and firmware combinations require their own verification.
 

@@ -19,9 +19,9 @@ struct settings {
 
 static void usage(void) {
     puts("Usage:\n"
-         "  embedded-linux-benchmark-audio --playback hw:C,D --capture hw:C,D --loopback\n"
+         "  eld-engine-audio --playback hw:C,D --capture hw:C,D --loopback\n"
          "    [--channels 1|2] [--duration-ms 100..2000] [--timeout-ms 1..30000]\n"
-         "  embedded-linux-benchmark-audio --self-test");
+         "  eld-engine-audio --self-test");
 }
 
 static int64_t monotonic_ns(void) {

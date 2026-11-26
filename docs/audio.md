@@ -5,9 +5,9 @@ Build the audio helper separately with the Linux ALSA development headers and li
 ```sh
 mkdir -p target
 cc -std=c11 -O2 -Wall -Wextra -Werror audio/benchmark.c \
-  $(pkg-config --cflags --libs alsa) -lm -o target/embedded-linux-benchmark-audio
-./target/embedded-linux-benchmark-audio --self-test
-./target/embedded-linux-benchmark-audio --playback hw:0,0 --capture hw:1,0 --loopback
+  $(pkg-config --cflags --libs alsa) -lm -o target/eld-engine-audio
+./target/eld-engine-audio --self-test
+./target/eld-engine-audio --playback hw:0,0 --capture hw:1,0 --loopback
 ```
 
 Use a dedicated, level-compatible playback-to-capture loopback fixture. Choose the exact numeric hardware PCM names for playback and capture. The helper configures only its two streams, uses 48 kHz signed 16-bit PCM, and allows one or two channels with `--channels` (default two). The small test marker is copied to both playback channels. Analysis checks the first capture channel in memory.

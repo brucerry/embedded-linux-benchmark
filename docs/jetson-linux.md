@@ -33,7 +33,7 @@ CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER="$sdk_gcc" \
 CARGO_TARGET_DIR="$out" \
   cargo +1.96.0 build --release --locked --offline --target aarch64-unknown-linux-gnu
 
-binary="$out/aarch64-unknown-linux-gnu/release/embedded-linux-benchmark"
+binary="$out/aarch64-unknown-linux-gnu/release/eld-engine"
 readelf -W -h -l -d -V "$binary"
 ```
 

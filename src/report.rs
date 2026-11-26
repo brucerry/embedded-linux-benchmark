@@ -288,7 +288,7 @@ impl Report {
 
     fn markdown(&self, identity: &Identity, pdf_name: &str, status: &str, elapsed: f64) -> String {
         let mut out = format!(
-            "# Embedded Linux Benchmark report: {}\n\n| Run | Value |\n| --- | --- |\n| Status | {status} |\n| Wall time | {elapsed:.3} s |\n",
+            "# Embedded Linux Diagnostic Engine report: {}\n\n| Run | Value |\n| --- | --- |\n| Status | {status} |\n| Wall time | {elapsed:.3} s |\n",
             identity.title()
         );
         let _ = writeln!(
@@ -385,7 +385,7 @@ fn private_directory(root: &Path) -> io::Result<PathBuf> {
         .as_nanos();
     for attempt in 0..32 {
         let dir = root.join(format!(
-            "embedded-linux-benchmark-{}-{timestamp}-{attempt}",
+            "eld-engine-{}-{timestamp}-{attempt}",
             std::process::id()
         ));
         match DirBuilder::new().mode(0o700).create(&dir) {

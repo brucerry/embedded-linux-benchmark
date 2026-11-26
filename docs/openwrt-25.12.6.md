@@ -38,7 +38,7 @@ CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS='-C target-feature=-crt-static
 CARGO_TARGET_DIR="$proof/target" \
   cargo +1.96.0 build --release --locked --offline --target aarch64-unknown-linux-musl
 
-program="$proof/target/aarch64-unknown-linux-musl/release/embedded-linux-benchmark"
+program="$proof/target/aarch64-unknown-linux-musl/release/eld-engine"
 qemu-aarch64 -L "$proof/rootfs" "$program" --help
 qemu-aarch64 -L "$proof/rootfs" "$program" cpu --duration-ms 20
 qemu-aarch64 -L "$proof/rootfs" "$program" ram --duration-ms 20 --buffer-kib 4

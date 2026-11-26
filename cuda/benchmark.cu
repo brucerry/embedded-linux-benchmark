@@ -26,9 +26,9 @@ struct Settings {
 
 void usage() {
     std::puts("Usage:\n"
-              "  embedded-linux-benchmark-cuda compute --device N "
+              "  eld-engine-cuda compute --device N "
               "[--elements N] [--iterations N] [--rounds N] [--timeout-ms MS]\n"
-              "  embedded-linux-benchmark-cuda transfer --device N "
+              "  eld-engine-cuda transfer --device N "
               "[--size-mib N] [--rounds N] [--timeout-ms MS]");
 }
 

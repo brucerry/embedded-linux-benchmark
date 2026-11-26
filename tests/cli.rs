@@ -1,7 +1,7 @@
 use std::process::{Command, Output};
 
 fn run(args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_embedded-linux-benchmark"))
+    Command::new(env!("CARGO_BIN_EXE_eld-engine"))
         .args(args)
         .output()
         .expect("launch benchmark CLI")
@@ -41,8 +41,8 @@ fn elapsed(output: &str) -> f64 {
 fn help_lists_both_benchmarks() {
     for args in [vec![], vec!["--help"], vec!["ram", "-h"]] {
         let output = successful_output(&args);
-        assert!(output.contains("embedded-linux-benchmark cpu"));
-        assert!(output.contains("embedded-linux-benchmark ram"));
+        assert!(output.contains("eld-engine cpu"));
+        assert!(output.contains("eld-engine ram"));
         assert!(output.contains("--buffer-kib"));
     }
 }
@@ -143,7 +143,7 @@ impl ScratchDirectory {
         loop {
             let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
             let directory = std::env::temp_dir().join(format!(
-                "embedded-linux-benchmark-cli-{}-{sequence}",
+                "eld-engine-cli-{}-{sequence}",
                 std::process::id()
             ));
             match std::fs::create_dir(&directory) {
@@ -177,7 +177,7 @@ impl Drop for ScratchDirectory {
 #[test]
 fn storage_reports_buffered_and_synced_modes_and_removes_its_file() {
     let directory = ScratchDirectory::create();
-    let sentinel = directory.0.join(".embedded-linux-benchmark-keep");
+    let sentinel = directory.0.join(".eld-engine-keep");
     std::fs::write(&sentinel, b"keep this file").unwrap();
     for (extra, mode) in [
         (None, "buffered, page cache eligible"),
@@ -190,7 +190,7 @@ fn storage_reports_buffered_and_synced_modes_and_removes_its_file() {
         assert_eq!(field(&output, "Write bytes: "), "1048576");
         assert_eq!(field(&output, "Read bytes: "), "1048576");
         assert!(field(&output, "Read mode: ").contains("page cache eligible"));
-        assert_eq!(directory.names(), [".embedded-linux-benchmark-keep"]);
+        assert_eq!(directory.names(), [".eld-engine-keep"]);
         assert_eq!(std::fs::read(&sentinel).unwrap(), b"keep this file");
     }
 }
@@ -219,7 +219,7 @@ fn stress_runs_multiple_rounds_without_storage_and_honors_an_opt_in_budget() {
         "--network-mib",
         "1",
     ];
-    let result = Command::new(env!("CARGO_BIN_EXE_embedded-linux-benchmark"))
+    let result = Command::new(env!("CARGO_BIN_EXE_eld-engine"))
         .args(args)
         .current_dir(&directory.0)
         .output()
@@ -500,7 +500,7 @@ fn assert_storage_write_failure(directory: &ScratchDirectory, args: &[&str], str
     // Ignore SIGXFSZ so exceeding the child file-size limit returns a write error.
     let output = Command::new("/bin/sh")
         .args(["-c", "trap '' XFSZ && ulimit -f 1 && exec \"$@\"", "sh"])
-        .arg(env!("CARGO_BIN_EXE_embedded-linux-benchmark"))
+        .arg(env!("CARGO_BIN_EXE_eld-engine"))
         .args(args)
         .output()
         .unwrap();

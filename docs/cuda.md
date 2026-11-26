@@ -5,10 +5,10 @@ The CUDA helper builds separately with NVIDIA's CUDA Toolkit. Use the Toolkit an
 ```sh
 mkdir -p target
 nvcc -std=c++17 -O2 -arch=sm_87 --cudart=static cuda/benchmark.cu \
-  -o target/embedded-linux-benchmark-cuda
-./target/embedded-linux-benchmark-cuda --help
-./target/embedded-linux-benchmark-cuda compute --device 0 --rounds 4
-./target/embedded-linux-benchmark-cuda transfer --device 0 --size-mib 8 --rounds 4
+  -o target/eld-engine-cuda
+./target/eld-engine-cuda --help
+./target/eld-engine-cuda compute --device 0 --rounds 4
+./target/eld-engine-cuda transfer --device 0 --size-mib 8 --rounds 4
 ```
 
 Choose the GPU explicitly with `--device`. The runtime reports an error if the driver or selected device is unavailable. The core Rust build and automatic stress suite have no CUDA dependency.

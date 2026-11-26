@@ -1,8 +1,12 @@
 [package]
-name = "embedded-linux-benchmark"
+name = "embedded-linux-diagnostic-engine"
 version = "0.2.1"
 edition = "2021"
 rust-version = "1.66"
-description = "Component benchmarks and bounded stress tests for Linux and embedded boards"
+description = "Hardware benchmarks and diagnostics for Linux boards and servers"
 license = "MIT"
-repository = "https://github.com/brucerry/embedded-linux-benchmark"
+repository = "https://github.com/brucerry/embedded-linux-diagnostic-engine"
+
+[[bin]]
+name = "eld-engine"
+path = "src/main.rs"

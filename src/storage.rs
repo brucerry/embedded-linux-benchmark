@@ -44,7 +44,7 @@ impl ScratchFile {
         for _ in 0..16 {
             let sequence = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
             let path = directory.join(format!(
-                ".embedded-linux-benchmark-{pid}-{stamp}-{sequence}"
+                ".eld-engine-{pid}-{stamp}-{sequence}"
             ));
             match OpenOptions::new()
                 .create_new(true)

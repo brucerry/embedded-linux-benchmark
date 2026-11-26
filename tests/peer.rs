@@ -4,7 +4,7 @@ use std::process::{Child, Command, Stdio};
 const SESSION: &str = "0123456789abcdef0123456789abcdef";
 
 fn command() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_embedded-linux-benchmark"))
+    Command::new(env!("CARGO_BIN_EXE_eld-engine"))
 }
 
 struct Server {
