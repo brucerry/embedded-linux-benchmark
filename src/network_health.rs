@@ -272,6 +272,10 @@ fn capture(
     ))
 }
 
+pub(crate) fn snapshot(name: &str) -> Result<String, String> {
+    report(Path::new("/sys/class/net"), Path::new("/sys/devices"), name)
+}
+
 pub(crate) fn run(name: &str, sample_ms: Option<u64>) -> Result<(), String> {
     if !interface_name(name) {
         return Err("expected a Linux interface name of 1 to 15 safe characters".into());
@@ -282,7 +286,7 @@ pub(crate) fn run(name: &str, sample_ms: Option<u64>) -> Result<(), String> {
         Path::new("/proc/sys/kernel/random/boot_id"),
     );
     let Some(wait) = sample_ms else {
-        println!("{}", report(paths.0, paths.1, name)?);
+        println!("{}", snapshot(name)?);
         return Ok(());
     };
     if !(1..=MAX_SAMPLE_MS).contains(&wait) {

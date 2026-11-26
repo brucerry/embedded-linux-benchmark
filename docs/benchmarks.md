@@ -495,7 +495,11 @@ Without a profile it reports the board check as not configured. For a
 supplied profile read `inventory.board_check` for the scoped PCI result;
 an exit code of zero means the observation was emitted, not that the board
 passed. This command does not run the quick, manufacturing, or overnight
-workloads, or issue an overall qualification verdict.
+workloads, or issue an overall qualification verdict. You can also add
+`--network-interface eth0` to embed a single read-only NIC observation.
+It is not sampled twice, sends no packets, and is independent of the PCIe
+board check. If the interface is absent, its observation says unavailable;
+that does not imply a qualification failure.
 
 
 ### PCI accelerator candidates

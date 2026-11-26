@@ -136,7 +136,10 @@ const GPIO_OPTIONS: &[(&str, Kind)] = &[
     ("--samples", Number(1, gpio::MAX_SAMPLES)),
     ("--timeout-ms", Number(1, gpio::MAX_TIMEOUT_MS)),
 ];
-const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[("--board-profile", Kind::Path)];
+const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[
+    ("--board-profile", Kind::Path),
+    ("--network-interface", Kind::Text),
+];
 const QUALIFICATION_PLAN_OPTIONS: &[(&str, Kind)] =
     &[("--profile", Kind::Text), ("--include-local-load", Flag)];
 const STRESS_OPTIONS: &[(&str, Kind)] = &[
@@ -288,7 +291,7 @@ fn help() {
   eld-engine accelerator amdgpu-hwmon --device BDF
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
-  eld-engine qualify passive [--board-profile PATH]
+  eld-engine qualify passive [--board-profile PATH] [--network-interface NAME]
   eld-engine qualify plan --profile bring-up|quick|manufacturing|overnight [--include-local-load]
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
@@ -480,7 +483,10 @@ pub(crate) fn run() -> Result<(), String> {
                 Options::parse("qualify passive", &args[1..], QUALIFICATION_PASSIVE_OPTIONS)?;
             println!(
                 "{}",
-                crate::qualification::passive(options.path("--board-profile"))?
+                crate::qualification::passive(
+                    options.path("--board-profile"),
+                    options.text("--network-interface").ok()
+                )?
             );
             return Ok(());
         }
