@@ -22,32 +22,87 @@ fn reason(e: io::Error) -> &'static str {
     }
 }
 
-fn read(path: &Path, format: fn(&str) -> Result<String, &'static str>) -> String {
-    let result = (|| {
-        let mut text = String::new();
-        open_attribute(path)
-            .map_err(reason)?
-            .take(65)
-            .read_to_string(&mut text)
-            .map_err(reason)?;
-        if text.len() > 64 {
-            return Err("invalid");
-        }
-        format(text.trim())
-    })();
+fn read_field<T>(
+    path: &Path,
+    parse: fn(&str) -> Result<T, &'static str>,
+) -> Result<T, &'static str> {
+    let mut value = String::new();
+    open_attribute(path)
+        .map_err(reason)?
+        .take(65)
+        .read_to_string(&mut value)
+        .map_err(reason)?;
+    if value.len() > 64 {
+        return Err("invalid");
+    }
+    parse(value.trim())
+}
+
+fn field_json<T>(result: Result<T, &'static str>, encode: impl FnOnce(T) -> String) -> String {
     match result {
-        Ok(v) => format!(r#"{{"status":"observed","value":{v}}}"#),
+        Ok(v) => format!(r#"{{"status":"observed","value":{}}}"#, encode(v)),
         Err(status) => format!(r#"{{"status":"{status}"}}"#),
     }
 }
 
-fn decimal(s: &str) -> Result<String, &'static str> {
+fn read(path: &Path, format: fn(&str) -> Result<String, &'static str>) -> String {
+    field_json(read_field(path, format), |s| s)
+}
+
+fn unsigned(s: &str) -> Result<u64, &'static str> {
     if s.is_empty() || !s.bytes().all(|c| c.is_ascii_digit()) {
         return Err("invalid");
     }
-    s.parse::<u64>()
-        .map(|v| json_string(&v.to_string()))
-        .map_err(|_| "invalid")
+    s.parse().map_err(|_| "invalid")
+}
+
+fn decimal(s: &str) -> Result<String, &'static str> {
+    unsigned(s).map(number_json)
+}
+
+fn number_json(v: u64) -> String {
+    json_string(&v.to_string())
+}
+
+const COUNTER_KEYS: [&str; 7] = [
+    "rx_bytes",
+    "tx_bytes",
+    "rx_errors",
+    "tx_errors",
+    "rx_dropped",
+    "tx_dropped",
+    "carrier_changes",
+];
+type Counters = [Result<u64, &'static str>; 7];
+
+fn counter_json(values: &Counters) -> String {
+    COUNTER_KEYS
+        .into_iter()
+        .zip(values)
+        .map(|(name, value)| format!(r#""{name}":{}"#, field_json(*value, number_json)))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn counter_deltas(before: Option<Counters>, after: Option<Counters>, same: bool) -> String {
+    let (Some(before), Some(after), true) = (before, after, same) else {
+        return r#"{"status":"not_comparable"}"#.to_owned();
+    };
+    if before
+        .iter()
+        .zip(&after)
+        .any(|(a, b)| matches!((a,b),(Ok(a),Ok(b)) if b<a))
+    {
+        return r#"{"status":"counter_decreased_or_reset"}"#.to_owned();
+    }
+    let diffs = std::array::from_fn(|i| match (before[i], after[i]) {
+        (Ok(a), Ok(b)) => b.checked_sub(a).ok_or("counter_decreased_or_reset"),
+        _ => Err("endpoint_unavailable"),
+    });
+    format!(
+        r#"{{"status":"observed_differences","counters":{{{}}}}}"#,
+        counter_json(&diffs)
+    )
 }
 
 fn speed(s: &str) -> Result<String, &'static str> {
@@ -97,6 +152,9 @@ fn identity(index: &Path, devices: &Path, name: &str) -> Result<InterfaceIdentit
 }
 
 fn report(index: &Path, devices: &Path, name: &str) -> Result<String, String> {
+    observe(index, devices, name).map(|(json, _)| json)
+}
+fn observe(index: &Path, devices: &Path, name: &str) -> Result<(String, Option<Counters>), String> {
     if !interface_name(name) {
         return Err("expected a Linux interface name of 1 to 15 safe characters".into());
     }
@@ -109,7 +167,7 @@ fn report(index: &Path, devices: &Path, name: &str) -> Result<String, String> {
     };
     let initial = match identity() {
         Ok(v) => v,
-        Err(status) => return Ok(withheld(status)),
+        Err(status) => return Ok((withheld(status), None)),
     };
     let path = &initial.0;
     let speed = read(&path.join("speed"), speed);
@@ -122,34 +180,23 @@ fn report(index: &Path, devices: &Path, name: &str) -> Result<String, String> {
         Err(e) => Err(reason(e)),
     };
     let previous_stats = stats_identity();
-    let counters = [
-        "rx_bytes",
-        "tx_bytes",
-        "rx_errors",
-        "tx_errors",
-        "rx_dropped",
-        "tx_dropped",
-        "carrier_changes",
-    ]
-    .into_iter()
-    .map(|key| {
-        let value = if key == "carrier_changes" {
-            read(&path.join(key), decimal)
-        } else if let Err(status) = previous_stats {
-            format!(r#"{{"status":"{status}"}}"#)
+    let counters = COUNTER_KEYS.map(|key| {
+        if key == "carrier_changes" {
+            read_field(&path.join(key), unsigned)
         } else {
-            read(&stats.join(key), decimal)
-        };
-        format!(r#""{key}":{value}"#)
-    })
-    .collect::<Vec<_>>()
-    .join(",");
+            previous_stats.and_then(|_| read_field(&stats.join(key), unsigned))
+        }
+    });
     if identity().ok().as_ref() != Some(&initial) || stats_identity() != previous_stats {
-        return Ok(withheld("changed"));
+        return Ok((withheld("changed"), None));
     }
-    Ok(format!(
-        r#"{{"schema_version":1,"interface":{},"status":"observed","carrier":{carrier},"speed_mbps":{speed},"duplex":{duplex},"counters":{{{counters}}}}}"#,
-        json_string(name)
+    Ok((
+        format!(
+            r#"{{"schema_version":1,"interface":{},"status":"observed","carrier":{carrier},"speed_mbps":{speed},"duplex":{duplex},"counters":{{{}}}}}"#,
+            json_string(name),
+            counter_json(&counters)
+        ),
+        Some(counters),
     ))
 }
 
@@ -200,11 +247,26 @@ fn capture(
     devices: &Path,
     boot: &Path,
     name: &str,
-) -> Result<(String, Option<(InterfaceIdentity, u32, String)>), String> {
+) -> Result<
+    (
+        String,
+        Option<Counters>,
+        Option<(InterfaceIdentity, u32, String)>,
+    ),
+    String,
+> {
     let before = sample_key(index, devices, boot, name);
-    let observation = report(index, devices, name)?;
+    let (observation, counters) = observe(index, devices, name)?;
     let after = sample_key(index, devices, boot, name);
-    Ok((observation, if before == after { after } else { None }))
+    Ok((
+        observation,
+        counters,
+        if counters.is_some() && before == after {
+            after
+        } else {
+            None
+        },
+    ))
 }
 
 pub(crate) fn run(name: &str, sample_ms: Option<u64>) -> Result<(), String> {
@@ -224,17 +286,18 @@ pub(crate) fn run(name: &str, sample_ms: Option<u64>) -> Result<(), String> {
         return Err("sample-ms must be between 1 and 60000".into());
     }
     let start = std::time::Instant::now();
-    let (a, first) = capture(paths.0, paths.1, paths.2, name)?;
+    let (a, ca, first) = capture(paths.0, paths.1, paths.2, name)?;
     std::thread::sleep(std::time::Duration::from_millis(wait));
     let elapsed = start.elapsed().as_millis();
-    let (b, second) = capture(paths.0, paths.1, paths.2, name)?;
+    let (b, cb, second) = capture(paths.0, paths.1, paths.2, name)?;
     let continuity = match (first, second) {
         (Some(k), Some(j)) if k == j => "same_identity_observed",
         (Some(_), Some(_)) => "identity_changed",
         _ => "unknown",
     };
+    let delta = counter_deltas(ca, cb, continuity == "same_identity_observed");
     println!(
-        r#"{{"schema_version":1,"mode":"two_passive_snapshots","requested_wait_ms":{wait},"sample_start_interval_ms":{elapsed},"continuity":"{continuity}","before":{a},"after":{b}}}"#
+        r#"{{"schema_version":1,"mode":"two_passive_snapshots","requested_wait_ms":{wait},"sample_start_interval_ms":{elapsed},"continuity":"{continuity}","before":{a},"after":{b},"delta":{delta}}}"#
     );
     Ok(())
 }
@@ -243,6 +306,30 @@ pub(crate) fn run(name: &str, sample_ms: Option<u64>) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
+
+    #[test]
+    fn counter_diffs_preserve_intervening_link_changes_and_refuse_resets() {
+        let mut a = [Err("unavailable"); 7];
+        let mut b = a;
+        a[0] = Ok(20);
+        b[0] = Ok(20);
+        a[6] = Ok(9);
+        b[6] = Ok(11);
+        let delta = counter_deltas(Some(a), Some(b), true);
+        assert!(delta.contains(r#""carrier_changes":{"status":"observed","value":"2"}"#));
+        assert!(delta.contains(r#""rx_bytes":{"status":"observed","value":"0"}"#));
+        assert!(delta.contains(r#""tx_bytes":{"status":"endpoint_unavailable"}"#));
+        assert_eq!(carrier("1"), Ok("true".into()));
+        b[0] = Ok(5);
+        assert_eq!(
+            counter_deltas(Some(a), Some(b), true),
+            r#"{"status":"counter_decreased_or_reset"}"#
+        );
+        assert_eq!(
+            counter_deltas(Some(a), Some(b), false),
+            r#"{"status":"not_comparable"}"#
+        );
+    }
 
     #[test]
     fn explicit_link_fixture_preserves_zero_and_unknown_link_speed() {

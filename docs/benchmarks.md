@@ -385,8 +385,12 @@ cumulative, read separately, and are not a bandwidth or packet-loss test.
 
 Add `--sample-ms 1000` to take two passive snapshots (allowed: 1–60,000 ms).
 The report records the monotonic interval and whether the same boot and
-interface identity were observed. It does not infer a rate, loss, or absence
-of transient resets, and it does not output boot identifiers.
+interface identity were observed. It reports per-counter differences only with
+comparable observations, and withholds all differences if a counter decreases.
+Unchanged endpoint carrier states may still hide transitions recorded by
+`carrier_changes`. Sysfs fields are read sequentially; the result is not a
+precise rate, loss percentage, or proof that no transient reset occurred.
+Boot identifiers are not printed.
 
 ### Passive NVMe controller status
 
