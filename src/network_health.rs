@@ -74,29 +74,33 @@ fn duplex(s: &str) -> Result<String, &'static str> {
     }
 }
 
+type InterfaceIdentity = (std::path::PathBuf, u64, u64);
+
+fn identity(index: &Path, devices: &Path, name: &str) -> Result<InterfaceIdentity, &'static str> {
+    let item = index.join(name);
+    let path = fs::canonicalize(&item).map_err(reason)?;
+    if !path.starts_with(devices)
+        || path.file_name().and_then(|x| x.to_str()) != Some(name)
+        || path
+            .parent()
+            .and_then(Path::file_name)
+            .and_then(|x| x.to_str())
+            != Some("net")
+    {
+        return Err("invalid");
+    }
+    let m = fs::symlink_metadata(&path).map_err(reason)?;
+    if !m.is_dir() {
+        return Err("invalid");
+    }
+    Ok((path, m.dev(), m.ino()))
+}
+
 fn report(index: &Path, devices: &Path, name: &str) -> Result<String, String> {
     if !interface_name(name) {
         return Err("expected a Linux interface name of 1 to 15 safe characters".into());
     }
-    let item = index.join(name);
-    let identity = || {
-        let path = fs::canonicalize(&item).map_err(reason)?;
-        if !path.starts_with(devices)
-            || path.file_name().and_then(|x| x.to_str()) != Some(name)
-            || path
-                .parent()
-                .and_then(Path::file_name)
-                .and_then(|x| x.to_str())
-                != Some("net")
-        {
-            return Err("invalid");
-        }
-        let m = fs::symlink_metadata(&path).map_err(reason)?;
-        if !m.is_dir() {
-            return Err("invalid");
-        }
-        Ok((path, m.dev(), m.ino()))
-    };
+    let identity = || identity(index, devices, name);
     let withheld = |status| {
         format!(
             r#"{{"schema_version":1,"interface":{},"status":"{status}"}}"#,
@@ -149,10 +153,88 @@ fn report(index: &Path, devices: &Path, name: &str) -> Result<String, String> {
     ))
 }
 
-pub(crate) fn run(name: &str) -> Result<(), String> {
+pub(crate) const MAX_SAMPLE_MS: u64 = 60_000;
+
+fn read_id(path: &Path) -> Option<String> {
+    let mut s = String::new();
+    open_attribute(path)
+        .ok()?
+        .take(65)
+        .read_to_string(&mut s)
+        .ok()?;
+    if s.len() > 64 {
+        return None;
+    }
+    Some(s.trim().to_owned())
+}
+
+fn boot_id(path: &Path) -> Option<String> {
+    let value = read_id(path)?;
+    (value.len() == 36
+        && value.bytes().enumerate().all(|(i, b)| {
+            if matches!(i, 8 | 13 | 18 | 23) {
+                b == b'-'
+            } else {
+                b.is_ascii_hexdigit()
+            }
+        }))
+    .then_some(value)
+}
+
+fn sample_key(
+    index: &Path,
+    devices: &Path,
+    boot: &Path,
+    name: &str,
+) -> Option<(InterfaceIdentity, u32, String)> {
+    let first = identity(index, devices, name).ok()?;
+    let id = read_id(&first.0.join("ifindex"))?.parse::<u32>().ok()?;
+    if id == 0 || identity(index, devices, name).ok().as_ref() != Some(&first) {
+        return None;
+    }
+    Some((first, id, boot_id(boot)?))
+}
+
+fn capture(
+    index: &Path,
+    devices: &Path,
+    boot: &Path,
+    name: &str,
+) -> Result<(String, Option<(InterfaceIdentity, u32, String)>), String> {
+    let before = sample_key(index, devices, boot, name);
+    let observation = report(index, devices, name)?;
+    let after = sample_key(index, devices, boot, name);
+    Ok((observation, if before == after { after } else { None }))
+}
+
+pub(crate) fn run(name: &str, sample_ms: Option<u64>) -> Result<(), String> {
+    if !interface_name(name) {
+        return Err("expected a Linux interface name of 1 to 15 safe characters".into());
+    }
+    let paths = (
+        Path::new("/sys/class/net"),
+        Path::new("/sys/devices"),
+        Path::new("/proc/sys/kernel/random/boot_id"),
+    );
+    let Some(wait) = sample_ms else {
+        println!("{}", report(paths.0, paths.1, name)?);
+        return Ok(());
+    };
+    if !(1..=MAX_SAMPLE_MS).contains(&wait) {
+        return Err("sample-ms must be between 1 and 60000".into());
+    }
+    let start = std::time::Instant::now();
+    let (a, first) = capture(paths.0, paths.1, paths.2, name)?;
+    std::thread::sleep(std::time::Duration::from_millis(wait));
+    let elapsed = start.elapsed().as_millis();
+    let (b, second) = capture(paths.0, paths.1, paths.2, name)?;
+    let continuity = match (first, second) {
+        (Some(k), Some(j)) if k == j => "same_identity_observed",
+        (Some(_), Some(_)) => "identity_changed",
+        _ => "unknown",
+    };
     println!(
-        "{}",
-        report(Path::new("/sys/class/net"), Path::new("/sys/devices"), name)?
+        r#"{{"schema_version":1,"mode":"two_passive_snapshots","requested_wait_ms":{wait},"sample_start_interval_ms":{elapsed},"continuity":"{continuity}","before":{a},"after":{b}}}"#
     );
     Ok(())
 }
@@ -183,6 +265,16 @@ mod tests {
         assert!(result.contains(r#""rx_errors":{"status":"observed","value":"0"},"tx_errors":{"status":"observed","value":"18446744073709551615"}"#));
         assert!(result.contains(r#""rx_dropped":{"status":"unavailable"}"#));
         assert!(report(&index, &devices, "../eth0").is_err());
+        let boot = root.join("boot");
+        fs::write(&boot, "11111111-1111-4111-8111-111111111111\n").unwrap();
+        assert!(sample_key(&index, &devices, &boot, "eth0").is_none());
+        fs::write(link.join("ifindex"), "2\n").unwrap();
+        let first = sample_key(&index, &devices, &boot, "eth0").unwrap();
+        fs::write(link.join("ifindex"), "3\n").unwrap();
+        let second = sample_key(&index, &devices, &boot, "eth0").unwrap();
+        assert_ne!(first, second);
+        fs::write(&boot, "malformed\n").unwrap();
+        assert!(sample_key(&index, &devices, &boot, "eth0").is_none());
         symlink(&link, index.join("eth1")).unwrap();
         assert!(report(&index, &devices, "eth1")
             .unwrap()

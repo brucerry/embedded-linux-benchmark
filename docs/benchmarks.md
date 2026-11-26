@@ -383,6 +383,11 @@ duplex, traffic and error/drop counters, and carrier changes. It reads only
 that interface's Linux sysfs observations and sends no traffic. Counters are
 cumulative, read separately, and are not a bandwidth or packet-loss test.
 
+Add `--sample-ms 1000` to take two passive snapshots (allowed: 1–60,000 ms).
+The report records the monotonic interval and whether the same boot and
+interface identity were observed. It does not infer a rate, loss, or absence
+of transient resets, and it does not output boot identifiers.
+
 ### Passive NVMe controller status
 
 `eld-engine storage nvme-health --controller nvme0` reads the named
