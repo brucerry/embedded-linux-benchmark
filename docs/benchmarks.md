@@ -423,9 +423,15 @@ The OpenWrt guests enabled loopback in the test setup. The Jetson tests used the
 
 Run `eld-engine network health --interface eth0` with the name of the interface
 to inspect. The JSON snapshot shows carrier, negotiated speed when available,
-duplex, traffic and error/drop counters, and carrier changes. It reads only
-that interface's Linux sysfs observations and sends no traffic. Counters are
-cumulative, read separately, and are not a bandwidth or packet-loss test.
+duplex, Linux operational state, traffic and error/drop counters, and carrier
+changes. Receive CRC errors and receive-buffer misses are reported separately
+when available. These counters can help distinguish frame errors from receive
+pressure, but do not identify the root cause. Linux can report an explicit
+`unknown` operational state even when the attribute is readable. The command
+reads only that interface's Linux sysfs observations and sends no traffic.
+Counters are cumulative, read separately, and are not a bandwidth or
+packet-loss test. See the kernel's [interface statistics](https://docs.kernel.org/networking/statistics.html)
+and [operational states](https://docs.kernel.org/networking/operstates.html).
 
 Add `--sample-ms 1000` to take two passive snapshots (allowed: 1–60,000 ms).
 The report records the monotonic interval and whether the same boot and

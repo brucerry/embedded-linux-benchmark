@@ -64,7 +64,7 @@ fn number_json(v: u64) -> String {
     json_string(&v.to_string())
 }
 
-const COUNTER_KEYS: [&str; 7] = [
+const COUNTER_KEYS: [&str; 9] = [
     "rx_bytes",
     "tx_bytes",
     "rx_errors",
@@ -72,8 +72,10 @@ const COUNTER_KEYS: [&str; 7] = [
     "rx_dropped",
     "tx_dropped",
     "carrier_changes",
+    "rx_crc_errors",
+    "rx_missed_errors",
 ];
-type Counters = [Result<u64, &'static str>; 7];
+type Counters = [Result<u64, &'static str>; COUNTER_KEYS.len()];
 
 fn counter_json(values: &Counters) -> String {
     COUNTER_KEYS
@@ -129,6 +131,15 @@ fn duplex(s: &str) -> Result<String, &'static str> {
     }
 }
 
+fn operstate(s: &str) -> Result<String, &'static str> {
+    match s {
+        "unknown" | "notpresent" | "down" | "lowerlayerdown" | "testing" | "dormant" | "up" => {
+            Ok(json_string(s))
+        }
+        _ => Err("invalid"),
+    }
+}
+
 type InterfaceIdentity = (std::path::PathBuf, u64, u64);
 
 fn identity(index: &Path, devices: &Path, name: &str) -> Result<InterfaceIdentity, &'static str> {
@@ -173,6 +184,7 @@ fn observe(index: &Path, devices: &Path, name: &str) -> Result<(String, Option<C
     let speed = read(&path.join("speed"), speed);
     let carrier = read(&path.join("carrier"), carrier);
     let duplex = read(&path.join("duplex"), duplex);
+    let operstate = read(&path.join("operstate"), operstate);
     let stats = path.join("statistics");
     let stats_identity = || match fs::symlink_metadata(&stats) {
         Ok(m) if m.is_dir() => Ok((m.dev(), m.ino())),
@@ -192,7 +204,7 @@ fn observe(index: &Path, devices: &Path, name: &str) -> Result<(String, Option<C
     }
     Ok((
         format!(
-            r#"{{"schema_version":1,"interface":{},"status":"observed","carrier":{carrier},"speed_mbps":{speed},"duplex":{duplex},"counters":{{{}}}}}"#,
+            r#"{{"schema_version":1,"interface":{},"status":"observed","carrier":{carrier},"speed_mbps":{speed},"duplex":{duplex},"operstate":{operstate},"counters":{{{}}}}}"#,
             json_string(name),
             counter_json(&counters)
         ),
@@ -300,14 +312,18 @@ mod tests {
 
     #[test]
     fn counter_diffs_preserve_intervening_link_changes_and_refuse_resets() {
-        let mut a = [Err("unavailable"); 7];
+        let mut a = [Err("unavailable"); COUNTER_KEYS.len()];
         let mut b = a;
         a[0] = Ok(20);
         b[0] = Ok(20);
         a[6] = Ok(9);
         b[6] = Ok(11);
+        a[7] = Ok(7);
+        b[7] = Ok(9);
         let delta = counter_deltas(Some(a), Some(b), true);
         assert!(delta.contains(r#""carrier_changes":{"status":"observed","value":"2"}"#));
+        assert!(delta.contains(r#""rx_crc_errors":{"status":"observed","value":"2"}"#));
+        assert!(delta.contains(r#""rx_missed_errors":{"status":"endpoint_unavailable"}"#));
         assert!(delta.contains(r#""rx_bytes":{"status":"observed","value":"0"}"#));
         assert!(delta.contains(r#""tx_bytes":{"status":"endpoint_unavailable"}"#));
         assert_eq!(carrier("1"), Ok("true".into()));
@@ -334,6 +350,9 @@ mod tests {
         fs::write(link.join("carrier"), "0\n").unwrap();
         fs::write(link.join("speed"), "-1\n").unwrap();
         fs::write(link.join("duplex"), "unknown\n").unwrap();
+        fs::write(link.join("operstate"), "lowerlayerdown\n").unwrap();
+        fs::write(link.join("statistics/rx_crc_errors"), "21\n").unwrap();
+        fs::write(link.join("statistics/rx_missed_errors"), "0\n").unwrap();
         fs::write(link.join("statistics/rx_errors"), "0\n").unwrap();
         fs::write(link.join("statistics/tx_errors"), "18446744073709551615\n").unwrap();
         let result = report(&index, &devices, "eth0").unwrap();
@@ -341,6 +360,11 @@ mod tests {
             r#""carrier":{"status":"observed","value":false},"speed_mbps":{"status":"unavailable"}"#
         ));
         assert!(result.contains(r#""rx_errors":{"status":"observed","value":"0"},"tx_errors":{"status":"observed","value":"18446744073709551615"}"#));
+        assert!(result.contains(r#""operstate":{"status":"observed","value":"lowerlayerdown"}"#));
+        assert!(result.contains(r#""rx_crc_errors":{"status":"observed","value":"21"}"#));
+        assert!(result.contains(r#""rx_missed_errors":{"status":"observed","value":"0"}"#));
+        assert_eq!(operstate("unknown"), Ok(json_string("unknown")));
+        assert_eq!(operstate("whatever"), Err("invalid"));
         assert!(result.contains(r#""rx_dropped":{"status":"unavailable"}"#));
         assert!(report(&index, &devices, "../eth0").is_err());
         let boot = root.join("boot");
