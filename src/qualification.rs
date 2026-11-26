@@ -122,6 +122,39 @@ pub(crate) fn passive(
     ))
 }
 
+pub(crate) fn run_passive(
+    board_profile: Option<&std::path::Path>,
+    network_interface: Option<&str>,
+    nvme_controller: Option<&str>,
+    evidence_path: Option<&std::path::Path>,
+) -> Result<(), String> {
+    use crate::common::{unix_ms, write_new_evidence};
+    use std::time::{Instant, SystemTime};
+    let clock = evidence_path.map(|_| (SystemTime::now(), Instant::now()));
+    let observation = passive(board_profile, network_interface, nvme_controller)?;
+    if let Some((path, (started, timer))) = evidence_path.zip(clock) {
+        let elapsed = timer.elapsed().as_millis();
+        let finished = unix_ms(SystemTime::now());
+        let evidence = format!(
+            concat!(
+                r#"{{"evidence_schema_version":1,"kind":"passive_qualification","started_unix_ms":{},"finished_unix_ms":{},"elapsed_monotonic_ms":{},"qualification":{}}}"#,
+                "\n"
+            ),
+            unix_ms(started),
+            finished,
+            elapsed,
+            observation
+        );
+        if evidence.len() > 1024 * 1024 {
+            return Err("qualification evidence exceeds 1 MiB; no file created".to_owned());
+        }
+        write_new_evidence(path, evidence.as_bytes())
+            .map_err(|e| format!("cannot save qualification evidence (choose a new path): {e}"))?;
+    }
+    println!("{observation}");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

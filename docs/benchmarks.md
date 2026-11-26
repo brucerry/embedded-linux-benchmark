@@ -489,8 +489,8 @@ and are never planned for automatic execution.
 
 For bounded bring-up observations, use `eld-engine qualify passive` or
 `eld-engine qualify passive --board-profile board.profile`. This reads one
-inventory snapshot, with no timed sampling, stress, external network, or
-output files. The versioned result wraps the existing inventory report.
+inventory snapshot, with no timed sampling, stress, or external network.
+It writes no files by default. The versioned result wraps the existing inventory report.
 Without a profile it reports the board check as not configured. For a
 supplied profile read `inventory.board_check` for the scoped PCI result;
 an exit code of zero means the observation was emitted, not that the board
@@ -504,6 +504,14 @@ to also include one read-only controller metadata observation. This does not
 collect or decode a SMART capture, touch a storage device node, or run a
 storage test. A missing controller is reported without changing board
 assessment.
+
+For a machine-readable handoff, add `--evidence-json NEW_PATH`. It writes
+an owner-only JSON file up to 1 MiB with the exact stdout observation and
+wall-clock start/end plus monotonic elapsed milliseconds. It refuses to
+overwrite any existing path. Treat the file as complete only after the
+command exits successfully and the entire JSON validates; interrupted writes
+may leave an incomplete file. The timestamps describe the collection host,
+not a trusted external clock or a qualification verdict.
 
 
 ### PCI accelerator candidates

@@ -1,9 +1,12 @@
-use crate::{pcie_health::json_string, sysfs::open_attribute};
+use crate::{
+    common::{unix_ms, write_new_evidence},
+    pcie_health::json_string,
+    sysfs::open_attribute,
+};
 use std::fs;
-use std::io::{self, Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
+use std::io::{self, Read};
 use std::path::Path;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime};
 
 const LIMIT: u64 = 4096;
 const OS_KEYS: [&str; 2] = ["ID", "VERSION_ID"];
@@ -1001,11 +1004,6 @@ fn profile_pci_summary(applicable: &str, requested: usize, observations: &[&str]
     )
 }
 
-fn unix_ms(time: SystemTime) -> String {
-    time.duration_since(UNIX_EPOCH)
-        .map_or_else(|_| "null".to_owned(), |value| value.as_millis().to_string())
-}
-
 fn save_evidence(
     path: &Path,
     started: SystemTime,
@@ -1013,18 +1011,17 @@ fn save_evidence(
     elapsed_ms: u128,
     inventory: &str,
 ) -> io::Result<()> {
-    let mut output = fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .mode(0o600)
-        .open(path)?;
-    writeln!(
-        output,
-        r#"{{"evidence_schema_version":1,"kind":"passive_inventory","started_unix_ms":{},"finished_unix_ms":{},"elapsed_monotonic_ms":{elapsed_ms},"inventory":{inventory}}}"#,
+    let evidence = format!(
+        concat!(
+            r#"{{"evidence_schema_version":1,"kind":"passive_inventory","started_unix_ms":{},"finished_unix_ms":{},"elapsed_monotonic_ms":{},"inventory":{}}}"#,
+            "\n"
+        ),
         unix_ms(started),
-        unix_ms(finished)
-    )?;
-    output.sync_all()
+        unix_ms(finished),
+        elapsed_ms,
+        inventory
+    );
+    write_new_evidence(path, evidence.as_bytes())
 }
 
 pub(crate) fn snapshot(

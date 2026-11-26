@@ -1354,3 +1354,45 @@ fn offline_nvme_smart_decode_preserves_fields_and_rejects_bad_size() {
             .success()
     );
 }
+
+#[test]
+fn passive_qualification_evidence_is_private_and_non_clobbering() {
+    use std::fs;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    let scratch = ScratchDirectory::create();
+    let file = scratch.0.join("qualification.json");
+    let args = [
+        "qualify",
+        "passive",
+        "--evidence-json",
+        file.to_str().unwrap(),
+    ];
+    let stdout = successful_output(&args);
+    let saved = fs::read_to_string(&file).unwrap();
+    assert!(saved.starts_with(
+        r#"{"evidence_schema_version":1,"kind":"passive_qualification","started_unix_ms":"#
+    ));
+    assert!(saved.contains(r#""finished_unix_ms":"#));
+    assert!(saved.contains(r#""elapsed_monotonic_ms":"#));
+    assert!(saved
+        .trim_end()
+        .ends_with(&format!(r#","qualification":{}}}"#, stdout.trim_end())));
+    assert_eq!(fs::metadata(&file).unwrap().permissions().mode() & 0o077, 0);
+    let absent = scratch.0.join("absent");
+    let link = scratch.0.join("dangling.json");
+    symlink(&absent, &link).unwrap();
+    for path in [&file, &link] {
+        let result = run(&[
+            "qualify",
+            "passive",
+            "--evidence-json",
+            path.to_str().unwrap(),
+        ]);
+        assert!(!result.status.success());
+        assert!(result.stdout.is_empty());
+    }
+    assert_eq!(fs::read_to_string(&file).unwrap(), saved);
+    assert_eq!(fs::read_link(&link).unwrap(), absent);
+    assert!(!absent.exists());
+}

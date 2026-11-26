@@ -5,6 +5,24 @@ pub(crate) const MIB: u64 = 1_048_576;
 pub(crate) const DEFAULT_DURATION_MS: u64 = 1_000;
 pub(crate) const MAX_DURATION_MS: u64 = 60_000;
 
+pub(crate) fn unix_ms(time: std::time::SystemTime) -> String {
+    time.duration_since(std::time::UNIX_EPOCH)
+        .map_or_else(|_| "null".to_owned(), |value| value.as_millis().to_string())
+}
+
+/// Write a new owner-only evidence file; never overwrite an existing path.
+pub(crate) fn write_new_evidence(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut output = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    output.write_all(bytes)?;
+    output.sync_all()
+}
+
 #[derive(Debug)]
 pub(crate) enum RunError {
     Deadline,
