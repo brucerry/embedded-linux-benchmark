@@ -383,6 +383,15 @@ exited successfully and the summary says `completed`. Count and measured
 nanosecond values are decimal strings. This is not a stream, a peripheral
 qualification result, or evidence that every metric remained healthy.
 
+Add `--events-ndjson ./stress-events.ndjson` for a separate private file with
+one start line, at most one progress line per five minutes at a completed
+round boundary, and one finish line. Missed intervals are not replayed.
+Read only complete lines; an interruption or startup/I/O error can leave a
+partial stream or no finish line. A finish line records the workload outcome,
+not successful file delivery or process exit. Require a successful exit from
+the owned command before accepting a complete run. Use a fresh path for each
+attempt. This stream does not create any extra workload or device access.
+
 ### I2C, SPI, and GPIO chardev verification
 
 Rust fixtures cover full and short I2C reads, SPI chunking and received-data verification, and GPIO direction, busy-line, and release behavior. CLI tests cover missing fixture acknowledgment, invalid addresses and limits, and rejection of unrelated device nodes. The C assertions check the request encodings and structures against native Linux and SDK headers, including both MIPS32 byte orders. Use the SDK C compiler in place of `cc` for a cross check. For Linux 5.4 headers, add `-DEXPECT_LEGACY_GPIO_HEADERS` to check the interfaces those headers expose.

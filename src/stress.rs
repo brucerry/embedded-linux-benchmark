@@ -1,9 +1,9 @@
 use crate::common::{Deadline, RunError, Sample, MIB};
 use crate::{cpu, network, ram, storage};
-use std::fs::OpenOptions;
+use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{sync_channel, Receiver, SyncSender};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -46,6 +46,7 @@ pub(crate) fn parse_duration(value: &str) -> Result<u64, String> {
     )
 }
 const PROGRESS_INTERVAL: Duration = Duration::from_secs(300);
+const MAX_PROGRESS_EVENTS: u64 = MAX_DURATION_SECS / 300;
 const STORAGE_CHUNK_BYTES: u64 = MIB;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -81,6 +82,7 @@ pub(crate) struct Plan {
     pub(crate) network_bytes: u64,
     pub(crate) storage: Option<Storage>,
     pub(crate) summary_path: Option<PathBuf>,
+    pub(crate) events_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy)]
@@ -442,19 +444,76 @@ fn metrics_json(plan: &Plan, totals: &Totals) -> String {
     format!("{{{}}}", metrics.join(","))
 }
 
+fn new_private_report(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new()
+        .write(true)
+        .mode(0o600)
+        .create_new(true)
+        .open(path)
+}
+
+#[derive(Default)]
+struct EventProgress {
+    last: Duration,
+    count: u64,
+}
+
+impl EventProgress {
+    fn due(&mut self, elapsed: Duration) -> bool {
+        if self.count < MAX_PROGRESS_EVENTS
+            && elapsed.saturating_sub(self.last) >= PROGRESS_INTERVAL
+        {
+            self.last = elapsed;
+            self.count += 1;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+fn event(
+    file: &mut File,
+    sequence: u64,
+    kind: &str,
+    elapsed: Duration,
+    rounds: u64,
+    finish: Option<(&str, &str)>,
+) -> Result<(), String> {
+    let detail = finish.map_or_else(String::new, |(status, reason)| {
+        format!(r#","status":"{status}","stop_reason":"{reason}""#)
+    });
+    writeln!(
+        file,
+        r#"{{"event_schema_version":1,"sequence":{sequence},"event":"{kind}","elapsed_monotonic_ms":{},"rounds_completed":{rounds}{detail}}}"#,
+        elapsed.as_millis()
+    )
+    .map_err(|error| format!("cannot write stress event: {error}"))
+}
+
+fn outcome(result: &Result<&str, String>) -> (&'static str, &'static str) {
+    match result {
+        Ok("round target reached") => ("completed", "round_target"),
+        Ok("duration reached") => ("completed", "duration_limit"),
+        Ok("storage write budget reached") => ("completed", "storage_budget"),
+        Ok(_) => ("completed", "other"),
+        Err(_) => ("failed", "execution_error"),
+    }
+}
+
 pub(crate) fn run(plan: Plan) -> Result<(), String> {
     let mut summary = plan
         .summary_path
-        .as_ref()
-        .map(|path| {
-            OpenOptions::new()
-                .write(true)
-                .mode(0o600)
-                .create_new(true)
-                .open(path)
-        })
+        .as_deref()
+        .map(new_private_report)
         .transpose()
         .map_err(|e| format!("cannot create stress summary (choose a new path): {e}"))?;
+    let mut events = plan
+        .events_path
+        .as_deref()
+        .map(new_private_report)
+        .transpose()
+        .map_err(|e| format!("cannot create stress events (choose a new path): {e}"))?;
     crate::report::identify(crate::report::Subject::Stress {
         test: plan.test,
         storage: plan.storage.is_some(),
@@ -465,6 +524,10 @@ pub(crate) fn run(plan: Plan) -> Result<(), String> {
     };
     let start = Instant::now();
     let deadline = Deadline::after(target);
+    let mut event_progress = EventProgress::default();
+    if let Some(file) = events.as_mut() {
+        event(file, 0, "start", start.elapsed(), 0, None)?;
+    }
     let workers = Workers::new(&plan)?;
     let mut probes = plan
         .test
@@ -520,6 +583,20 @@ pub(crate) fn run(plan: Plan) -> Result<(), String> {
         {
             break Ok("storage write budget reached");
         }
+        if let Some(file) = events.as_mut() {
+            if event_progress.due(start.elapsed()) {
+                if let Err(error) = event(
+                    file,
+                    event_progress.count,
+                    "progress",
+                    start.elapsed(),
+                    rounds,
+                    None,
+                ) {
+                    break Err(error);
+                }
+            }
+        }
         if fixed.is_none() && last_progress.elapsed() >= PROGRESS_INTERVAL {
             println!(
                 "Progress: {} s elapsed, {rounds} rounds completed",
@@ -548,15 +625,26 @@ pub(crate) fn run(plan: Plan) -> Result<(), String> {
             Err(_) => report_line!("Stress result: FAIL"),
         }
     }
+    let (status, reason) = outcome(&result);
+    let event_finish = events
+        .as_mut()
+        .map(|file| {
+            event(
+                file,
+                event_progress.count + 1,
+                "finish",
+                start.elapsed(),
+                rounds,
+                Some((status, reason)),
+            )
+            .and_then(|_| {
+                file.sync_all()
+                    .map_err(|e| format!("cannot sync stress events: {e}"))
+            })
+        })
+        .transpose();
     if let Some(file) = summary.as_mut() {
         let target_rounds = fixed.map_or_else(|| "null".to_owned(), |n| n.to_string());
-        let (status, reason) = match &result {
-            Ok("round target reached") => ("completed", "round_target"),
-            Ok("duration reached") => ("completed", "duration_limit"),
-            Ok("storage write budget reached") => ("completed", "storage_budget"),
-            Ok(_) => ("completed", "other"),
-            Err(_) => ("failed", "execution_error"),
-        };
         let storage_written = plan.storage.as_ref().map_or_else(
             || "null".to_owned(),
             |_| format!(r#""{}""#, totals.storage_written),
@@ -578,12 +666,26 @@ pub(crate) fn run(plan: Plan) -> Result<(), String> {
             return Err(format!("{prefix}cannot save stress summary: {error}"));
         }
     }
-    result.map(|_| ())
+    result?;
+    event_finish?;
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn event_progress_skips_missed_intervals_and_caps_output() {
+        let mut progress = EventProgress::default();
+        assert!(!progress.due(Duration::from_secs(299)));
+        assert!(progress.due(Duration::from_secs(900)));
+        assert_eq!(progress.count, 1);
+        assert!(!progress.due(Duration::from_secs(1199)));
+        assert!(progress.due(Duration::from_secs(1200)));
+        progress.count = MAX_PROGRESS_EVENTS;
+        assert!(!progress.due(Duration::from_secs(MAX_DURATION_SECS + 300)));
+    }
 
     #[test]
     fn summary_keeps_wide_counts_and_durations_exact() {
@@ -595,6 +697,7 @@ mod tests {
             network_bytes: MIB,
             storage: None,
             summary_path: None,
+            events_path: None,
         };
         let totals = Totals {
             cpu: Sample {
