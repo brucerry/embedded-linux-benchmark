@@ -80,6 +80,23 @@ device does not by itself make the command exit nonzero. A row with optional exp
 vendor and device IDs instead reports `match` or `mismatch` if both IDs are readable,
 with expected and observed values; unreadable IDs are indeterminate, not a mismatch.
 
+### Reuse a board profile
+
+Save the following three lines as a regular file and run
+`eld-engine inventory --board-profile board.profile`:
+
+```text
+eld-board-profile=1
+compatible=examplevendor,example-board
+require-pcie=0000:01:00.0=8086:1234,0000:02:00.0
+```
+
+Replace the example with the exact first root Device Tree `compatible` value and
+required devices for the known board. The profile is applied only when that first
+value matches; a later shared SoC entry does not qualify. Missing or generic
+board evidence produces `unknown` and skips profile PCI checks. This file is
+data only, not a script, and cannot be combined with `--require-pcie`.
+
 ### PCIe health snapshot
 
 ```sh

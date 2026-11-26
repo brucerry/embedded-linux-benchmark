@@ -278,8 +278,88 @@ fn ids_json(ids: [u16; 2]) -> String {
     format!(r#"{{"vendor":"{:04x}","device":"{:04x}"}}"#, ids[0], ids[1])
 }
 
-pub(crate) fn run(required: Option<&str>) -> Result<(), String> {
-    let required = required_bdfs(required)?;
+const DT_COMPATIBLE: &str = "/sys/firmware/devicetree/base/compatible";
+
+struct BoardProfile {
+    compatible: String,
+    required: Vec<RequiredPci>,
+}
+
+fn specific_compatible(s: &str) -> bool {
+    s.len() <= 128
+        && s.split_once(',').is_some_and(|(vendor, board)| {
+            [vendor, board].into_iter().all(|v| {
+                !v.is_empty()
+                    && v.bytes().all(|b| {
+                        b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'+')
+                    })
+            }) && !board.eq_ignore_ascii_case("generic")
+        })
+}
+
+fn first_compatible(raw: &str) -> Option<&str> {
+    if !raw.ends_with('\0') {
+        return None;
+    }
+    let first = raw.split('\0').next()?;
+    specific_compatible(first).then_some(first)
+}
+
+fn applicability(profile: &BoardProfile, observed: Option<&str>) -> &'static str {
+    match observed {
+        Some(board) if board == profile.compatible => "applicable",
+        Some(_) => "not_applicable",
+        None => "unknown",
+    }
+}
+
+fn parse_profile(text: &str) -> Result<BoardProfile, String> {
+    let mut lines = text.lines();
+    if lines.next() != Some("eld-board-profile=1") {
+        return Err("expected eld-board-profile=1".into());
+    }
+    let board = lines
+        .next()
+        .and_then(|row| row.strip_prefix("compatible="))
+        .filter(|candidate| specific_compatible(candidate))
+        .ok_or("expected a specific compatible=vendor,board field")?;
+    let pci = lines
+        .next()
+        .and_then(|row| row.strip_prefix("require-pcie="))
+        .ok_or("expected a require-pcie field")?;
+    if lines.next().is_some() {
+        return Err("unexpected board profile fields".into());
+    }
+    Ok(BoardProfile {
+        compatible: board.into(),
+        required: required_bdfs(Some(pci))?,
+    })
+}
+
+pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result<(), String> {
+    if required.is_some() && profile_path.is_some() {
+        return Err("--require-pcie and --board-profile cannot be combined".into());
+    }
+    let mut required = required_bdfs(required)?;
+    let profile_context = if let Some(path) = profile_path {
+        let raw =
+            bounded(path).map_err(|_| "expected a readable board profile file up to 4096 bytes")?;
+        let profile = parse_profile(&raw)?;
+        let raw_board = bounded(Path::new(DT_COMPATIBLE)).ok();
+        let board = raw_board.as_deref().and_then(first_compatible);
+        let status = applicability(&profile, board);
+        let mark = format!(
+            r#","board_profile":{{"version":1,"applicability":"{status}","expected_compatible":{},"observed_compatible":{}}}"#,
+            json_string(&profile.compatible),
+            board.map_or_else(|| "null".into(), json_string)
+        );
+        if status == "applicable" {
+            required = profile.required;
+        }
+        mark
+    } else {
+        String::new()
+    };
     let [distribution, version] = release();
     let cells = [
         ("distribution_id", distribution),
@@ -329,7 +409,7 @@ pub(crate) fn run(required: Option<&str>) -> Result<(), String> {
         format!(r#","required_pcie":[{rows}]"#)
     };
     println!(
-        r#"{{"schema_version":1,"process_architecture":{},{values}{profile}}}"#,
+        r#"{{"schema_version":1,"process_architecture":{},{values}{profile_context}{profile}}}"#,
         json_string(std::env::consts::ARCH)
     );
     Ok(())
@@ -338,6 +418,37 @@ pub(crate) fn run(required: Option<&str>) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn board_profile_uses_first_compatible_and_fails_closed() {
+        let p = parse_profile(
+            "eld-board-profile=1\ncompatible=maker,alpha\nrequire-pcie=0000:01:00.0=8086:1234\n",
+        )
+        .unwrap();
+        assert_eq!(
+            applicability(&p, first_compatible("maker,alpha\0maker,soc\0")),
+            "applicable"
+        );
+        assert_eq!(
+            applicability(&p, first_compatible("maker,beta\0maker,soc\0")),
+            "not_applicable"
+        );
+        assert_eq!(
+            applicability(&p, first_compatible("generic\0maker,alpha\0")),
+            "unknown"
+        );
+        assert_eq!(applicability(&p, None), "unknown");
+        assert_eq!(first_compatible("maker,alpha"), None);
+        assert!(parse_profile(
+            "eld-board-profile=2\ncompatible=maker,alpha\nrequire-pcie=0000:01:00.0"
+        )
+        .is_err());
+        assert!(parse_profile(
+            "eld-board-profile=1\ncompatible=generic\nrequire-pcie=0000:01:00.0"
+        )
+        .is_err());
+        assert_eq!(p.required.len(), 1);
+    }
 
     #[test]
     fn required_pcie_checks_bounds_and_bus_availability() {

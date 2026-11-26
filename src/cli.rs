@@ -92,7 +92,10 @@ const IIO_OPTIONS: &[(&str, Kind)] = &[
     ("--samples", Number(2, iio::MAX_SAMPLES)),
     ("--timeout-ms", Number(1, iio::MAX_TIMEOUT_MS)),
 ];
-const INVENTORY_OPTIONS: &[(&str, Kind)] = &[("--require-pcie", Kind::Text)];
+const INVENTORY_OPTIONS: &[(&str, Kind)] = &[
+    ("--require-pcie", Kind::Text),
+    ("--board-profile", Kind::Path),
+];
 const PCIE_LINK_OPTIONS: &[(&str, Kind)] = &[("--device", Kind::Text)];
 const PCIE_HEALTH_OPTIONS: &[(&str, Kind)] = &[
     ("--device", Kind::Text),
@@ -266,7 +269,7 @@ impl<'a> Options<'a> {
 fn help() {
     println!(
         "Usage:
-  eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...]]
+  eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH]
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
   eld-engine storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]
@@ -404,7 +407,10 @@ pub(crate) fn run() -> Result<(), String> {
     let (spec, subject) = match command.as_str() {
         "inventory" => {
             let options = Options::parse("inventory", args, INVENTORY_OPTIONS)?;
-            crate::inventory::run(options.text("--require-pcie").ok())?;
+            crate::inventory::run(
+                options.text("--require-pcie").ok(),
+                options.path("--board-profile"),
+            )?;
             return Ok(());
         }
         "cpu" => (CPU_OPTIONS, Subject::Cpu),
