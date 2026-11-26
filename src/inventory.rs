@@ -336,6 +336,95 @@ fn parse_profile(text: &str) -> Result<BoardProfile, String> {
     })
 }
 
+// Linux emits a sorted list of individual IDs and inclusive ranges. Count without expansion.
+fn id_count(input: &str) -> Option<u32> {
+    fn id(s: &str) -> Option<u32> {
+        if s.is_empty() || s.len() > 7 || !s.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        let n = s.parse().ok()?;
+        (n < 1_000_000).then_some(n)
+    }
+    let mut count = 0u32;
+    let mut last = None;
+    for part in input.trim().split(',') {
+        let (start, end) = match part.split_once('-') {
+            Some((a, b)) => (id(a)?, id(b)?),
+            None => {
+                let n = id(part)?;
+                (n, n)
+            }
+        };
+        if end < start || last.is_some_and(|previous| start <= previous) {
+            return None;
+        }
+        count = count.checked_add(end - start + 1)?;
+        last = Some(end);
+    }
+    Some(count)
+}
+
+fn metric(path: &str, parse: impl FnOnce(&str) -> Option<u64>) -> Observation {
+    match bounded(Path::new(path)) {
+        Ok(v) => parse(&v).map_or(Observation::Invalid, |n| {
+            Observation::Available(n.to_string())
+        }),
+        Err(e) => Observation::error(e),
+    }
+}
+
+fn mem_value(input: &str, field: &str) -> Observation {
+    let mut found = None;
+    for row in input.lines() {
+        let Some((key, raw)) = row.split_once(':') else {
+            continue;
+        };
+        if key != field {
+            continue;
+        }
+        if found.is_some() {
+            return Observation::Invalid;
+        }
+        let mut tokens = raw.split_ascii_whitespace();
+        let value = tokens
+            .next()
+            .filter(|x| !x.is_empty() && x.bytes().all(|b| b.is_ascii_digit()))
+            .and_then(|x| x.parse::<u64>().ok())
+            .and_then(|n| n.checked_mul(1024));
+        if tokens.next() != Some("kB") || tokens.next().is_some() {
+            return Observation::Invalid;
+        }
+        match value {
+            Some(value) => found = Some(value),
+            None => return Observation::Invalid,
+        }
+    }
+    found.map_or(Observation::Unavailable, |n| {
+        Observation::Available(n.to_string())
+    })
+}
+
+fn resources() -> String {
+    let cpus = metric("/sys/devices/system/cpu/online", |v| {
+        id_count(v).map(u64::from)
+    });
+    let numa = metric("/sys/devices/system/node/online", |v| {
+        id_count(v).map(u64::from)
+    });
+    let memory = bounded(Path::new("/proc/meminfo"));
+    let mem = |field| match &memory {
+        Ok(data) => mem_value(data, field),
+        Err(e) => Observation::error(io::Error::from(e.kind())),
+    };
+    format!(
+        r#"{{"online_cpu_count":{},"online_numa_node_count":{},"memory_total_bytes":{},"memory_available_bytes":{}}}"#,
+        cpus.json(),
+        numa.json(),
+        mem("MemTotal").json(),
+        mem("MemAvailable").json()
+    )
+}
+
 pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result<(), String> {
     if required.is_some() && profile_path.is_some() {
         return Err("--require-pcie and --board-profile cannot be combined".into());
@@ -409,8 +498,9 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
         format!(r#","required_pcie":[{rows}]"#)
     };
     println!(
-        r#"{{"schema_version":1,"process_architecture":{},{values}{profile_context}{profile}}}"#,
-        json_string(std::env::consts::ARCH)
+        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{}{profile_context}{profile}}}"#,
+        json_string(std::env::consts::ARCH),
+        resources()
     );
     Ok(())
 }
@@ -418,6 +508,36 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resources_count_without_expansion_or_inventing_missing_memory() {
+        assert_eq!(id_count("0-3,5,8-9\n"), Some(7));
+        for bad in ["", "3-2", "0-3,3", "0,0", "0, 1", "0-999999999", "0,"] {
+            assert_eq!(id_count(bad), None);
+        }
+        let data = "MemTotal: 16 kB\nMemAvailable: 0 kB\nOther: 7 kB";
+        assert_eq!(
+            mem_value(data, "MemTotal"),
+            Observation::Available("16384".into())
+        );
+        assert_eq!(
+            mem_value(data, "MemAvailable"),
+            Observation::Available("0".into())
+        );
+        assert_eq!(mem_value(data, "Missing"), Observation::Unavailable);
+        assert_eq!(
+            mem_value("MemTotal: 3 mB", "MemTotal"),
+            Observation::Invalid
+        );
+        assert_eq!(
+            mem_value("MemTotal: 4 kB\nMemTotal: 5 kB", "MemTotal"),
+            Observation::Invalid
+        );
+        assert_eq!(
+            mem_value("MemTotal: 18446744073709551615 kB", "MemTotal"),
+            Observation::Invalid
+        );
+    }
 
     #[test]
     fn board_profile_uses_first_compatible_and_fails_closed() {
