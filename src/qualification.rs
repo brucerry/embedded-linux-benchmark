@@ -1,33 +1,61 @@
 //! Inspect built-in qualification plans. Nothing here starts a workload.
 use crate::pcie_health::json_string;
 
-pub(crate) fn render(profile: &str, include_load: bool) -> Result<String, String> {
-    let (seconds, ram_kib) = match profile {
+fn parameters(profile: &str) -> Result<(u64, u64), String> {
+    Ok(match profile {
         "bring-up" => (0u64, 0),
         "quick" => (1, 1024),
         "manufacturing" => (30, 4096),
         "overnight" => (4 * 3600, 8192),
         _ => return Err("expected one of: bring-up, quick, manufacturing, overnight".into()),
-    };
+    })
+}
+
+pub(crate) fn planned_load(
+    profile: &str,
+    include_load: bool,
+) -> Result<Vec<(&'static str, u64, Vec<String>)>, String> {
+    let (seconds, ram_kib) = parameters(profile)?;
     if include_load && seconds == 0 {
         return Err("the bring-up profile is passive only".into());
     }
+    if !include_load {
+        return Ok(Vec::new());
+    }
+    Ok(["cpu", "ram"]
+        .into_iter()
+        .map(|workload| {
+            let mut args = ["stress", "auto", "--test", workload, "--duration-secs"]
+                .map(str::to_owned)
+                .to_vec();
+            args.push(seconds.to_string());
+            if workload == "ram" {
+                args.extend(["--buffer-kib".to_owned(), ram_kib.to_string()]);
+            }
+            (workload, seconds, args)
+        })
+        .collect())
+}
+
+pub(crate) fn render(profile: &str, include_load: bool) -> Result<String, String> {
+    let load = planned_load(profile, include_load)?;
+    let total_seconds = load.iter().map(|(_, seconds, _)| seconds).sum::<u64>();
     let mut steps = vec![
         r#"{"id":"inventory","status":"planned","kind":"passive","argv":["inventory"]}"#.to_owned(),
         r#"{"id":"board_identity_and_required_pcie","status":"manual_input_required","kind":"passive","reason":"requires an exact board profile chosen by the operator"}"#.to_owned(),
     ];
-    for (name, unit) in [("cpu", "cpu"), ("ram", "ram")] {
-        if include_load {
-            let memory = if name == "ram" {
-                format!(r#","--buffer-kib","{ram_kib}""#)
-            } else {
-                String::new()
-            };
+    for name in ["cpu", "ram"] {
+        if let Some((_, seconds, args)) = load.iter().find(|row| row.0 == name) {
+            let args = args
+                .iter()
+                .map(|v| json_string(v))
+                .collect::<Vec<_>>()
+                .join(",");
             steps.push(format!(
-                r#"{{"id":"{name}_load","status":"planned","kind":"local_load","duration_target_seconds":{seconds},"argv":["stress","auto","--test","{unit}","--duration-secs","{seconds}"{memory}]}}"#
+                r#"{{"id":"{name}_load","status":"planned","kind":"local_load","duration_target_seconds":{seconds},"argv":[{args}]}}"#
             ));
         } else {
-            let reason = if seconds == 0 {
+            let reason = if profile == "bring-up" {
                 "passive_profile"
             } else {
                 "requires_explicit_local_load_preview"
@@ -37,29 +65,32 @@ pub(crate) fn render(profile: &str, include_load: bool) -> Result<String, String
             ));
         }
     }
-    for (id, reason) in [
+    for (id, kind, reason) in [
         (
+            "storage_write",
             "storage_write",
             "requires an operator-selected scratch path and write budget",
         ),
         (
             "network_peer",
+            "network_peer",
             "requires a dedicated peer and target selection",
         ),
         (
             "peripheral_and_accelerator",
+            "device_fixture",
             "requires explicit fixture, device and workload selection",
         ),
     ] {
         steps.push(format!(
-            r#"{{"id":"{id}","status":"skipped","reason":{}}}"#,
+            r#"{{"id":"{id}","status":"skipped","kind":"{kind}","reason":{}}}"#,
             json_string(reason)
         ));
     }
     Ok(format!(
         r#"{{"plan_schema_version":1,"kind":"qualification_plan","profile":{},"execution":"none","hardware_availability":"not_checked","local_load_target_seconds":{},"steps":[{}]}}"#,
         json_string(profile),
-        if include_load { seconds * 2 } else { 0 },
+        total_seconds,
         steps.join(",")
     ))
 }

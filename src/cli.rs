@@ -799,6 +799,43 @@ fn run_gpio(options: Options<'_>) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn qualification_load_round_trips_through_the_actual_stress_parser() {
+        use crate::qualification::planned_load;
+        for (profile, expected_secs, expected_kib) in [
+            ("quick", 1, 1024),
+            ("manufacturing", 30, 4096),
+            ("overnight", 14400, 8192),
+        ] {
+            assert!(planned_load(profile, false).unwrap().is_empty());
+            let args = planned_load(profile, true).unwrap();
+            assert_eq!(args.len(), 2);
+            for (name, seconds, argv) in args {
+                assert_eq!(&argv[..2], ["stress", "auto"]);
+                let parsed = parse_stress(&argv[2..]).unwrap();
+                let selected = parsed
+                    .test
+                    .expect("default mixed stress is forbidden in qualification");
+                assert_eq!(selected.name(), name);
+                assert_eq!(seconds, expected_secs);
+                assert!(matches!(parsed.schedule, stress::Schedule::Timed(duration)
+                    if duration == Duration::from_secs(expected_secs)));
+                assert!(parsed.storage.is_none());
+                if name == "ram" {
+                    assert_eq!(parsed.buffer_kib, expected_kib);
+                }
+                let without_test =
+                    parse_stress(&argv[4..].iter().take(2).cloned().collect::<Vec<_>>()).unwrap();
+                assert!(
+                    without_test.test.is_none(),
+                    "parser default would broaden the workload"
+                );
+            }
+        }
+        assert!(planned_load("bring-up", false).unwrap().is_empty());
+        assert!(planned_load("bring-up", true).is_err());
+    }
+
     use super::*;
 
     #[test]
