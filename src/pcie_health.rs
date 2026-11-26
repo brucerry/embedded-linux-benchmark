@@ -131,7 +131,7 @@ fn root_count(path: &Path, name: &str) -> Observed<u64> {
     }
 }
 
-fn json_string(s: &str) -> String {
+pub(crate) fn json_string(s: &str) -> String {
     use std::fmt::Write;
     let mut out = String::from("\"");
     for ch in s.chars() {

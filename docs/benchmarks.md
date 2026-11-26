@@ -2,6 +2,15 @@
 
 Use `cargo build --release --locked` and run `./target/release/eld-engine --help` for the commands. All workloads run on the calling thread. The `cpu` and `ram` commands also run independently with their existing settings.
 
+## Bring-up inventory
+
+`eld-engine inventory` prints a read-only JSON summary of process architecture,
+Linux kernel release, distribution, and model or firmware fields exposed by
+Device Tree or DMI. It does not scan the network, read machine IDs or serial
+numbers, or execute a system configuration file. The architecture describes
+the executable, not a claim about the physical board under emulation.
+Unavailable, inaccessible, and invalid observations stay separate.
+
 ## Storage
 
 Select an existing writable directory and a size of 1–64 MiB. The command creates a uniquely named regular file with owner-only permissions, writes the requested payload sequentially, then reads and verifies the same byte count. Exclusive creation protects existing files. The command removes the scratch file on success or a handled error and reports the path if removal fails.

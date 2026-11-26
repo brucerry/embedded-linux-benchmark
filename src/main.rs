@@ -12,6 +12,7 @@ mod gpio_chardev;
 mod hdmi;
 mod i2c;
 mod iio;
+mod inventory;
 mod linux_poll;
 mod linux_socket;
 mod network;

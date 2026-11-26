@@ -265,6 +265,7 @@ impl<'a> Options<'a> {
 fn help() {
     println!(
         "Usage:
+  eld-engine inventory
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
   eld-engine storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]
@@ -400,6 +401,11 @@ pub(crate) fn run() -> Result<(), String> {
     }
     let (command, args) = args.split_first().expect("command is present");
     let (spec, subject) = match command.as_str() {
+        "inventory" => {
+            Options::parse("inventory", args, &[])?;
+            crate::inventory::run();
+            return Ok(());
+        }
         "cpu" => (CPU_OPTIONS, Subject::Cpu),
         "ram" => (RAM_OPTIONS, Subject::Ram),
         "storage" => (STORAGE_OPTIONS, Subject::Storage),
