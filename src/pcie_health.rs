@@ -2,9 +2,12 @@ use crate::{pcie, sysfs::open_attribute};
 use std::collections::BTreeMap;
 use std::fs;
 use std::io::{self, Read};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 const LIMIT: usize = 8192;
+pub(crate) const MAX_SAMPLE_MS: u64 = 60_000;
 const ROOT: &str = "/sys/devices";
 const COUNTERS: [(&str, &str); 3] = [
     ("aer_dev_correctable", "TOTAL_ERR_COR"),
@@ -87,7 +90,7 @@ fn parse_counts(text: &str, total_key: &str) -> Option<Counts> {
     })
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 struct Device {
     bdf: String,
     path: PathBuf,
@@ -147,7 +150,7 @@ fn json_string(s: &str) -> String {
     out
 }
 
-fn json_observed<T>(value: Observed<T>, encode: impl FnOnce(T) -> String) -> String {
+fn json_observed<T>(value: &Observed<T>, encode: impl FnOnce(&T) -> String) -> String {
     match value {
         Observed::Value(v) => format!(r#"{{"status":"observed","value":{}}}"#, encode(v)),
         Observed::Unavailable => r#"{"status":"unavailable"}"#.to_owned(),
@@ -156,7 +159,7 @@ fn json_observed<T>(value: Observed<T>, encode: impl FnOnce(T) -> String) -> Str
     }
 }
 
-fn counts_json(counts: Counts) -> String {
+fn counts_json(counts: &Counts) -> String {
     let categories = counts
         .categories
         .iter()
@@ -169,46 +172,101 @@ fn counts_json(counts: Counts) -> String {
     )
 }
 
-fn render(devices: &[Device]) -> String {
+#[derive(Debug, PartialEq, Eq)]
+struct Identity {
+    fs_device: u64,
+    inode: u64,
+}
+
+fn identity(path: &Path) -> io::Result<Identity> {
+    let meta = fs::symlink_metadata(path)?;
+    if !meta.file_type().is_dir() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "expected a PCI sysfs directory",
+        ));
+    }
+    Ok(Identity {
+        fs_device: meta.dev(),
+        inode: meta.ino(),
+    })
+}
+
+struct SampleDevice {
+    device: Device,
+    identity: Identity,
+    links: [Observed<String>; 4],
+    counters: [Observed<Counts>; 3],
+    root: [Observed<u64>; 3],
+}
+
+fn snapshot(devices: &[Device]) -> Result<Vec<SampleDevice>, String> {
+    devices
+        .iter()
+        .map(|device| {
+            let identify = || {
+                identity(&device.path)
+                    .map_err(|e| format!("cannot identify PCI device {}: {e}", device.bdf))
+            };
+            let before = identify()?;
+            let links = pcie::LINK_ATTRIBUTES.map(|(attr, _)| {
+                read(&device.path.join(attr), |s| {
+                    let v = s.trim();
+                    (!v.is_empty()
+                        && v.len() <= 128
+                        && v.bytes().all(|b| b.is_ascii_graphic() || b == b' '))
+                    .then(|| v.to_owned())
+                })
+            });
+            let counters =
+                COUNTERS.map(|(name, key)| read(&device.path.join(name), |v| parse_counts(v, key)));
+            let root = ROOT_COUNTERS.map(|name| root_count(&device.path, name));
+            if before != identify()? {
+                return Err(format!(
+                    "PCI device {} changed during observation",
+                    device.bdf
+                ));
+            }
+            Ok(SampleDevice {
+                device: device.clone(),
+                identity: before,
+                links,
+                counters,
+                root,
+            })
+        })
+        .collect()
+}
+
+fn fields<V, const N: usize>(
+    names: [&str; N],
+    values: &[V; N],
+    encode: impl Fn(&V) -> String,
+) -> String {
+    names
+        .into_iter()
+        .zip(values)
+        .map(|(name, value)| format!("{}:{}", json_string(name), encode(value)))
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn render(devices: &[SampleDevice]) -> String {
     let observations = devices
         .iter()
         .enumerate()
-        .map(|(i, device)| {
-            let links = pcie::LINK_ATTRIBUTES
-                .iter()
-                .map(|(attr, _)| {
-                    let value = read(&device.path.join(attr), |s| {
-                        let v = s.trim();
-                        (!v.is_empty()
-                            && v.len() <= 128
-                            && v.bytes().all(|b| b.is_ascii_graphic() || b == b' '))
-                        .then(|| v.to_owned())
-                    });
-                    format!(
-                        "{}:{}",
-                        json_string(attr),
-                        json_observed(value, |v| json_string(&v))
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",");
-            let counters = COUNTERS
-                .iter()
-                .map(|(name, key)| {
-                    format!(
-                        "{}:{}",
-                        json_string(name),
-                        json_observed(
-                            read(&device.path.join(name), |v| parse_counts(v, key)),
-                            counts_json
-                        )
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",");
+        .map(|(i, sample)| {
+            let links = fields(
+                pcie::LINK_ATTRIBUTES.map(|(key, _)| key),
+                &sample.links,
+                |value| json_observed(value, |s| json_string(s)),
+            );
+            let counters = fields(COUNTERS.map(|(key, _)| key), &sample.counters, |value| {
+                json_observed(value, counts_json)
+            });
             format!(
                 r#"{{"bdf":"{}","role":"{}","link":{{{}}},"device_aer":{{{}}}}}"#,
-                device.bdf,
+                sample.device.bdf,
                 if i == 0 { "target" } else { "upstream" },
                 links,
                 counters
@@ -218,48 +276,168 @@ fn render(devices: &[Device]) -> String {
         .join(",");
     let root_rows = devices
         .iter()
-        .filter_map(|device| {
-            let counts = ROOT_COUNTERS.map(|name| root_count(&device.path, name));
-            if counts.iter().all(|value| *value == Observed::Unavailable) {
+        .filter_map(|sample| {
+            if sample
+                .root
+                .iter()
+                .all(|value| *value == Observed::Unavailable)
+            {
                 return None;
             }
-            let counters = ROOT_COUNTERS
-                .into_iter()
-                .zip(counts)
-                .map(|(name, value)| {
-                    format!(
-                        "{}:{}",
-                        json_string(name),
-                        json_observed(value, |v| format!("\"{v}\""))
-                    )
-                })
-                .collect::<Vec<_>>()
-                .join(",");
+            let counters = fields(ROOT_COUNTERS, &sample.root, |value| {
+                json_observed(value, |v| format!("\"{v}\""))
+            });
             Some(format!(
                 r#"{{"bdf":"{}","counters":{{{}}}}}"#,
-                device.bdf, counters
+                sample.device.bdf, counters
             ))
         })
         .collect::<Vec<_>>()
         .join(",");
     format!(
         r#"{{"schema_version":1,"device":"{}","observations":[{}],"root_hierarchy_aer":[{}]}}"#,
-        devices[0].bdf, observations, root_rows
+        devices[0].device.bdf, observations, root_rows
     )
 }
 
-pub(crate) fn run(device: &str) -> Result<(), String> {
-    let requested = pcie::bdf(device)?;
-    let link = Path::new("/sys/bus/pci/devices").join(&requested);
+fn uuid(text: &str) -> Option<String> {
+    let text = text.trim();
+    (text.len() == 36
+        && text.bytes().enumerate().all(|(i, b)| {
+            if [8, 13, 18, 23].contains(&i) {
+                b == b'-'
+            } else {
+                b.is_ascii_hexdigit()
+            }
+        }))
+    .then(|| text.to_ascii_lowercase())
+}
+
+fn read_boot() -> Observed<String> {
+    read(Path::new("/proc/sys/kernel/random/boot_id"), uuid)
+}
+
+fn delta_counts(before: &Counts, after: &Counts) -> Result<Counts, &'static str> {
+    if before.categories.keys().ne(after.categories.keys()) {
+        return Err("category_set_changed");
+    }
+    let total_messages = after
+        .total_messages
+        .checked_sub(before.total_messages)
+        .ok_or("counter_decreased")?;
+    let mut categories = BTreeMap::new();
+    for (name, old_value) in &before.categories {
+        let delta = after.categories[name]
+            .checked_sub(*old_value)
+            .ok_or("counter_decreased")?;
+        categories.insert(name.clone(), delta);
+    }
+    Ok(Counts {
+        total_messages,
+        categories,
+    })
+}
+
+fn delta_field<T, U>(
+    before: &Observed<T>,
+    after: &Observed<T>,
+    delta: impl FnOnce(&T, &T) -> Result<U, &'static str>,
+    encode: impl FnOnce(U) -> String,
+) -> String {
+    let error = |reason| format!(r#"{{"status":"not_comparable","reason":"{reason}"}}"#);
+    match (before, after) {
+        (Observed::Value(a), Observed::Value(b)) => match delta(a, b) {
+            Ok(v) => format!(r#"{{"status":"observed","value":{}}}"#, encode(v)),
+            Err(e) => error(e),
+        },
+        (Observed::Unavailable, Observed::Unavailable) => r#"{"status":"unavailable"}"#.to_owned(),
+        (Observed::Inaccessible, Observed::Inaccessible) => {
+            r#"{"status":"inaccessible"}"#.to_owned()
+        }
+        (Observed::Invalid, Observed::Invalid) => r#"{"status":"invalid"}"#.to_owned(),
+        _ => error("observation_state_changed"),
+    }
+}
+
+fn comparison(
+    first: &[SampleDevice],
+    second: &[SampleDevice],
+    boot_before: &Observed<String>,
+    boot_after: &Observed<String>,
+) -> Result<(), &'static str> {
+    match (boot_before, boot_after) {
+        (Observed::Value(a), Observed::Value(b)) if a != b => return Err("boot_changed"),
+        (Observed::Value(_), Observed::Value(_)) => {}
+        _ => return Err("boot_identity_unavailable"),
+    }
+    if first.len() != second.len()
+        || first
+            .iter()
+            .zip(second)
+            .any(|(a, b)| a.device != b.device || a.identity != b.identity)
+    {
+        return Err("device_identity_changed");
+    }
+    Ok(())
+}
+
+fn render_delta(
+    first: &[SampleDevice],
+    second: &[SampleDevice],
+    boot_before: &Observed<String>,
+    boot_after: &Observed<String>,
+) -> String {
+    if let Err(reason) = comparison(first, second, boot_before, boot_after) {
+        return format!(r#"{{"status":"not_comparable","reason":"{reason}"}}"#);
+    }
+    let rows = first.iter().zip(second).map(|(a,b)| {
+        let device_deltas = COUNTERS.iter().zip(a.counters.iter().zip(&b.counters))
+            .map(|((name,_),(before,after))| format!("{}:{}",json_string(name),
+                delta_field(before,after,delta_counts,|v| counts_json(&v))))
+            .collect::<Vec<_>>().join(",");
+        let root_deltas = ROOT_COUNTERS.iter().zip(a.root.iter().zip(&b.root))
+            .map(|(name,(before,after))| format!("{}:{}",json_string(name),
+                delta_field(before,after,|a,b| b.checked_sub(*a).ok_or("counter_decreased"),
+                    |v| format!("\"{v}\""))))
+            .collect::<Vec<_>>().join(",");
+        format!(r#"{{"bdf":"{}","device_aer":{{{device_deltas}}},"root_hierarchy_aer":{{{root_deltas}}}}}"#,b.device.bdf)
+    }).collect::<Vec<_>>().join(",");
+    format!(r#"{{"status":"compared","by_observer":[{rows}]}}"#)
+}
+
+fn observe(requested: &str) -> Result<Vec<SampleDevice>, String> {
+    let link = Path::new("/sys/bus/pci/devices").join(requested);
     let path = fs::canonicalize(&link)
         .map_err(|e| format!("cannot resolve PCI device {requested}: {e}"))?;
     let devices =
-        topology(&path, Path::new(ROOT), &requested).ok_or("unexpected PCI sysfs topology")?;
-    let content = render(&devices);
+        topology(&path, Path::new(ROOT), requested).ok_or("unexpected PCI sysfs topology")?;
+    let result = snapshot(&devices)?;
     if fs::canonicalize(&link).ok().as_ref() != Some(&path) {
         return Err("PCI device topology changed during observation".into());
     }
-    println!("{content}");
+    Ok(result)
+}
+
+pub(crate) fn run(device: &str, sample_ms: Option<u64>) -> Result<(), String> {
+    let requested = pcie::bdf(device)?;
+    if let Some(ms) = sample_ms {
+        let boot_before = read_boot();
+        let started = Instant::now();
+        let first = observe(&requested)?;
+        std::thread::sleep(Duration::from_millis(ms));
+        let second_started = Instant::now();
+        let second = observe(&requested)?;
+        let boot_after = read_boot();
+        let deltas = render_delta(&first, &second, &boot_before, &boot_after);
+        let interval = second_started.duration_since(started).as_millis();
+        println!(
+            r#"{{"schema_version":1,"device":"{requested}","requested_wait_ms":{ms},"sample_start_interval_ms":{interval},"before":{},"after":{},"delta":{deltas}}}"#,
+            render(&first),
+            render(&second)
+        );
+    } else {
+        println!("{}", render(&observe(&requested)?));
+    }
     Ok(())
 }
 
@@ -315,7 +493,8 @@ mod tests {
         fs::write(bridge.join("aer_stats/aer_rootport_total_err_cor"), "5\n").unwrap();
         fs::write(bridge.join("aer_rootport_total_err_nonfatal"), "0\n").unwrap();
         fs::write(target.join("aer_dev_fatal"), "x".repeat(LIMIT + 1)).unwrap();
-        let captured = render(&topology(&target, &root, "0000:01:00.0").unwrap());
+        let captured =
+            render(&snapshot(&topology(&target, &root, "0000:01:00.0").unwrap()).unwrap());
         fs::remove_dir_all(&root).unwrap();
         assert!(captured.contains("\"bdf\":\"0000:01:00.0\",\"role\":\"target\""));
         assert!(captured.contains("\"bdf\":\"0000:00:01.0\",\"role\":\"upstream\""));
@@ -329,6 +508,63 @@ mod tests {
             "\"aer_rootport_total_err_nonfatal\":{\"status\":\"observed\",\"value\":\"0\"}"
         ));
         assert!(captured.contains("\"aer_rootport_total_err_fatal\":{\"status\":\"unavailable\"}"));
+    }
+
+    #[test]
+    fn invalidates_resets_wraps_and_counter_category_changes() {
+        let a = |n| parse_counts(n, "TOTAL_ERR_COR").unwrap();
+        let same = a("RxErr 0\nTOTAL_ERR_COR 0");
+        let more = a("RxErr 7\nTOTAL_ERR_COR 4");
+        let reset = a("RxErr 6\nTOTAL_ERR_COR 9");
+        let changed = a("RxErr 7\nBadTLP 1\nTOTAL_ERR_COR 4");
+        assert_eq!(delta_counts(&same, &more).unwrap(), more);
+        assert_eq!(delta_counts(&more, &same), Err("counter_decreased"));
+        assert_eq!(delta_counts(&more, &reset), Err("counter_decreased"));
+        assert_eq!(delta_counts(&more, &changed), Err("category_set_changed"));
+        assert_eq!(
+            delta_field(
+                &Observed::Value(more),
+                &Observed::Unavailable,
+                delta_counts,
+                |v| counts_json(&v)
+            ),
+            r#"{"status":"not_comparable","reason":"observation_state_changed"}"#
+        );
+    }
+
+    #[test]
+    fn does_not_compare_across_boots_missing_identity_or_replaced_observer() {
+        let p = PathBuf::from("/sys/devices/pci0000:00/0000:00:01.0");
+        let make = |inode| SampleDevice {
+            device: Device {
+                bdf: "0000:00:01.0".into(),
+                path: p.clone(),
+            },
+            identity: Identity {
+                fs_device: 1,
+                inode,
+            },
+            links: std::array::from_fn(|_| Observed::Unavailable),
+            counters: std::array::from_fn(|_| Observed::Unavailable),
+            root: std::array::from_fn(|_| Observed::Unavailable),
+        };
+        let before = [make(4)];
+        let same = [make(4)];
+        let replacement = [make(5)];
+        let a = Observed::Value(uuid("32f91701-57d4-4598-86a7-b5f27c04e425").unwrap());
+        let b = Observed::Value(uuid("32f91701-57d4-4598-86a7-b5f27c04e426").unwrap());
+        assert_eq!(comparison(&before, &same, &a, &a), Ok(()));
+        assert_eq!(comparison(&before, &same, &a, &b), Err("boot_changed"));
+        assert_eq!(
+            comparison(&before, &same, &a, &Observed::Unavailable),
+            Err("boot_identity_unavailable")
+        );
+        assert_eq!(
+            comparison(&before, &replacement, &a, &a),
+            Err("device_identity_changed")
+        );
+        assert!(uuid("not-a-real-boot-id").is_none());
+        assert!(!render_delta(&before, &replacement, &a, &a).contains("by_observer"));
     }
 
     #[test]

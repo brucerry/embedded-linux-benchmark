@@ -93,6 +93,10 @@ const IIO_OPTIONS: &[(&str, Kind)] = &[
     ("--timeout-ms", Number(1, iio::MAX_TIMEOUT_MS)),
 ];
 const PCIE_LINK_OPTIONS: &[(&str, Kind)] = &[("--device", Kind::Text)];
+const PCIE_HEALTH_OPTIONS: &[(&str, Kind)] = &[
+    ("--device", Kind::Text),
+    ("--sample-ms", Number(1, pcie_health::MAX_SAMPLE_MS)),
+];
 const PCIE_THROUGHPUT_OPTIONS: &[(&str, Kind)] = &[("--device", Kind::Text), ("--fixture", Flag)];
 const I2C_OPTIONS: &[(&str, Kind)] = &[
     ("--adapter", Kind::Path),
@@ -274,7 +278,7 @@ fn help() {
     [--samples N] [--timeout-ms MS]
   eld-engine camera --device PATH [--frames N] [--timeout-ms MS]
   eld-engine pcie link --device BDF
-  eld-engine pcie health --device BDF
+  eld-engine pcie health --device BDF [--sample-ms MS]
   eld-engine pcie throughput --device BDF --fixture
   eld-engine iio --device NAME --channel INPUT [--samples N] [--timeout-ms MS]
   eld-engine usb --device PATH --interface N --out-endpoint ADDR --in-endpoint ADDR
@@ -571,8 +575,8 @@ fn run_pcie(args: &[String]) -> Result<(), String> {
             pcie::link(options.text("--device")?)
         }
         "health" => {
-            let options = Options::parse("pcie health", args, PCIE_LINK_OPTIONS)?;
-            pcie_health::run(options.text("--device")?)
+            let options = Options::parse("pcie health", args, PCIE_HEALTH_OPTIONS)?;
+            pcie_health::run(options.text("--device")?, options.number("--sample-ms"))
         }
         "throughput" => {
             let options = Options::parse("pcie throughput", args, PCIE_THROUGHPUT_OPTIONS)?;
