@@ -266,7 +266,7 @@ impl<'a> Options<'a> {
 fn help() {
     println!(
         "Usage:
-  eld-engine inventory [--require-pcie BDF[,BDF...]]
+  eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...]]
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
   eld-engine storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]

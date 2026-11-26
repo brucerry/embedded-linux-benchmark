@@ -122,25 +122,57 @@ fn release() -> [Observation; 2] {
 
 const MAX_REQUIRED_PCIE: usize = 16;
 
-fn required_bdfs(list: Option<&str>) -> Result<Vec<String>, String> {
+#[derive(Debug, PartialEq, Eq)]
+struct RequiredPci {
+    bdf: String,
+    identity: Option<[u16; 2]>,
+}
+
+fn hex16(value: &str) -> Option<u16> {
+    (value.len() == 4 && value.bytes().all(|b| b.is_ascii_hexdigit()))
+        .then(|| u16::from_str_radix(value, 16).ok())
+        .flatten()
+}
+
+fn required_bdfs(list: Option<&str>) -> Result<Vec<RequiredPci>, String> {
     let Some(list) = list else {
         return Ok(Vec::new());
     };
-    if list.len() > MAX_REQUIRED_PCIE * 13 {
+    if list.len() > MAX_REQUIRED_PCIE * 23 {
         return Err("require-pcie accepts at most 16 complete PCI device IDs".into());
     }
-    let mut out = Vec::new();
+    let mut out: Vec<RequiredPci> = Vec::new();
     for item in list.split(',') {
-        let id = crate::pcie::bdf(item)?;
-        if out.len() == MAX_REQUIRED_PCIE || out.contains(&id) {
+        let (address, identity) = match item.split_once('=') {
+            None => (item, None),
+            Some((address, pair)) => {
+                let data = pair
+                    .split_once(':')
+                    .and_then(|(v, d)| Some([hex16(v)?, hex16(d)?]));
+                (
+                    address,
+                    Some(data.ok_or(
+                        "expected four-digit hexadecimal PCI vendor and device IDs: BDF=VVVV:DDDD",
+                    )?),
+                )
+            }
+        };
+        let id = crate::pcie::bdf(address)?;
+        if out.len() == MAX_REQUIRED_PCIE || out.iter().any(|p| p.bdf == id) {
             return Err("require-pcie needs at most 16 unique PCI device IDs".into());
         }
-        out.push(id);
+        out.push(RequiredPci { bdf: id, identity });
     }
     Ok(out)
 }
 
-fn pci_status(index: &Path, sys_devices: &Path, bdf: &str) -> &'static str {
+type PciEntry = (std::path::PathBuf, u64, u64);
+
+fn pci_entry(
+    index: &Path,
+    sys_devices: &Path,
+    bdf: &str,
+) -> Result<Option<PciEntry>, &'static str> {
     use std::os::unix::fs::MetadataExt;
     let index_identity = || match fs::symlink_metadata(index) {
         Ok(m) if m.is_dir() => Ok((m.dev(), m.ino())),
@@ -150,10 +182,10 @@ fn pci_status(index: &Path, sys_devices: &Path, bdf: &str) -> &'static str {
     };
     let initial_index = match index_identity() {
         Ok(id) => id,
-        Err(status) => return status,
+        Err(status) => return Err(status),
     };
     let path = index.join(bdf);
-    let read = || -> Result<Option<(std::path::PathBuf, u64, u64)>, &'static str> {
+    let read = || -> Result<Option<PciEntry>, &'static str> {
         match fs::symlink_metadata(&path) {
             Ok(m) if m.is_symlink() => {}
             Ok(_) => return Err("invalid"),
@@ -183,13 +215,67 @@ fn pci_status(index: &Path, sys_devices: &Path, bdf: &str) -> &'static str {
     let first = read();
     let second = read();
     if index_identity() != Ok(initial_index) || first != second {
-        return "changed";
+        return Err("changed");
+    }
+    second
+}
+
+fn pci_attr(path: &Path) -> Result<u16, &'static str> {
+    let unreadable = |e: io::Error| match e.kind() {
+        io::ErrorKind::NotFound => "unavailable",
+        io::ErrorKind::PermissionDenied => "inaccessible",
+        _ => "invalid",
+    };
+    let mut value = String::new();
+    open_attribute(path)
+        .map_err(unreadable)?
+        .take(17)
+        .read_to_string(&mut value)
+        .map_err(unreadable)?;
+    if value.len() > 16 {
+        return Err("invalid");
+    }
+    value
+        .trim()
+        .strip_prefix("0x")
+        .and_then(hex16)
+        .ok_or("invalid")
+}
+
+fn assess_pci(
+    index: &Path,
+    devices: &Path,
+    target: &RequiredPci,
+) -> (&'static str, Option<[u16; 2]>) {
+    let entry = pci_entry(index, devices, &target.bdf);
+    let path = match &entry {
+        Ok(Some((path, _, _))) => path,
+        Ok(None) => return ("missing", None),
+        Err(status) => return (status, None),
+    };
+    let Some(expected) = target.identity else {
+        return ("present", None);
+    };
+    let read_ids = || -> Result<[u16; 2], &'static str> {
+        Ok([
+            pci_attr(&path.join("vendor"))?,
+            pci_attr(&path.join("device"))?,
+        ])
+    };
+    let first = read_ids();
+    let second = read_ids();
+    if first != second || entry != pci_entry(index, devices, &target.bdf) {
+        return ("changed", None);
     }
     match second {
-        Ok(Some(_)) => "present",
-        Ok(None) => "missing",
-        Err(status) => status,
+        Ok(actual) if actual == expected => ("match", Some(actual)),
+        Ok(actual) => ("mismatch", Some(actual)),
+        Err(status) => (status, None),
     }
+}
+
+fn ids_json(ids: [u16; 2]) -> String {
+    format!(r#"{{"vendor":"{:04x}","device":"{:04x}"}}"#, ids[0], ids[1])
 }
 
 pub(crate) fn run(required: Option<&str>) -> Result<(), String> {
@@ -220,15 +306,22 @@ pub(crate) fn run(required: Option<&str>) -> Result<(), String> {
     } else {
         let rows = required
             .iter()
-            .map(|bdf| {
+            .map(|target| {
+                let (status, observed) = assess_pci(
+                    Path::new("/sys/bus/pci/devices"),
+                    Path::new("/sys/devices"),
+                    target,
+                );
+                let details = target.identity.map_or(String::new(), |expected| {
+                    format!(
+                        r#","expected":{},"observed":{}"#,
+                        ids_json(expected),
+                        observed.map_or_else(|| "null".into(), ids_json)
+                    )
+                });
                 format!(
-                    r#"{{"bdf":{},"status":"{}"}}"#,
-                    json_string(bdf),
-                    pci_status(
-                        Path::new("/sys/bus/pci/devices"),
-                        Path::new("/sys/devices"),
-                        bdf
-                    ),
+                    r#"{{"bdf":{},"status":"{status}"{details}}}"#,
+                    json_string(&target.bdf)
                 )
             })
             .collect::<Vec<_>>()
@@ -251,10 +344,10 @@ mod tests {
         use std::os::unix::fs::symlink;
         assert!(required_bdfs(Some("0000:0A:00.0,0000:0a:00.0")).is_err());
         assert!(required_bdfs(Some("../outside")).is_err());
-        assert!(required_bdfs(Some(&"x".repeat(209))).is_err());
+        assert!(required_bdfs(Some(&"x".repeat(369))).is_err());
         assert_eq!(
-            required_bdfs(Some("0000:0A:00.0")).unwrap(),
-            ["0000:0a:00.0"]
+            required_bdfs(Some("0000:0A:00.0")).unwrap()[0].bdf,
+            "0000:0a:00.0"
         );
         let root = std::env::temp_dir().join(format!("eld-inventory-pcie-{}", std::process::id()));
         let index = root.join("bus/pci/devices");
@@ -262,16 +355,33 @@ mod tests {
         let id = "0000:01:00.0";
         let path = index.join(id);
         let dst = devices.join("pci0000:00").join(id);
-        assert_eq!(pci_status(&index, &devices, id), "unavailable");
+        let required = required_bdfs(Some(id)).unwrap().pop().unwrap();
+        let presence = || assess_pci(&index, &devices, &required).0;
+        let exact = required_bdfs(Some("0000:01:00.0=8086:ABCD"))
+            .unwrap()
+            .pop()
+            .unwrap();
+        let identity = || assess_pci(&index, &devices, &exact);
+        assert!(required_bdfs(Some("0000:01:00.0=8086:abc")).is_err());
+        assert!(required_bdfs(Some("0000:01:00.0=8086:abcd,0000:01:00.0")).is_err());
+        assert_eq!(presence(), "unavailable");
         fs::create_dir_all(&index).unwrap();
-        assert_eq!(pci_status(&index, &devices, id), "missing");
+        assert_eq!(presence(), "missing");
         symlink(&dst, &path).unwrap();
-        assert_eq!(pci_status(&index, &devices, id), "changed");
+        assert_eq!(presence(), "changed");
         fs::create_dir_all(&dst).unwrap();
-        assert_eq!(pci_status(&index, &devices, id), "present");
+        assert_eq!(presence(), "present");
+        assert_eq!(identity(), ("unavailable", None));
+        fs::write(dst.join("vendor"), "0x8086\n").unwrap();
+        fs::write(dst.join("device"), "0xabcd\n").unwrap();
+        assert_eq!(identity(), ("match", Some([0x8086, 0xabcd])));
+        fs::write(dst.join("device"), "0x0001\n").unwrap();
+        assert_eq!(identity(), ("mismatch", Some([0x8086, 1])));
+        fs::write(dst.join("device"), "0x000z\n").unwrap();
+        assert_eq!(identity(), ("invalid", None));
         fs::remove_file(&path).unwrap();
         symlink(&index, &path).unwrap();
-        assert_eq!(pci_status(&index, &devices, id), "invalid");
+        assert_eq!(presence(), "invalid");
         fs::remove_dir_all(root).unwrap();
     }
 

@@ -68,7 +68,7 @@ Use the complete PCI domain, bus, device and function for the device you intend 
 Use an explicit list from a known board configuration to check PCI enumeration:
 
 ```sh
-eld-engine inventory --require-pcie 0000:01:00.0,0000:02:00.0
+eld-engine inventory --require-pcie 0000:01:00.0=8086:1234,0000:02:00.0
 ```
 
 This passive check accepts up to 16 unique bus addresses. It reports each as present,
@@ -76,7 +76,9 @@ missing, or indeterminate (unavailable, inaccessible, invalid, or changed). A mi
 entry requires an available PCI device index. A present entry means the address was
 enumerated, not that the expected hardware or driver is healthy. PCI addresses can
 change with firmware or hardware configuration. Read the JSON statuses; an absent
-device does not by itself make the command exit nonzero.
+device does not by itself make the command exit nonzero. A row with optional expected
+vendor and device IDs instead reports `match` or `mismatch` if both IDs are readable,
+with expected and observed values; unreadable IDs are indeterminate, not a mismatch.
 
 ### PCIe health snapshot
 
