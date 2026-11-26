@@ -773,6 +773,99 @@ fn cpu_throttle(root: &Path) -> String {
     result(status, &rows.join(","))
 }
 
+fn powercap_target(root: &Path, zone: &str) -> Option<std::path::PathBuf> {
+    if zone.len() > 96 {
+        return None;
+    }
+    let (driver, levels) = zone.split_once(':')?;
+    if driver.is_empty()
+        || !driver.as_bytes()[0].is_ascii_alphanumeric()
+        || !driver
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
+    {
+        return None;
+    }
+    let mut path = root.join(driver);
+    let mut prefix = driver.to_owned();
+    for (i, part) in levels.split(':').enumerate() {
+        if i >= 4 || numbered_child(part, "").is_none() {
+            return None;
+        }
+        prefix.push(':');
+        prefix.push_str(part);
+        path.push(&prefix);
+    }
+    Some(path)
+}
+
+fn powercap(index: &Path, root: &Path) -> String {
+    use std::os::unix::fs::MetadataExt;
+    let result = |status, rows: &str| format!(r#"{{"status":"{status}","zones":[{rows}]}}"#);
+    let entries = match fs::read_dir(index) {
+        Ok(v) => v,
+        Err(e) => {
+            return result(
+                match e.kind() {
+                    io::ErrorKind::NotFound => "unavailable",
+                    io::ErrorKind::PermissionDenied => "inaccessible",
+                    _ => "invalid",
+                },
+                "",
+            )
+        }
+    };
+    let mut candidates = Vec::new();
+    for (seen, row) in entries.enumerate() {
+        if seen >= 256 {
+            return result("truncated", "");
+        }
+        let Ok(row) = row else {
+            return result("invalid", "");
+        };
+        let file = row.file_name();
+        let Some(name) = file.to_str() else {
+            continue;
+        };
+        if let Some(target) = powercap_target(root, name) {
+            candidates.push((name.to_owned(), target));
+        }
+    }
+    candidates.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let status = if candidates.is_empty() {
+        "no_zones"
+    } else if candidates.len() > 32 {
+        "truncated"
+    } else {
+        "observed"
+    };
+    let rows=candidates.into_iter().take(32).map(|(name,target)|{
+        let linked=index.join(&name);
+        let identify=||{
+            let observed=fs::canonicalize(&linked).ok()?;
+            let m=fs::symlink_metadata(&observed).ok()?;
+            (observed==target && m.is_dir()).then(||(m.dev(),m.ino()))
+        };
+        let mut info=[Observation::Unavailable,Observation::Unavailable,Observation::Unavailable];
+        if let Some(first)=identify() {
+            info=["name","energy_uj","max_energy_range_uj"].map(|attr|match bounded(&target.join(attr)) {
+                Ok(v) if attr=="name"=>text_value(&v).map_or(Observation::Invalid,Observation::Available),
+                Ok(v)=>{
+                    let v=v.trim();
+                    if v.len()<=20 && v.bytes().all(|b|b.is_ascii_digit()) {
+                        v.parse::<u64>().ok().map(|n|Observation::Available(n.to_string())).unwrap_or(Observation::Invalid)
+                    } else {Observation::Invalid}
+                }
+                Err(e)=>Observation::error(e),
+            });
+            if identify()!=Some(first) {info=std::array::from_fn(|_|Observation::Unavailable);}
+        }
+        format!(r#"{{"zone":{},"name":{},"energy_microjoules":{},"max_energy_range_microjoules":{}}}"#,
+            json_string(&name),info[0].json(),info[1].json(),info[2].json())
+    }).collect::<Vec<_>>().join(",");
+    result(status, &rows)
+}
+
 pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result<(), String> {
     if required.is_some() && profile_path.is_some() {
         return Err("--require-pcie and --board-profile cannot be combined".into());
@@ -846,7 +939,7 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
         format!(r#","required_pcie":[{rows}]"#)
     };
     println!(
-        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{},"cpu_frequency":{},"cpu_thermal_throttle":{}{profile_context}{profile}}}"#,
+        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{},"cpu_frequency":{},"cpu_thermal_throttle":{},"powercap":{}{profile_context}{profile}}}"#,
         json_string(std::env::consts::ARCH),
         resources(),
         thermal(
@@ -855,7 +948,11 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
         ),
         edac(Path::new("/sys/devices/system/edac/mc")),
         cpu_frequency(Path::new("/sys/devices/system/cpu/cpufreq")),
-        cpu_throttle(Path::new("/sys/devices/system/cpu"))
+        cpu_throttle(Path::new("/sys/devices/system/cpu")),
+        powercap(
+            Path::new("/sys/class/powercap"),
+            Path::new("/sys/devices/virtual/powercap")
+        )
     );
     Ok(())
 }
@@ -863,6 +960,35 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn powercap_reports_parent_and_child_without_combining_them() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!("eld-powercap-{}", std::process::id()));
+        let root = dir.join("cap");
+        let index = dir.join("index");
+        let parent = root.join("intel-rapl/intel-rapl:0");
+        let child = parent.join("intel-rapl:0:1");
+        assert!(powercap(&index, &root).contains(r#""status":"unavailable""#));
+        fs::create_dir_all(&child).unwrap();
+        fs::create_dir(&index).unwrap();
+        symlink(&parent, index.join("intel-rapl:0")).unwrap();
+        symlink(&child, index.join("intel-rapl:0:1")).unwrap();
+        symlink(&dir, index.join("intel-rapl:2")).unwrap();
+        fs::write(parent.join("energy_uj"), "14\n").unwrap();
+        fs::write(child.join("energy_uj"), "7\n").unwrap();
+        fs::write(child.join("max_energy_range_uj"), "4294967296\n").unwrap();
+        let o = powercap(&index, &root);
+        assert!(o.contains(r#""energy_microjoules":{"status":"observed","value":"14"}"#));
+        assert!(o.contains(r#""energy_microjoules":{"status":"observed","value":"7"}"#));
+        assert!(o.contains(
+            r#""max_energy_range_microjoules":{"status":"observed","value":"4294967296"}"#
+        ));
+        assert!(o.contains(r#""zone":"intel-rapl:2","name":{"status":"unavailable"}"#));
+        assert!(!o.contains(r#""value":"21""#));
+        assert!(powercap_target(&root, "intel-rapl:../0").is_none());
+        fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn thermal_throttle_keeps_package_observations_separate() {

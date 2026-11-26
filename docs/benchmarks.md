@@ -84,6 +84,9 @@ available. Limits and changing clocks are not evidence of thermal throttling.
 Where the kernel exports thermal event counters, the Engine reports
 per-logical-CPU observations. Package events can be replicated across CPUs and
 are never summed. They are cumulative observations, not current throttle state.
+Powercap observations report separate parent and child energy counters and their
+wrap range in microjoules where accessible. They are not instantaneous watts;
+zones can overlap and are never summed. No power limits or counters are changed.
 
 ### Check expected PCI devices
 
