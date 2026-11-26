@@ -78,6 +78,9 @@ DIMM or unattributed breakdowns are not added to controller totals. A snapshot
 is not proof of continuity between reads; an empty controller
 list is not proof of zero errors or that the hardware lacks ECC. The Engine never
 resets counters or injects errors.
+CPU frequency observations list up to 32 kernel policies and distinguish
+scaling-reported frequency from hardware-reported current frequency when
+available. Limits and changing clocks are not evidence of thermal throttling.
 
 ### Check expected PCI devices
 

@@ -611,6 +611,77 @@ fn edac(root: &Path) -> String {
     }
 }
 
+fn cpu_frequency(root: &Path) -> String {
+    use std::os::unix::fs::MetadataExt;
+    let result = |status, lists: &str| format!(r#"{{"status":"{status}","policies":[{lists}]}}"#);
+    let entries = match fs::read_dir(root) {
+        Ok(v) => v,
+        Err(e) => {
+            return result(
+                match e.kind() {
+                    io::ErrorKind::NotFound => "unavailable",
+                    io::ErrorKind::PermissionDenied => "inaccessible",
+                    _ => "invalid",
+                },
+                "",
+            )
+        }
+    };
+    let mut ids = Vec::new();
+    for (seen, row) in entries.enumerate() {
+        if seen >= 256 {
+            return result("truncated", "");
+        }
+        let Ok(row) = row else {
+            return result("invalid", "");
+        };
+        if let Some(id) = row
+            .file_name()
+            .to_str()
+            .and_then(|v| numbered_child(v, "policy"))
+        {
+            ids.push(id);
+        }
+    }
+    ids.sort_unstable();
+    let status = if ids.is_empty() {
+        "no_policies"
+    } else if ids.len() > 32 {
+        "truncated"
+    } else {
+        "observed"
+    };
+    let rows=ids.into_iter().take(32).map(|id| {
+        let name=format!("policy{id}");
+        let path=root.join(&name);
+        let before=fs::symlink_metadata(&path);
+        let report=|leaf| match bounded(&path.join(leaf)) {
+            Ok(v)=>{
+                let v=v.trim();
+                if v.len()<=20 && v.bytes().all(|b|b.is_ascii_digit()) {
+                    v.parse::<u64>().ok().filter(|n|*n>0).map(|n|Observation::Available(n.to_string()))
+                        .unwrap_or(Observation::Invalid)
+                } else {Observation::Invalid}
+            }
+            Err(e)=>Observation::error(e),
+        };
+        let values=match before {
+            Ok(m) if m.is_dir()=>{
+                let cols=["scaling_cur_freq","cpuinfo_cur_freq","scaling_max_freq","cpuinfo_max_freq"].map(report);
+                match fs::symlink_metadata(&path) {
+                    Ok(end) if end.is_dir() && (end.dev(),end.ino())==(m.dev(),m.ino())=>cols,
+                    _=>std::array::from_fn(|_|Observation::Unavailable),
+                }
+            }
+            Ok(_)=>std::array::from_fn(|_|Observation::Invalid),
+            Err(e)=>std::array::from_fn(|_|Observation::error(io::Error::from(e.kind()))),
+        };
+        format!(r#"{{"policy":"{name}","scaling_reported_khz":{},"cpuinfo_current_khz":{},"policy_max_khz":{},"cpuinfo_max_khz":{}}}"#,
+            values[0].json(),values[1].json(),values[2].json(),values[3].json())
+    }).collect::<Vec<_>>().join(",");
+    result(status, &rows)
+}
+
 pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result<(), String> {
     if required.is_some() && profile_path.is_some() {
         return Err("--require-pcie and --board-profile cannot be combined".into());
@@ -684,14 +755,15 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
         format!(r#","required_pcie":[{rows}]"#)
     };
     println!(
-        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{}{profile_context}{profile}}}"#,
+        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{},"cpu_frequency":{}{profile_context}{profile}}}"#,
         json_string(std::env::consts::ARCH),
         resources(),
         thermal(
             Path::new("/sys/class/thermal"),
             Path::new("/sys/devices/virtual/thermal")
         ),
-        edac(Path::new("/sys/devices/system/edac/mc"))
+        edac(Path::new("/sys/devices/system/edac/mc")),
+        cpu_frequency(Path::new("/sys/devices/system/cpu/cpufreq"))
     );
     Ok(())
 }
@@ -699,6 +771,23 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cpu_frequency_separates_policy_reporting_from_hardware() {
+        let root = std::env::temp_dir().join(format!("eld-cpufreq-{}", std::process::id()));
+        let policy = root.join("policy0");
+        assert!(cpu_frequency(&root).contains(r#""status":"unavailable""#));
+        fs::create_dir_all(&policy).unwrap();
+        fs::write(policy.join("scaling_cur_freq"), "1200000\n").unwrap();
+        fs::write(policy.join("scaling_max_freq"), "2400000\n").unwrap();
+        fs::write(policy.join("cpuinfo_max_freq"), "0\n").unwrap();
+        let out = cpu_frequency(&root);
+        assert!(out.contains(r#""scaling_reported_khz":{"status":"observed","value":"1200000"}"#));
+        assert!(out.contains(r#""cpuinfo_current_khz":{"status":"unavailable"}"#));
+        assert!(out.contains(r#""policy_max_khz":{"status":"observed","value":"2400000"}"#));
+        assert!(out.contains(r#""cpuinfo_max_khz":{"status":"invalid"}"#));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn edac_separates_corrected_uncorrected_and_unavailable() {
