@@ -129,6 +129,22 @@ requirements. No PCI check is scored for a different or unknown board. A pass
 only covers the profile’s passive PCI identity requirements; it is not
 performance, reliability or production qualification.
 
+### Save an inventory evidence file
+
+```sh
+eld-engine inventory --board-profile board.profile --evidence-json ./inventory-evidence.json
+```
+
+The optional file uses evidence schema v1 and contains the same inventory
+object printed to stdout, wall-clock start and finish in Unix milliseconds,
+and monotonic elapsed milliseconds. Wall-clock values are device-reported,
+may drift or move backwards, and are null for times before the Unix epoch.
+The parent directory must exist. Use a private directory: the file is created
+with owner-only access and never replaces an existing file or follows a
+final-component symlink. Check the command’s exit status before consuming the
+file; an interrupted or failed write may leave a partial file. This passive
+evidence is not a signed attestation or hardware qualification.
+
 ### PCIe health snapshot
 
 ```sh

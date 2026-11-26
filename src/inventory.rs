@@ -1,7 +1,9 @@
 use crate::{pcie_health::json_string, sysfs::open_attribute};
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
+use std::os::unix::fs::OpenOptionsExt;
 use std::path::Path;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 const LIMIT: u64 = 4096;
 const OS_KEYS: [&str; 2] = ["ID", "VERSION_ID"];
@@ -1002,11 +1004,39 @@ fn profile_pci_summary(applicable: &str, requested: usize, observations: &[&str]
     )
 }
 
+fn unix_ms(time: SystemTime) -> String {
+    time.duration_since(UNIX_EPOCH)
+        .map_or_else(|_| "null".to_owned(), |value| value.as_millis().to_string())
+}
+
+fn save_evidence(
+    path: &Path,
+    started: SystemTime,
+    finished: SystemTime,
+    elapsed_ms: u128,
+    inventory: &str,
+) -> io::Result<()> {
+    let mut output = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    writeln!(
+        output,
+        r#"{{"evidence_schema_version":1,"kind":"passive_inventory","started_unix_ms":{},"finished_unix_ms":{},"elapsed_monotonic_ms":{elapsed_ms},"inventory":{inventory}}}"#,
+        unix_ms(started),
+        unix_ms(finished)
+    )?;
+    output.sync_all()
+}
+
 pub(crate) fn run(
     required: Option<&str>,
     profile_path: Option<&Path>,
     thermal_ms: Option<u64>,
+    evidence_path: Option<&Path>,
 ) -> Result<(), String> {
+    let evidence_clock = evidence_path.map(|_| (SystemTime::now(), Instant::now()));
     if required.is_some() && profile_path.is_some() {
         return Err("--require-pcie and --board-profile cannot be combined".into());
     }
@@ -1108,7 +1138,7 @@ pub(crate) fn run(
     } else {
         String::new()
     };
-    println!(
+    let inventory = format!(
         r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{},"cpu_frequency":{},"cpu_thermal_throttle":{},"powercap":{}{profile_context}{profile}{summary}{timed}}}"#,
         json_string(std::env::consts::ARCH),
         resources(),
@@ -1121,6 +1151,17 @@ pub(crate) fn run(
             Path::new("/sys/devices/virtual/powercap")
         )
     );
+    if let Some((path, (started, stopwatch))) = evidence_path.zip(evidence_clock) {
+        save_evidence(
+            path,
+            started,
+            SystemTime::now(),
+            stopwatch.elapsed().as_millis(),
+            &inventory,
+        )
+        .map_err(|e| format!("cannot save inventory evidence (choose a new path): {e}"))?;
+    }
+    println!("{inventory}");
     Ok(())
 }
 

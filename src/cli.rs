@@ -104,6 +104,7 @@ const INVENTORY_OPTIONS: &[(&str, Kind)] = &[
     ("--require-pcie", Kind::Text),
     ("--board-profile", Kind::Path),
     ("--thermal-sample-ms", Number(1, 60_000)),
+    ("--evidence-json", Kind::Path),
 ];
 const PCIE_LINK_OPTIONS: &[(&str, Kind)] = &[("--device", Kind::Text)];
 const PCIE_HEALTH_OPTIONS: &[(&str, Kind)] = &[
@@ -278,7 +279,7 @@ impl<'a> Options<'a> {
 fn help() {
     println!(
         "Usage:
-  eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS]
+  eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
   eld-engine storage nvme-health --controller nvme0
@@ -422,6 +423,7 @@ pub(crate) fn run() -> Result<(), String> {
                 options.text("--require-pcie").ok(),
                 options.path("--board-profile"),
                 options.number("--thermal-sample-ms"),
+                options.path("--evidence-json"),
             )?;
             return Ok(());
         }
