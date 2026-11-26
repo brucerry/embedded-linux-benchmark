@@ -97,15 +97,20 @@ pub(crate) fn render(profile: &str, include_load: bool) -> Result<String, String
     ))
 }
 
-/// Read inventory and, if requested, one passive NIC snapshot. No workload argv.
+/// Read inventory and selected passive snapshots. No workload argv.
 pub(crate) fn passive(
     board_profile: Option<&std::path::Path>,
     network_interface: Option<&str>,
+    nvme_controller: Option<&str>,
 ) -> Result<String, String> {
     let network = network_interface
         .map(crate::network_health::snapshot)
         .transpose()?
         .map_or_else(String::new, |value| format!(r#","network_health":{value}"#));
+    let nvme = nvme_controller
+        .map(crate::nvme_health::snapshot)
+        .transpose()?
+        .map_or_else(String::new, |value| format!(r#","nvme_health":{value}"#));
     let inventory = crate::inventory::snapshot(None, board_profile, None)?;
     let board_check = if board_profile.is_some() {
         "see_inventory"
@@ -113,7 +118,7 @@ pub(crate) fn passive(
         "not_configured"
     };
     Ok(format!(
-        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}}}"#
+        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}}}"#
     ))
 }
 

@@ -499,7 +499,11 @@ workloads, or issue an overall qualification verdict. You can also add
 `--network-interface eth0` to embed a single read-only NIC observation.
 It is not sampled twice, sends no packets, and is independent of the PCIe
 board check. If the interface is absent, its observation says unavailable;
-that does not imply a qualification failure.
+that does not imply a qualification failure. Add `--nvme-controller nvme0`
+to also include one read-only controller metadata observation. This does not
+collect or decode a SMART capture, touch a storage device node, or run a
+storage test. A missing controller is reported without changing board
+assessment.
 
 
 ### PCI accelerator candidates

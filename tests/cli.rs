@@ -1234,12 +1234,27 @@ fn passive_qualification_observes_without_accepting_workload_options() {
     assert!(base.starts_with(r#"{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"not_configured","inventory":{"schema_version":1,"#));
     assert!(!base.contains(r#""thermal_window":"#) && !base.contains("Report:"));
     assert!(!base.contains(r#""network_health":"#));
+    assert!(!base.contains(r#""nvme_health":"#));
     let iface = format!("eldx-{:08x}", std::process::id());
     let direct = successful_output(&["network", "health", "--interface", &iface]);
     let combined = successful_output(&["qualify", "passive", "--network-interface", &iface]);
     assert!(combined
         .trim_end()
         .ends_with(&format!(r#","network_health":{}}}"#, direct.trim())));
+    let nvme = successful_output(&["storage", "nvme-health", "--controller", "nvme9999999"]);
+    let both = successful_output(&[
+        "qualify",
+        "passive",
+        "--network-interface",
+        &iface,
+        "--nvme-controller",
+        "nvme9999999",
+    ]);
+    assert!(both.trim_end().ends_with(&format!(
+        r#","network_health":{},"nvme_health":{}}}"#,
+        direct.trim(),
+        nvme.trim()
+    )));
     let profile = scratch.0.join("board.profile");
     std::fs::write(
         &profile,
@@ -1258,6 +1273,8 @@ fn passive_qualification_observes_without_accepting_workload_options() {
         vec!["qualify", "passive", "--duration", "2w"],
         vec!["qualify", "passive", "--include-local-load"],
         vec!["qualify", "passive", "--network-interface", "../eth0"],
+        vec!["qualify", "passive", "--nvme-controller", "nvme0n1"],
+        vec!["qualify", "passive", "--nvme-controller", "/dev/nvme0"],
         vec![
             "qualify",
             "passive",

@@ -139,6 +139,7 @@ const GPIO_OPTIONS: &[(&str, Kind)] = &[
 const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[
     ("--board-profile", Kind::Path),
     ("--network-interface", Kind::Text),
+    ("--nvme-controller", Kind::Text),
 ];
 const QUALIFICATION_PLAN_OPTIONS: &[(&str, Kind)] =
     &[("--profile", Kind::Text), ("--include-local-load", Flag)];
@@ -291,7 +292,7 @@ fn help() {
   eld-engine accelerator amdgpu-hwmon --device BDF
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
-  eld-engine qualify passive [--board-profile PATH] [--network-interface NAME]
+  eld-engine qualify passive [--board-profile PATH] [--network-interface NAME] [--nvme-controller NAME]
   eld-engine qualify plan --profile bring-up|quick|manufacturing|overnight [--include-local-load]
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
@@ -485,7 +486,8 @@ pub(crate) fn run() -> Result<(), String> {
                 "{}",
                 crate::qualification::passive(
                     options.path("--board-profile"),
-                    options.text("--network-interface").ok()
+                    options.text("--network-interface").ok(),
+                    options.text("--nvme-controller").ok()
                 )?
             );
             return Ok(());
