@@ -251,7 +251,97 @@ fn fields<V, const N: usize>(
         .join(",")
 }
 
-fn render(devices: &[SampleDevice]) -> String {
+#[derive(Clone, Copy, Default)]
+pub(crate) struct LinkExpectation {
+    min_width: Option<u64>,
+    min_speed_tenths: Option<u64>,
+}
+
+impl LinkExpectation {
+    pub(crate) fn parse(min_width: Option<u64>, min_speed: Option<&str>) -> Result<Self, String> {
+        let min_speed_tenths = min_speed.map(|v| {
+            speed_tenths(v).ok_or("'--min-speed-gtps' must be a decimal from 0.1 to 256.0 with at most one fractional digit")
+        }).transpose()?;
+        Ok(Self {
+            min_width,
+            min_speed_tenths,
+        })
+    }
+
+    fn render(self, target: &SampleDevice) -> Option<String> {
+        let width = self.min_width.map(|minimum| {
+            let sample = interpret(&target.links[1], |v| counter(v).filter(|w| *w <= 32));
+            format!(
+                r#""width_lanes":{}"#,
+                assess(minimum, sample, |s| s.to_string())
+            )
+        });
+        let speed = self.min_speed_tenths.map(|minimum| {
+            let sample = interpret(&target.links[0], link_speed);
+            format!(
+                r#""speed_gtps":{}"#,
+                assess(minimum, sample, |s| format!("{}.{}", s / 10, s % 10))
+            )
+        });
+        let parts = width.into_iter().chain(speed).collect::<Vec<_>>().join(",");
+        (!parts.is_empty()).then(|| {
+            format!(
+                r#","target_link_expectation":{{"bdf":"{}",{parts}}}"#,
+                target.device.bdf
+            )
+        })
+    }
+}
+
+fn speed_tenths(v: &str) -> Option<u64> {
+    let (whole, fraction) = v.split_once('.').unwrap_or((v, "0"));
+    if whole.is_empty() || whole.len() > 3 || fraction.len() != 1 {
+        return None;
+    }
+    let value = counter(whole)?
+        .checked_mul(10)?
+        .checked_add(counter(fraction)?)?;
+    (1..=2560).contains(&value).then_some(value)
+}
+
+fn link_speed(value: &str) -> Option<u64> {
+    let mut parts = value.split_ascii_whitespace();
+    let speed = speed_tenths(parts.next()?)?;
+    if parts.next()? != "GT/s" {
+        return None;
+    }
+    match (parts.next(), parts.next()) {
+        (None, None) | (Some("PCIe"), None) => Some(speed),
+        _ => None,
+    }
+}
+
+fn interpret<T>(value: &Observed<String>, parse: impl FnOnce(&str) -> Option<T>) -> Observed<T> {
+    match value {
+        Observed::Value(raw) => parse(raw).map_or(Observed::Invalid, Observed::Value),
+        Observed::Unavailable => Observed::Unavailable,
+        Observed::Inaccessible => Observed::Inaccessible,
+        Observed::Invalid => Observed::Invalid,
+    }
+}
+
+fn assess(minimum: u64, value: Observed<u64>, encode: impl Fn(u64) -> String) -> String {
+    let expected = encode(minimum);
+    let status = match value {
+        Observed::Value(v) if v >= minimum => "meets_minimum",
+        Observed::Value(_) => "below_minimum",
+        Observed::Unavailable => "unavailable",
+        Observed::Inaccessible => "inaccessible",
+        Observed::Invalid => "invalid",
+    };
+    let observed = match value {
+        Observed::Value(v) => encode(v),
+        _ => "null".to_owned(),
+    };
+    format!(r#"{{"status":"{status}","expected_minimum":{expected},"negotiated":{observed}}}"#)
+}
+
+fn render(devices: &[SampleDevice], expectation: LinkExpectation) -> String {
     let observations = devices
         .iter()
         .enumerate()
@@ -294,8 +384,9 @@ fn render(devices: &[SampleDevice]) -> String {
         })
         .collect::<Vec<_>>()
         .join(",");
+    let target_link_expectation = expectation.render(&devices[0]).unwrap_or_default();
     format!(
-        r#"{{"schema_version":1,"device":"{}","observations":[{}],"root_hierarchy_aer":[{}]}}"#,
+        r#"{{"schema_version":1,"device":"{}","observations":[{}],"root_hierarchy_aer":[{}]{target_link_expectation}}}"#,
         devices[0].device.bdf, observations, root_rows
     )
 }
@@ -418,7 +509,11 @@ fn observe(requested: &str) -> Result<Vec<SampleDevice>, String> {
     Ok(result)
 }
 
-pub(crate) fn run(device: &str, sample_ms: Option<u64>) -> Result<(), String> {
+pub(crate) fn run(
+    device: &str,
+    sample_ms: Option<u64>,
+    expectation: LinkExpectation,
+) -> Result<(), String> {
     let requested = pcie::bdf(device)?;
     if let Some(ms) = sample_ms {
         let boot_before = read_boot();
@@ -432,11 +527,11 @@ pub(crate) fn run(device: &str, sample_ms: Option<u64>) -> Result<(), String> {
         let interval = second_started.duration_since(started).as_millis();
         println!(
             r#"{{"schema_version":1,"device":"{requested}","requested_wait_ms":{ms},"sample_start_interval_ms":{interval},"before":{},"after":{},"delta":{deltas}}}"#,
-            render(&first),
-            render(&second)
+            render(&first, expectation),
+            render(&second, expectation)
         );
     } else {
-        println!("{}", render(&observe(&requested)?));
+        println!("{}", render(&observe(&requested)?, expectation));
     }
     Ok(())
 }
@@ -493,8 +588,10 @@ mod tests {
         fs::write(bridge.join("aer_stats/aer_rootport_total_err_cor"), "5\n").unwrap();
         fs::write(bridge.join("aer_rootport_total_err_nonfatal"), "0\n").unwrap();
         fs::write(target.join("aer_dev_fatal"), "x".repeat(LIMIT + 1)).unwrap();
-        let captured =
-            render(&snapshot(&topology(&target, &root, "0000:01:00.0").unwrap()).unwrap());
+        let captured = render(
+            &snapshot(&topology(&target, &root, "0000:01:00.0").unwrap()).unwrap(),
+            LinkExpectation::default(),
+        );
         fs::remove_dir_all(&root).unwrap();
         assert!(captured.contains("\"bdf\":\"0000:01:00.0\",\"role\":\"target\""));
         assert!(captured.contains("\"bdf\":\"0000:00:01.0\",\"role\":\"upstream\""));
@@ -565,6 +662,48 @@ mod tests {
         );
         assert!(uuid("not-a-real-boot-id").is_none());
         assert!(!render_delta(&before, &replacement, &a, &a).contains("by_observer"));
+    }
+
+    #[test]
+    fn parses_link_speed_without_floating_point_or_ambiguous_units() {
+        for (text, value) in [
+            ("2.5 GT/s PCIe", 25),
+            ("16.0 GT/s PCIe", 160),
+            ("8 GT/s", 80),
+        ] {
+            assert_eq!(link_speed(text), Some(value));
+        }
+        for malformed in [
+            "0",
+            "Unknown",
+            "8.00 GT/s",
+            "8 Gbps",
+            "8 GT/s trailing",
+            "NaN",
+            "-8",
+            "1e2",
+        ] {
+            assert!(link_speed(malformed).is_none(), "{malformed}");
+        }
+        assert!(LinkExpectation::parse(None, Some("8.00")).is_err());
+        assert!(LinkExpectation::parse(None, Some("257")).is_err());
+    }
+
+    #[test]
+    fn assessment_distinguishes_shortfall_from_unavailable_or_equal() {
+        let observation = |v: u64| v.to_string();
+        assert_eq!(
+            assess(8, Observed::Value(4), observation),
+            r#"{"status":"below_minimum","expected_minimum":8,"negotiated":4}"#
+        );
+        assert!(assess(8, Observed::Value(8), observation).contains("meets_minimum"));
+        assert!(assess(8, Observed::Unavailable, observation)
+            .contains(r#""status":"unavailable","expected_minimum":8,"negotiated":null"#));
+        assert!(assess(8, Observed::Invalid, observation).contains(r#""status":"invalid""#));
+        assert_eq!(
+            interpret(&Observed::Inaccessible, link_speed),
+            Observed::Inaccessible
+        );
     }
 
     #[test]
