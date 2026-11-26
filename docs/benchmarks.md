@@ -461,3 +461,14 @@ a guaranteed wall-clock runtime or a pass/fail verdict. Board-specific
 checks require an explicit profile. Physical peripherals, a network peer,
 and storage writes always require separately selected fixtures or budgets
 and are never planned for automatic execution.
+
+
+For bounded bring-up observations, use `eld-engine qualify passive` or
+`eld-engine qualify passive --board-profile board.profile`. This reads one
+inventory snapshot, with no timed sampling, stress, external network, or
+output files. The versioned result wraps the existing inventory report.
+Without a profile it reports the board check as not configured. For a
+supplied profile read `inventory.board_check` for the scoped PCI result;
+an exit code of zero means the observation was emitted, not that the board
+passed. This command does not run the quick, manufacturing, or overnight
+workloads, or issue an overall qualification verdict.

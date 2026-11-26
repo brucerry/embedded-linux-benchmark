@@ -95,6 +95,19 @@ pub(crate) fn render(profile: &str, include_load: bool) -> Result<String, String
     ))
 }
 
+/// Read only the inventory snapshot. There is deliberately no workload argv here.
+pub(crate) fn passive(board_profile: Option<&std::path::Path>) -> Result<String, String> {
+    let inventory = crate::inventory::snapshot(None, board_profile, None)?;
+    let board_check = if board_profile.is_some() {
+        "see_inventory"
+    } else {
+        "not_configured"
+    };
+    Ok(format!(
+        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}}}"#
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

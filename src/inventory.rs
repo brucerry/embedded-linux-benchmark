@@ -1030,13 +1030,11 @@ fn save_evidence(
     output.sync_all()
 }
 
-pub(crate) fn run(
+pub(crate) fn snapshot(
     required: Option<&str>,
     profile_path: Option<&Path>,
     thermal_ms: Option<u64>,
-    evidence_path: Option<&Path>,
-) -> Result<(), String> {
-    let evidence_clock = evidence_path.map(|_| (SystemTime::now(), Instant::now()));
+) -> Result<String, String> {
     if required.is_some() && profile_path.is_some() {
         return Err("--require-pcie and --board-profile cannot be combined".into());
     }
@@ -1138,7 +1136,7 @@ pub(crate) fn run(
     } else {
         String::new()
     };
-    let inventory = format!(
+    Ok(format!(
         r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{},"cpu_frequency":{},"cpu_thermal_throttle":{},"powercap":{}{profile_context}{profile}{summary}{timed}}}"#,
         json_string(std::env::consts::ARCH),
         resources(),
@@ -1150,7 +1148,17 @@ pub(crate) fn run(
             Path::new("/sys/class/powercap"),
             Path::new("/sys/devices/virtual/powercap")
         )
-    );
+    ))
+}
+
+pub(crate) fn run(
+    required: Option<&str>,
+    profile_path: Option<&Path>,
+    thermal_ms: Option<u64>,
+    evidence_path: Option<&Path>,
+) -> Result<(), String> {
+    let evidence_clock = evidence_path.map(|_| (SystemTime::now(), Instant::now()));
+    let inventory = snapshot(required, profile_path, thermal_ms)?;
     if let Some((path, (started, stopwatch))) = evidence_path.zip(evidence_clock) {
         save_evidence(
             path,
