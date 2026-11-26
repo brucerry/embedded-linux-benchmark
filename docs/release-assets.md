@@ -27,3 +27,16 @@ which libc was used to build a static executable, or that firmware or hardware t
 source, build evidence and asset digests using independently verified provenance.
 This tool emits only `binary_inspected`, with empty `qualified_targets`. Hub must
 not offer automatic deployment to a specific board on this evidence alone.
+
+## Internal build preflight
+
+On a clean Linux x86-64 checkout with Rust 1.96.0 and its
+`aarch64-unknown-linux-musl` target installed, run:
+
+```sh
+RUSTUP_TOOLCHAIN=1.96.0 bash scripts/build-preflight-assets.sh /path/to/new-directory v0.2.1-preflight
+```
+
+The tar preserves executable modes. The CI job runs only on pushes to an
+`engine/*` branch after the normal CI checks pass, and retains the tar as an
+unsigned test artifact. It does not publish a release or qualify a board.
