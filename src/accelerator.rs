@@ -1,5 +1,5 @@
 //! Read-only PCI class inventory, not a GPU runtime or vendor health probe.
-use crate::{inventory, pcie, sysfs::open_attribute};
+use crate::{inventory, pcie, pcie_health::driver_binding_json, sysfs::open_attribute};
 use std::fs;
 use std::io::{self, Read};
 use std::os::unix::fs::MetadataExt;
@@ -62,7 +62,12 @@ fn id_json(v: Result<u16, &'static str>) -> String {
     }
 }
 
-fn scan(index: &Path, devices: &Path) -> Result<(bool, usize, Vec<String>), &'static str> {
+fn scan(
+    index: &Path,
+    devices: &Path,
+    drivers: &Path,
+    modules: &Path,
+) -> Result<(bool, usize, Vec<String>), &'static str> {
     let initial = identity(index)?;
     let (names, capped, invalid_names) = listing(index)?;
     let mut unresolved = invalid_names;
@@ -83,11 +88,12 @@ fn scan(index: &Path, devices: &Path) -> Result<(bool, usize, Vec<String>), &'st
             };
             let vendor = inventory::pci_attr(&before.0.join("vendor"));
             let device = inventory::pci_attr(&before.0.join("device"));
+            let driver_binding = driver_binding_json(&before.0, drivers, modules);
             if inventory::pci_entry(index, devices, name)? != Some(before) {
                 return Err("changed");
             }
             Ok(Some(format!(
-                r#"{{"bdf":"{name}","class":"{value:06x}","kind":"{kind}","vendor":{},"device":{}}}"#,
+                r#"{{"bdf":"{name}","class":"{value:06x}","kind":"{kind}","vendor":{},"device":{},"driver_binding":{driver_binding}}}"#,
                 id_json(vendor),
                 id_json(device)
             )))
@@ -109,8 +115,8 @@ fn scan(index: &Path, devices: &Path) -> Result<(bool, usize, Vec<String>), &'st
     Ok((capped, unresolved, rows))
 }
 
-fn render(index: &Path, devices: &Path) -> String {
-    let (status, capped, unresolved, candidates) = match scan(index, devices) {
+fn render(index: &Path, devices: &Path, drivers: &Path, modules: &Path) -> String {
+    let (status, capped, unresolved, candidates) = match scan(index, devices, drivers, modules) {
         Ok((capped, unresolved, rows)) => (
             if capped || unresolved > 0 {
                 "partial"
@@ -131,7 +137,12 @@ fn render(index: &Path, devices: &Path) -> String {
 pub(crate) fn run() {
     println!(
         "{}",
-        render(Path::new("/sys/bus/pci/devices"), Path::new("/sys/devices"))
+        render(
+            Path::new("/sys/bus/pci/devices"),
+            Path::new("/sys/devices"),
+            Path::new("/sys/bus/pci/drivers"),
+            Path::new("/sys/module")
+        )
     );
 }
 
@@ -185,11 +196,25 @@ mod tests {
         add("0000:06:00.0", &devices, "0x1200000\n");
         add("0000:07:00.0", &f.0, "0x120000\n");
         fs::remove_file(devices.join("0000:04:00.0/device")).unwrap();
-        let json = render(&index, &devices);
+        let drivers = f.0.join("drivers");
+        let modules = f.0.join("modules");
+        let driver = drivers.join("example");
+        let module = modules.join("example_accel");
+        fs::create_dir_all(&driver).unwrap();
+        fs::create_dir_all(&module).unwrap();
+        symlink(&driver, devices.join("0000:04:00.0/driver")).unwrap();
+        symlink(&module, driver.join("module")).unwrap();
+        let json = render(&index, &devices, &drivers, &modules);
         assert!(json.contains(r#""status":"partial","scan_capped":false,"unresolved_entries":2"#));
         assert!(json.contains(r#""class":"030200","kind":"display_controller""#));
         assert!(json.contains(r#""class":"120000","kind":"processing_accelerator_class""#));
         assert!(json.contains(r#""device":{"status":"unavailable"}"#));
+        assert!(json.contains(r#""driver_binding":{"status":"bound","driver":"example","module":{"status":"observed","value":"example_accel"}}"#));
+        assert!(json.contains(r#""driver_binding":{"status":"unbound"}"#));
+        fs::remove_file(devices.join("0000:04:00.0/driver")).unwrap();
+        symlink(&module, devices.join("0000:04:00.0/driver")).unwrap();
+        let escaped = render(&index, &devices, &drivers, &modules);
+        assert!(escaped.contains(r#""driver_binding":{"status":"invalid"}"#));
         assert!(json.find("0000:02:00.0").unwrap() < json.find("0000:04:00.0").unwrap());
         for id in ["0000:05:00.0", "0000:06:00.0", "0000:07:00.0"] {
             assert!(!json.contains(id));
@@ -200,9 +225,12 @@ mod tests {
     fn missing_bus_is_not_an_observed_empty_bus() {
         let f = Fixture::new();
         let index = f.0.join("index");
-        assert!(render(&index, &f.0).contains(r#""status":"unavailable""#));
+        assert!(
+            render(&index, &f.0, &f.0.join("drivers"), &f.0.join("modules"))
+                .contains(r#""status":"unavailable""#)
+        );
         fs::create_dir(&index).unwrap();
-        let empty = render(&index, &f.0);
+        let empty = render(&index, &f.0, &f.0.join("drivers"), &f.0.join("modules"));
         assert!(empty.contains(r#""status":"observed","scan_capped":false,"unresolved_entries":0"#));
         assert!(empty.ends_with(r#""candidates":[]}"#));
     }

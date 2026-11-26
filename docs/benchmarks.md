@@ -478,8 +478,10 @@ workloads, or issue an overall qualification verdict.
 
 `eld-engine accelerator inventory` lists PCI display-controller and
 processing-accelerator class matches with BDF and PCI vendor/device IDs.
-It reads kernel PCI metadata only: no vendor CLI, driver binding, context,
-device node or workload is opened. Display classes do not establish GPU
+It reads kernel PCI metadata only: the driver and optional module name are
+observed via kernel symlinks only. No vendor CLI, runtime context, device
+node or workload is opened. A bound driver does not imply health or
+userspace runtime availability, and a missing module link can be normal. Display classes do not establish GPU
 compute capability. An empty result does not exclude SoC-integrated or
 differently classified accelerators. Missing PCI sysfs and a partial scan
 are reported separately from a completed scan with no class matches.

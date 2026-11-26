@@ -256,6 +256,14 @@ fn binding_stable(before: Binding, after: Binding) -> Binding {
     }
 }
 
+pub(crate) fn driver_binding_json(device: &Path, drivers: &Path, modules: &Path) -> String {
+    binding_stable(
+        binding_once(device, drivers, modules),
+        binding_once(device, drivers, modules),
+    )
+    .json()
+}
+
 impl Binding {
     fn json(&self) -> String {
         match self {
