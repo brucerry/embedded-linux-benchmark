@@ -374,3 +374,11 @@ I2C and SPI transaction validation used mocks. Physical bus transfers, physical 
 | Jetson Linux 36.5.2 and 39.2.2 AArch64 GNU/Linux | QEMU user mode with each SDK sysroot and matching NVIDIA sample libraries |
 
 The OpenWrt guests enabled loopback in the test setup. The Jetson tests used the host kernel, filesystem, and TCP stack through QEMU user mode. The SDK checks exercised CPU and RAM, storage with sync and cleanup, TCP loopback, and stress with and without opted-in storage. Physical-board measurements remain unverified. [OpenWrt SDK records](openwrt-compatibility.md) · [MIPS SDK records](openwrt-platforms.md) · [Jetson SDK records](jetson-linux.md)
+
+### Passive network link health
+
+Run `eld-engine network health --interface eth0` with the name of the interface
+to inspect. The JSON snapshot shows carrier, negotiated speed when available,
+duplex, traffic and error/drop counters, and carrier changes. It reads only
+that interface's Linux sysfs observations and sends no traffic. Counters are
+cumulative, read separately, and are not a bandwidth or packet-loss test.

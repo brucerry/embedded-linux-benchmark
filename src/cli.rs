@@ -36,6 +36,7 @@ const STORAGE_OPTIONS: &[(&str, Kind)] = &[
     ("--timeout-ms", Number(1, storage::MAX_TIMEOUT_MS)),
     ("--sync", Flag),
 ];
+const NETWORK_HEALTH_OPTIONS: &[(&str, Kind)] = &[("--interface", Kind::Text)];
 const NETWORK_OPTIONS: &[(&str, Kind)] = &[
     ("--size-mib", Number(1, network::MAX_MIB)),
     ("--timeout-ms", Number(1, network::MAX_TIMEOUT_MS)),
@@ -273,6 +274,7 @@ fn help() {
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
   eld-engine storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]
+  eld-engine network health --interface IFACE
   eld-engine network [--size-mib MIB] [--timeout-ms MS]
   eld-engine network peer-server|peer-client --bind IP --peer IP --port N
     --session HEX [--size-mib MIB] [--pings N] [--timeout-ms MS]
@@ -417,6 +419,11 @@ pub(crate) fn run() -> Result<(), String> {
         "ram" => (RAM_OPTIONS, Subject::Ram),
         "storage" => (STORAGE_OPTIONS, Subject::Storage),
         "network" => match args.split_first() {
+            Some((role, args)) if role == "health" => {
+                let options = Options::parse("network health", args, NETWORK_HEALTH_OPTIONS)?;
+                return crate::network_health::run(options.text("--interface")?);
+            }
+
             Some((role, args)) if matches!(role.as_str(), "peer-server" | "peer-client") => {
                 if help_requested(args) {
                     help();

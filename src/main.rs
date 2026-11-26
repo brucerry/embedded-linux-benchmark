@@ -16,6 +16,7 @@ mod inventory;
 mod linux_poll;
 mod linux_socket;
 mod network;
+mod network_health;
 mod network_peer;
 mod pcie;
 mod pcie_health;
