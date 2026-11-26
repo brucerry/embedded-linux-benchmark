@@ -168,9 +168,9 @@ fn required_bdfs(list: Option<&str>) -> Result<Vec<RequiredPci>, String> {
     Ok(out)
 }
 
-type PciEntry = (std::path::PathBuf, u64, u64);
+pub(crate) type PciEntry = (std::path::PathBuf, u64, u64);
 
-fn pci_entry(
+pub(crate) fn pci_entry(
     index: &Path,
     sys_devices: &Path,
     bdf: &str,
@@ -222,7 +222,7 @@ fn pci_entry(
     second
 }
 
-fn pci_attr(path: &Path) -> Result<u16, &'static str> {
+pub(crate) fn pci_attr(path: &Path) -> Result<u16, &'static str> {
     let unreadable = |e: io::Error| match e.kind() {
         io::ErrorKind::NotFound => "unavailable",
         io::ErrorKind::PermissionDenied => "inaccessible",

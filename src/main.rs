@@ -2,6 +2,7 @@ macro_rules! report_line {
     ($($arg:tt)*) => { $crate::report::line(format_args!($($arg)*)) };
 }
 
+mod accelerator;
 mod camera;
 mod can;
 mod cli;

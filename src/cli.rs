@@ -284,6 +284,7 @@ impl<'a> Options<'a> {
 fn help() {
     println!(
         "Usage:
+  eld-engine accelerator inventory
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
   eld-engine qualify passive [--board-profile PATH]
   eld-engine qualify plan --profile bring-up|quick|manufacturing|overnight [--include-local-load]
@@ -428,6 +429,13 @@ pub(crate) fn run() -> Result<(), String> {
     }
     let (command, args) = args.split_first().expect("command is present");
     let (spec, subject) = match command.as_str() {
+        "accelerator" => {
+            match args {
+                [mode] if mode == "inventory" => crate::accelerator::run(),
+                _ => return Err("expected 'accelerator inventory'. See --help.".into()),
+            }
+            return Ok(());
+        }
         "inventory" => {
             let options = Options::parse("inventory", args, INVENTORY_OPTIONS)?;
             crate::inventory::run(
