@@ -1171,3 +1171,58 @@ fn stress_summary_matches_cpu_result_and_refuses_path_before_load() {
     assert_eq!(fs::read_to_string(&report).unwrap(), json);
     assert!(!missing.exists());
 }
+
+#[test]
+fn stress_events_record_one_short_run_and_keep_prior_stream() {
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    let scratch = ScratchDirectory::create();
+    let path = scratch.0.join("stress.ndjson");
+    let summary = scratch.0.join("stress.json");
+    let events = path.to_str().unwrap();
+    let stdout = successful_output(&[
+        "stress",
+        "auto",
+        "--test",
+        "cpu",
+        "--rounds",
+        "1",
+        "--duration-ms",
+        "15",
+        "--timeout-ms",
+        "2000",
+        "--events-ndjson",
+        events,
+        "--summary-json",
+        summary.to_str().unwrap(),
+    ]);
+    assert!(stdout.contains("Stress result: PASS (1/1 rounds completed)"));
+    let stream = fs::read_to_string(&path).unwrap();
+    let lines = stream.lines().collect::<Vec<_>>();
+    assert_eq!(lines.len(), 2);
+    assert!(stream.ends_with('\n'));
+    assert!(lines[0].starts_with(r#"{"event_schema_version":1,"sequence":0,"event":"start","#));
+    assert!(lines[0].ends_with(r#","rounds_completed":0}"#));
+    assert!(lines[1].starts_with(r#"{"event_schema_version":1,"sequence":1,"event":"finish","#));
+    assert!(lines[1]
+        .ends_with(r#","rounds_completed":1,"status":"completed","stop_reason":"round_target"}"#));
+    assert!(fs::read_to_string(&summary)
+        .unwrap()
+        .contains(r#""status":"completed","stop_reason":"round_target""#));
+    assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o077, 0);
+    let retry = run(&[
+        "stress",
+        "auto",
+        "--test",
+        "cpu",
+        "--duration",
+        "2w",
+        "--events-ndjson",
+        events,
+    ]);
+    assert!(!retry.status.success());
+    assert!(retry.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&retry.stderr).contains("cannot create stress events"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), stream);
+}
