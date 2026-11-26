@@ -72,6 +72,10 @@ values are decimal strings; absent or unreadable files are not zero counts.
 The thermal section reports zone type and temperature in millidegrees Celsius,
 with at most 32 thermal zones and explicit truncation or unavailable status.
 It reads recognized sysfs thermal attributes without changing trips, fans, or policy.
+The memory EDAC section reads per-controller corrected and uncorrected counters
+when exposed by Linux. Counters are cumulative and may reset; an empty controller
+list is not proof of zero errors or that the hardware lacks ECC. The Engine never
+resets counters or injects errors.
 
 ### Check expected PCI devices
 

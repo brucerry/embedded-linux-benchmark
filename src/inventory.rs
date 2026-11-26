@@ -425,8 +425,8 @@ fn resources() -> String {
     )
 }
 
-fn thermal_id(name: &str) -> Option<u32> {
-    let id = name.strip_prefix("thermal_zone")?;
+fn numbered_child(name: &str, prefix: &str) -> Option<u32> {
+    let id = name.strip_prefix(prefix)?;
     if id.is_empty() || id.len() > 7 || !id.bytes().all(|b| b.is_ascii_digit()) {
         return None;
     }
@@ -467,7 +467,11 @@ fn thermal(index: &Path, devices: &Path) -> String {
         let Ok(row) = row else {
             return result("invalid", "");
         };
-        if let Some(id) = row.file_name().to_str().and_then(thermal_id) {
+        if let Some(id) = row
+            .file_name()
+            .to_str()
+            .and_then(|name| numbered_child(name, "thermal_zone"))
+        {
             ids.push(id);
         }
     }
@@ -511,6 +515,107 @@ fn thermal(index: &Path, devices: &Path) -> String {
         .collect::<Vec<_>>()
         .join(",");
     result(status, &rows)
+}
+
+fn edac(root: &Path) -> String {
+    use std::os::unix::fs::MetadataExt;
+    let result = |status, rows: &str| format!(r#"{{"status":"{status}","controllers":[{rows}]}}"#);
+    let identify = |path: &Path| {
+        let m = fs::symlink_metadata(path)?;
+        if !m.is_dir() {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        Ok((m.dev(), m.ino()))
+    };
+    fn status(e: io::Error) -> &'static str {
+        match e.kind() {
+            io::ErrorKind::PermissionDenied => "inaccessible",
+            io::ErrorKind::NotFound => "unavailable",
+            _ => "invalid",
+        }
+    }
+    let root_identity = match identify(root) {
+        Ok(id) => id,
+        Err(e) => return result(status(e), ""),
+    };
+    let entries = match fs::read_dir(root) {
+        Ok(v) => v,
+        Err(e) => return result(status(e), ""),
+    };
+    let mut ids = Vec::new();
+    for (seen, row) in entries.enumerate() {
+        if seen >= 256 {
+            return result("truncated", "");
+        }
+        let Ok(row) = row else {
+            return result("invalid", "");
+        };
+        if let Some(id) = row
+            .file_name()
+            .to_str()
+            .and_then(|name| numbered_child(name, "mc"))
+        {
+            ids.push(id);
+        }
+    }
+    ids.sort_unstable();
+    let overall = if ids.is_empty() {
+        "no_controllers"
+    } else if ids.len() > 32 {
+        "truncated"
+    } else {
+        "observed"
+    };
+    let rows = ids
+        .into_iter()
+        .take(32)
+        .map(|id| {
+            let name = format!("mc{id}");
+            let path = root.join(&name);
+            let counter = |file| match bounded(&path.join(file)) {
+                Ok(v) => {
+                    let v = v.trim();
+                    if !v.is_empty() && v.len() <= 20 && v.bytes().all(|b| b.is_ascii_digit()) {
+                        v.parse::<u64>()
+                            .ok()
+                            .map(|n| Observation::Available(n.to_string()))
+                            .unwrap_or(Observation::Invalid)
+                    } else {
+                        Observation::Invalid
+                    }
+                }
+                Err(e) => Observation::error(e),
+            };
+            let (ce, ue) = match identify(&path) {
+                Ok(initial) => {
+                    let pair = (counter("ce_count"), counter("ue_count"));
+                    if identify(&path).ok() == Some(initial) {
+                        pair
+                    } else {
+                        (Observation::Unavailable, Observation::Unavailable)
+                    }
+                }
+                Err(e) => {
+                    let kind = e.kind();
+                    (
+                        Observation::error(io::Error::from(kind)),
+                        Observation::error(io::Error::from(kind)),
+                    )
+                }
+            };
+            format!(
+                r#"{{"controller":"{name}","corrected_errors":{},"uncorrected_errors":{}}}"#,
+                ce.json(),
+                ue.json()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    if identify(root).ok() != Some(root_identity) {
+        result("changed", "")
+    } else {
+        result(overall, &rows)
+    }
 }
 
 pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result<(), String> {
@@ -586,13 +691,14 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
         format!(r#","required_pcie":[{rows}]"#)
     };
     println!(
-        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{}{profile_context}{profile}}}"#,
+        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{}{profile_context}{profile}}}"#,
         json_string(std::env::consts::ARCH),
         resources(),
         thermal(
             Path::new("/sys/class/thermal"),
             Path::new("/sys/devices/virtual/thermal")
-        )
+        ),
+        edac(Path::new("/sys/devices/system/edac/mc"))
     );
     Ok(())
 }
@@ -602,13 +708,35 @@ mod tests {
     use super::*;
 
     #[test]
+    fn edac_separates_corrected_uncorrected_and_unavailable() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("eld-edac-{}", std::process::id()));
+        let first = root.join("mc1");
+        let second = root.join("mc2");
+        assert!(edac(&root).contains(r#""status":"unavailable""#));
+        fs::create_dir(&root).unwrap();
+        assert!(edac(&root).contains(r#""status":"no_controllers""#));
+        fs::create_dir(&first).unwrap();
+        fs::create_dir(&second).unwrap();
+        fs::write(first.join("ce_count"), "18446744073709551615\n").unwrap();
+        fs::write(first.join("ue_count"), "0\n").unwrap();
+        fs::write(second.join("ce_count"), "18446744073709551616\n").unwrap();
+        symlink(&first, root.join("mc3")).unwrap();
+        let out = edac(&root);
+        assert!(out.contains(r#""controller":"mc1","corrected_errors":{"status":"observed","value":"18446744073709551615"},"uncorrected_errors":{"status":"observed","value":"0"}"#));
+        assert!(out.contains(r#""controller":"mc2","corrected_errors":{"status":"invalid"},"uncorrected_errors":{"status":"unavailable"}"#));
+        assert!(out.contains(r#""controller":"mc3","corrected_errors":{"status":"invalid"}"#));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn thermal_reads_signed_millicelsius_and_fixed_paths_only() {
         use std::os::unix::fs::symlink;
         assert_eq!(thermal_value("-2000\n"), Some("-2000".into()));
         assert_eq!(thermal_value("0"), Some("0".into()));
         assert_eq!(thermal_value("310000"), None);
         assert_eq!(thermal_value("17 C"), None);
-        assert_eq!(thermal_id("thermal_zone02"), None);
+        assert_eq!(numbered_child("thermal_zone02", "thermal_zone"), None);
         let root = std::env::temp_dir().join(format!("eld-thermal-{}", std::process::id()));
         let index = root.join("index");
         let devices = root.join("devices");
