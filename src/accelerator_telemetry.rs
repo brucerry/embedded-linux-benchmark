@@ -38,6 +38,14 @@ fn read(path: &Path) -> Result<String, &'static str> {
 
 fn numeric(path: &Path, signed: bool) -> String {
     let value = read(path).and_then(|raw| {
+        let digits = if signed {
+            raw.strip_prefix('-').unwrap_or(&raw)
+        } else {
+            &raw
+        };
+        if !sysfs::name_digits(digits) {
+            return Err("invalid");
+        }
         if signed {
             raw.parse::<i64>()
                 .map(|v| v.to_string())
@@ -54,12 +62,19 @@ fn numeric(path: &Path, signed: bool) -> String {
     }
 }
 
-fn bound_to_amdgpu(target: &Path, drivers: &Path) -> bool {
+fn amdgpu_binding(target: &Path, drivers: &Path) -> Result<(u64, u64), &'static str> {
     let link = target.join("driver");
     let expected = drivers.join("amdgpu");
-    fs::symlink_metadata(&link).map_or(false, |m| m.is_symlink())
-        && fs::canonicalize(&link).map_or(false, |p| p == expected)
-        && key(&expected).is_ok()
+    match fs::symlink_metadata(&link) {
+        Ok(m) if m.is_symlink() => {}
+        Ok(_) => return Err("invalid"),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Err("unsupported"),
+        Err(e) => return Err(error(e)),
+    }
+    if fs::canonicalize(&link).map_err(error)? != expected {
+        return Err("unsupported");
+    }
+    key(&expected)
 }
 
 fn scan(
@@ -69,11 +84,10 @@ fn scan(
     drivers: &Path,
 ) -> Result<Vec<String>, &'static str> {
     let device = inventory::pci_entry(index, devices, bdf)?.ok_or("unavailable")?;
-    if inventory::pci_attr(&device.0.join("vendor"))? != 0x1002
-        || !bound_to_amdgpu(&device.0, drivers)
-    {
+    if inventory::pci_attr(&device.0.join("vendor"))? != 0x1002 {
         return Err("unsupported");
     }
+    let driver = amdgpu_binding(&device.0, drivers)?;
     let root = device.0.join("hwmon");
     let initial = key(&root)?;
     let mut listing = fs::read_dir(&root).map_err(error)?;
@@ -110,7 +124,7 @@ fn scan(
         return Err("scan_capped");
     }
     if key(&root)? != initial
-        || !bound_to_amdgpu(&device.0, drivers)
+        || amdgpu_binding(&device.0, drivers) != Ok(driver)
         || inventory::pci_entry(index, devices, bdf)? != Some(device)
     {
         return Err("changed");
@@ -144,4 +158,54 @@ pub(crate) fn run(device: &str) -> Result<(), String> {
         )
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn amdgpu_read_is_scoped_and_preserves_signed_and_wide_values() {
+        let dir = std::env::temp_dir().join(format!("eld-hwmon-{}", std::process::id()));
+        fs::create_dir(&dir).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _guard = Cleanup(dir.clone());
+        let index = dir.join("index");
+        let drivers = dir.join("drivers");
+        let correct = drivers.join("amdgpu");
+        let devices = dir.join("devices");
+        let bdf = "0000:01:00.0";
+        let dev = devices.join(bdf);
+        let sensor = dev.join("hwmon/hwmon4");
+        for s in [&index, &correct, &sensor] {
+            fs::create_dir_all(s).unwrap();
+        }
+        symlink(&dev, index.join(bdf)).unwrap();
+        fs::write(dev.join("vendor"), "0x1002\n").unwrap();
+        fs::write(sensor.join("name"), "amdgpu\n").unwrap();
+        let driver_link = dev.join("driver");
+        symlink(&correct, &driver_link).unwrap();
+        fs::write(sensor.join("temp1_input"), "-2000\n").unwrap();
+        fs::write(sensor.join("temp3_input"), "+2000\n").unwrap();
+        fs::write(sensor.join("power1_average"), "9007199254740993\n").unwrap();
+        fs::write(sensor.join("power1_input"), "-10\n").unwrap();
+        let sample = render(bdf, &index, &devices, &drivers);
+        assert!(sample.contains(r#""status":"observed","runtime_probe":"not_performed""#));
+        assert!(sample.contains(r#"[{"status":"observed","value":"-2000"},{"status":"unavailable"},{"status":"invalid"}]"#));
+        assert!(sample.contains(
+            r#""soc_power_average_microwatts":{"status":"observed","value":"9007199254740993"}"#
+        ));
+        assert!(sample.contains(r#""soc_power_instant_microwatts":{"status":"invalid"}"#));
+        fs::remove_file(&driver_link).unwrap();
+        symlink(&sensor, &driver_link).unwrap();
+        assert!(render(bdf, &index, &devices, &drivers).contains(r#""status":"unsupported""#));
+        assert!(render("0000:09:00.0", &index, &devices, &drivers)
+            .contains(r#""status":"unavailable""#));
+    }
 }
