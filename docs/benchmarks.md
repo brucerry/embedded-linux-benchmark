@@ -382,3 +382,11 @@ to inspect. The JSON snapshot shows carrier, negotiated speed when available,
 duplex, traffic and error/drop counters, and carrier changes. It reads only
 that interface's Linux sysfs observations and sends no traffic. Counters are
 cumulative, read separately, and are not a bandwidth or packet-loss test.
+
+### Passive NVMe controller status
+
+`eld-engine storage nvme-health --controller nvme0` reads the named
+controller's Linux sysfs state, transport, model and firmware revision.
+It does not read serial numbers, SMART or media-error logs, open raw devices,
+change controller state, or benchmark storage. A live controller state does
+not certify drive health.

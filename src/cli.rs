@@ -30,6 +30,7 @@ const RAM_OPTIONS: &[(&str, Kind)] = &[
         Number(ram::MIN_BUFFER_KIB, ram::MAX_BUFFER_KIB),
     ),
 ];
+const NVME_HEALTH_OPTIONS: &[(&str, Kind)] = &[("--controller", Kind::Text)];
 const STORAGE_OPTIONS: &[(&str, Kind)] = &[
     ("--dir", Kind::Path),
     ("--size-mib", Number(1, storage::MAX_MIB)),
@@ -273,6 +274,7 @@ fn help() {
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH]
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
+  eld-engine storage nvme-health --controller nvme0
   eld-engine storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]
   eld-engine network health --interface IFACE
   eld-engine network [--size-mib MIB] [--timeout-ms MS]
@@ -417,6 +419,10 @@ pub(crate) fn run() -> Result<(), String> {
         }
         "cpu" => (CPU_OPTIONS, Subject::Cpu),
         "ram" => (RAM_OPTIONS, Subject::Ram),
+        "storage" if args.first().is_some_and(|role| role == "nvme-health") => {
+            let options = Options::parse("storage nvme-health", &args[1..], NVME_HEALTH_OPTIONS)?;
+            return crate::nvme_health::run(options.text("--controller")?);
+        }
         "storage" => (STORAGE_OPTIONS, Subject::Storage),
         "network" => match args.split_first() {
             Some((role, args)) if role == "health" => {
