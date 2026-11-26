@@ -72,6 +72,9 @@ values are decimal strings; absent or unreadable files are not zero counts.
 The thermal section reports zone type and temperature in millidegrees Celsius,
 with at most 32 thermal zones and explicit truncation or unavailable status.
 It reads recognized sysfs thermal attributes without changing trips, fans, or policy.
+Add `--thermal-sample-ms 1000` for two passive snapshots and per-zone
+temperature differences (1–60,000 ms). A replaced, unlabelled or unavailable
+zone is not comparable. The interval is monotonic, and no load is started.
 The memory EDAC section reads per-controller corrected and uncorrected counters
 when exposed by Linux, plus the optional seconds since initialization or reset.
 DIMM or unattributed breakdowns are not added to controller totals. A snapshot

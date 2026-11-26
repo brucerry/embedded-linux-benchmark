@@ -444,8 +444,40 @@ fn thermal_value(raw: &str) -> Option<String> {
     (-273_150..=300_000).contains(&n).then(|| n.to_string())
 }
 
-fn thermal(index: &Path, devices: &Path) -> String {
-    let result = |status, rows: &str| format!(r#"{{"status":"{status}","zones":[{rows}]}}"#);
+struct ThermalRow {
+    id: u32,
+    key: Option<(u64, u64)>,
+    kind: Observation,
+    temp: Observation,
+}
+
+struct ThermalSnapshot {
+    status: &'static str,
+    zones: Vec<ThermalRow>,
+}
+
+impl ThermalSnapshot {
+    fn json(&self) -> String {
+        let rows = self
+            .zones
+            .iter()
+            .map(|r| {
+                format!(
+                    r#"{{"zone":"thermal_zone{}","type":{},"temperature_millicelsius":{}}}"#,
+                    r.id,
+                    r.kind.json(),
+                    r.temp.json()
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(r#"{{"status":"{}","zones":[{rows}]}}"#, self.status)
+    }
+}
+
+fn thermal_snapshot(index: &Path, devices: &Path) -> ThermalSnapshot {
+    use std::os::unix::fs::MetadataExt;
+    let result = |status, zones| ThermalSnapshot { status, zones };
     let entries = match fs::read_dir(index) {
         Ok(v) => v,
         Err(e) => {
@@ -455,17 +487,17 @@ fn thermal(index: &Path, devices: &Path) -> String {
                     io::ErrorKind::NotFound => "unavailable",
                     _ => "invalid",
                 },
-                "",
+                Vec::new(),
             )
         }
     };
     let mut ids = Vec::new();
     for (seen, row) in entries.enumerate() {
         if seen >= 256 {
-            return result("truncated", "");
+            return result("truncated", Vec::new());
         }
         let Ok(row) = row else {
-            return result("invalid", "");
+            return result("invalid", Vec::new());
         };
         if let Some(id) = row
             .file_name()
@@ -481,7 +513,7 @@ fn thermal(index: &Path, devices: &Path) -> String {
     } else {
         "observed"
     };
-    let rows = ids
+    let zones = ids
         .into_iter()
         .take(32)
         .map(|id| {
@@ -494,27 +526,95 @@ fn thermal(index: &Path, devices: &Path) -> String {
                 Ok(value) => parse(&value).map_or(Observation::Invalid, Observation::Available),
                 Err(e) => Observation::error(e),
             };
-            let approved = || fs::canonicalize(&path).ok().as_ref() == Some(&allowed);
-            let (kind, temp) = if approved() {
-                let a = probe("type", text_value);
-                let b = probe("temp", thermal_value);
-                if approved() {
-                    (a, b)
-                } else {
-                    (Observation::Unavailable, Observation::Unavailable)
-                }
-            } else {
-                (Observation::Unavailable, Observation::Unavailable)
+            let identity = || {
+                let actual = fs::canonicalize(&path).ok()?;
+                let meta = fs::symlink_metadata(&actual).ok()?;
+                (actual == allowed && meta.is_dir()).then(|| (meta.dev(), meta.ino()))
             };
-            format!(
-                r#"{{"zone":"{name}","type":{},"temperature_millicelsius":{}}}"#,
-                kind.json(),
-                temp.json()
-            )
+            let held = identity();
+            if held.is_some() {
+                let kind = probe("type", text_value);
+                let temp = probe("temp", thermal_value);
+                if identity() == held {
+                    return ThermalRow {
+                        id,
+                        key: held,
+                        kind,
+                        temp,
+                    };
+                }
+            }
+            ThermalRow {
+                id,
+                key: None,
+                kind: Observation::Unavailable,
+                temp: Observation::Unavailable,
+            }
+        })
+        .collect();
+    result(status, zones)
+}
+
+#[cfg(test)]
+fn thermal(index: &Path, devices: &Path) -> String {
+    thermal_snapshot(index, devices).json()
+}
+
+fn thermal_window(
+    first: &ThermalSnapshot,
+    second: &ThermalSnapshot,
+    wait: u64,
+    elapsed: u128,
+) -> String {
+    let mut ids = first
+        .zones
+        .iter()
+        .chain(&second.zones)
+        .map(|r| r.id)
+        .collect::<Vec<_>>();
+    ids.sort_unstable();
+    ids.dedup();
+    let differences = ids
+        .into_iter()
+        .map(|id| {
+            let a = first.zones.iter().find(|r| r.id == id);
+            let b = second.zones.iter().find(|r| r.id == id);
+            let difference = match (a, b) {
+                (Some(a), Some(b)) if a.key.is_some() && a.key == b.key => {
+                    match (&a.kind, &b.kind, &a.temp, &b.temp) {
+                        (Observation::Available(ka), Observation::Available(kb), _, _)
+                            if ka != kb =>
+                        {
+                            None
+                        }
+                        (
+                            Observation::Available(_),
+                            Observation::Available(_),
+                            Observation::Available(va),
+                            Observation::Available(vb),
+                        ) => va
+                            .parse::<i32>()
+                            .ok()
+                            .zip(vb.parse::<i32>().ok())
+                            .and_then(|(v, w)| w.checked_sub(v)),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            };
+            let encoded = difference.map_or_else(
+                || r#"{"status":"not_comparable"}"#.into(),
+                |v| format!(r#"{{"status":"observed_difference","value":"{v}"}}"#),
+            );
+            format!(r#"{{"zone":"thermal_zone{id}","difference_millicelsius":{encoded}}}"#)
         })
         .collect::<Vec<_>>()
         .join(",");
-    result(status, &rows)
+    format!(
+        r#"{{"requested_wait_ms":{wait},"sample_start_interval_ms":{elapsed},"before":{},"after":{},"differences":[{differences}]}}"#,
+        first.json(),
+        second.json()
+    )
 }
 
 fn edac(root: &Path) -> String {
@@ -866,7 +966,11 @@ fn powercap(index: &Path, root: &Path) -> String {
     result(status, &rows)
 }
 
-pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result<(), String> {
+pub(crate) fn run(
+    required: Option<&str>,
+    profile_path: Option<&Path>,
+    thermal_ms: Option<u64>,
+) -> Result<(), String> {
     if required.is_some() && profile_path.is_some() {
         return Err("--require-pcie and --board-profile cannot be combined".into());
     }
@@ -938,14 +1042,31 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
             .join(",");
         format!(r#","required_pcie":[{rows}]"#)
     };
+    let paths = (
+        Path::new("/sys/class/thermal"),
+        Path::new("/sys/devices/virtual/thermal"),
+    );
+    let started = std::time::Instant::now();
+    let temperatures = thermal_snapshot(paths.0, paths.1);
+    let timed = if let Some(wait) = thermal_ms {
+        if !(1..=60_000).contains(&wait) {
+            return Err("thermal-sample-ms must be between 1 and 60000".into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(wait));
+        let elapsed = started.elapsed().as_millis();
+        let after = thermal_snapshot(paths.0, paths.1);
+        format!(
+            r#","thermal_window":{}"#,
+            thermal_window(&temperatures, &after, wait, elapsed)
+        )
+    } else {
+        String::new()
+    };
     println!(
-        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{},"cpu_frequency":{},"cpu_thermal_throttle":{},"powercap":{}{profile_context}{profile}}}"#,
+        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{},"cpu_frequency":{},"cpu_thermal_throttle":{},"powercap":{}{profile_context}{profile}{timed}}}"#,
         json_string(std::env::consts::ARCH),
         resources(),
-        thermal(
-            Path::new("/sys/class/thermal"),
-            Path::new("/sys/devices/virtual/thermal")
-        ),
+        temperatures.json(),
         edac(Path::new("/sys/devices/system/edac/mc")),
         cpu_frequency(Path::new("/sys/devices/system/cpu/cpufreq")),
         cpu_throttle(Path::new("/sys/devices/system/cpu")),
@@ -1058,6 +1179,37 @@ mod tests {
         assert!(!out.contains("99112233") && !out.contains("88776655"));
         assert!(out.contains(r#""seconds_since_reset":{"status":"unavailable"}"#));
         fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn thermal_window_withholds_differences_for_replaced_sensor() {
+        fn sample(id: u32, key: (u64, u64), type_name: &str, value: &str) -> ThermalRow {
+            ThermalRow {
+                id,
+                key: Some(key),
+                kind: Observation::Available(type_name.into()),
+                temp: Observation::Available(value.into()),
+            }
+        }
+        let a = ThermalSnapshot {
+            status: "observed",
+            zones: vec![
+                sample(0, (1, 2), "core", "31000"),
+                sample(1, (1, 3), "other", "28000"),
+            ],
+        };
+        let b = ThermalSnapshot {
+            status: "observed",
+            zones: vec![
+                sample(0, (1, 2), "core", "30500"),
+                sample(1, (1, 4), "other", "28500"),
+            ],
+        };
+        let result = thermal_window(&a, &b, 25, 26);
+        assert!(result.contains(r#""zone":"thermal_zone0","difference_millicelsius":{"status":"observed_difference","value":"-500"}"#));
+        assert!(result.contains(
+            r#""zone":"thermal_zone1","difference_millicelsius":{"status":"not_comparable"}"#
+        ));
     }
 
     #[test]
