@@ -580,3 +580,32 @@ pub(crate) fn run(plan: Plan) -> Result<(), String> {
     }
     result.map(|_| ())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn summary_keeps_wide_counts_and_durations_exact() {
+        let plan = Plan {
+            test: Some(Test::Cpu),
+            schedule: Schedule::Timed(Duration::from_secs(1)),
+            duration: Duration::from_millis(15),
+            buffer_kib: 4,
+            network_bytes: MIB,
+            storage: None,
+            summary_path: None,
+        };
+        let totals = Totals {
+            cpu: Sample {
+                count: u64::MAX,
+                elapsed: Duration::from_nanos(9_007_199_254_740_993),
+            },
+            ..Totals::default()
+        };
+        assert_eq!(
+            metrics_json(&plan, &totals),
+            r#"{"cpu":{"unit":"iterations","count":"18446744073709551615","measured_ns":"9007199254740993"}}"#
+        );
+    }
+}

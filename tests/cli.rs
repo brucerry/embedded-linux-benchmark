@@ -1112,3 +1112,62 @@ fn pcie_and_iio_reject_unsafe_attributes_and_unbounded_transfer() {
         );
     }
 }
+
+#[test]
+fn stress_summary_matches_cpu_result_and_refuses_path_before_load() {
+    use std::fs;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    let scratch = ScratchDirectory::create();
+    let report = scratch.0.join("stress.json");
+    let output = successful_output(&[
+        "stress",
+        "auto",
+        "--test",
+        "cpu",
+        "--rounds",
+        "1",
+        "--duration-ms",
+        "15",
+        "--timeout-ms",
+        "2000",
+        "--summary-json",
+        report.to_str().unwrap(),
+    ]);
+    let json = fs::read_to_string(&report).unwrap();
+    assert!(json.starts_with(r#"{"summary_schema_version":1,"kind":"stress_auto","status":"completed","stop_reason":"round_target","target_rounds":1,"rounds_completed":1,"#));
+    let count: u64 = field(&output, "CPU iterations: ")
+        .split_whitespace()
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(count > 0);
+    assert!(json.contains(&format!(r#""cpu":{{"unit":"iterations","count":"{count}""#)));
+    assert!(!json.contains(r#""ram":"#) && !json.contains(r#""network":"#));
+    assert_eq!(
+        fs::metadata(&report).unwrap().permissions().mode() & 0o077,
+        0
+    );
+
+    let missing = scratch.0.join("missing");
+    let link = scratch.0.join("destination");
+    symlink(&missing, &link).unwrap();
+    for path in [&report, &link] {
+        let result = run(&[
+            "stress",
+            "auto",
+            "--test",
+            "cpu",
+            "--duration",
+            "2w",
+            "--summary-json",
+            path.to_str().unwrap(),
+        ]);
+        assert!(!result.status.success());
+        assert!(result.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("cannot create stress summary"));
+    }
+    assert_eq!(fs::read_to_string(&report).unwrap(), json);
+    assert!(!missing.exists());
+}
