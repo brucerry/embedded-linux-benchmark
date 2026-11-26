@@ -966,6 +966,42 @@ fn powercap(index: &Path, root: &Path) -> String {
     result(status, &rows)
 }
 
+fn profile_pci_summary(applicable: &str, requested: usize, observations: &[&str]) -> String {
+    let mut passed = 0;
+    let mut failed = 0;
+    let mut unavailable = 0;
+    let mut skipped = 0;
+    let status = match applicable {
+        "not_applicable" => {
+            skipped = requested;
+            "skipped"
+        }
+        "applicable" if !observations.is_empty() && observations.len() == requested => {
+            for &row in observations {
+                match row {
+                    "present" | "match" => passed += 1,
+                    "missing" | "mismatch" => failed += 1,
+                    _ => unavailable += 1,
+                }
+            }
+            if failed > 0 {
+                "failed"
+            } else if unavailable > 0 {
+                "unavailable"
+            } else {
+                "passed"
+            }
+        }
+        _ => {
+            unavailable = requested;
+            "unavailable"
+        }
+    };
+    format!(
+        r#"{{"version":1,"scope":"passive_board_profile_pcie","status":"{status}","requested":{requested},"passed":{passed},"failed":{failed},"skipped":{skipped},"unavailable":{unavailable}}}"#
+    )
+}
+
 pub(crate) fn run(
     required: Option<&str>,
     profile_path: Option<&Path>,
@@ -975,6 +1011,7 @@ pub(crate) fn run(
         return Err("--require-pcie and --board-profile cannot be combined".into());
     }
     let mut required = required_bdfs(required)?;
+    let mut review = None;
     let profile_context = if let Some(path) = profile_path {
         let raw =
             bounded(path).map_err(|_| "expected a readable board profile file up to 4096 bytes")?;
@@ -987,6 +1024,7 @@ pub(crate) fn run(
             json_string(&profile.compatible),
             board.map_or_else(|| "null".into(), json_string)
         );
+        review = Some((status, profile.required.len()));
         if status == "applicable" {
             required = profile.required;
         }
@@ -1015,6 +1053,7 @@ pub(crate) fn run(
         .map(|(key, value)| format!("{}:{}", json_string(key), value.json()))
         .collect::<Vec<_>>()
         .join(",");
+    let mut row_statuses = Vec::new();
     let profile = if required.is_empty() {
         String::new()
     } else {
@@ -1026,6 +1065,7 @@ pub(crate) fn run(
                     Path::new("/sys/devices"),
                     target,
                 );
+                row_statuses.push(status);
                 let details = target.identity.map_or(String::new(), |expected| {
                     format!(
                         r#","expected":{},"observed":{}"#,
@@ -1042,6 +1082,12 @@ pub(crate) fn run(
             .join(",");
         format!(r#","required_pcie":[{rows}]"#)
     };
+    let summary = review.map_or_else(String::new, |(status, count)| {
+        format!(
+            r#","board_check":{}"#,
+            profile_pci_summary(status, count, &row_statuses)
+        )
+    });
     let paths = (
         Path::new("/sys/class/thermal"),
         Path::new("/sys/devices/virtual/thermal"),
@@ -1063,7 +1109,7 @@ pub(crate) fn run(
         String::new()
     };
     println!(
-        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{},"cpu_frequency":{},"cpu_thermal_throttle":{},"powercap":{}{profile_context}{profile}{timed}}}"#,
+        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{},"cpu_frequency":{},"cpu_thermal_throttle":{},"powercap":{}{profile_context}{profile}{summary}{timed}}}"#,
         json_string(std::env::consts::ARCH),
         resources(),
         temperatures.json(),
@@ -1265,6 +1311,24 @@ mod tests {
             mem_value("MemTotal: 18446744073709551615 kB", "MemTotal"),
             Observation::Invalid
         );
+    }
+
+    #[test]
+    fn board_check_separates_failed_missing_and_skipped_checks() {
+        let mixed = profile_pci_summary("applicable", 3, &["match", "mismatch", "inaccessible"]);
+        assert!(mixed.contains(
+            r#""status":"failed","requested":3,"passed":1,"failed":1,"skipped":0,"unavailable":1"#
+        ));
+        assert!(profile_pci_summary("applicable", 2, &["match", "present"])
+            .contains(r#""status":"passed""#));
+        assert!(
+            profile_pci_summary("applicable", 2, &["present", "changed"])
+                .contains(r#""status":"unavailable""#)
+        );
+        assert!(profile_pci_summary("not_applicable", 2, &[]).contains(
+            r#""status":"skipped","requested":2,"passed":0,"failed":0,"skipped":2,"unavailable":0"#
+        ));
+        assert!(profile_pci_summary("unknown",2,&[]).contains(r#""status":"unavailable","requested":2,"passed":0,"failed":0,"skipped":0,"unavailable":2"#));
     }
 
     #[test]

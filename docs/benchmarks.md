@@ -124,6 +124,10 @@ required devices for the known board. The profile is applied only when that firs
 value matches; a later shared SoC entry does not qualify. Missing or generic
 board evidence produces `unknown` and skips profile PCI checks. This file is
 data only, not a script, and cannot be combined with `--require-pcie`.
+The `board_check` summary counts passed, failed, skipped and unavailable
+requirements. No PCI check is scored for a different or unknown board. A pass
+only covers the profile’s passive PCI identity requirements; it is not
+performance, reliability or production qualification.
 
 ### PCIe health snapshot
 
