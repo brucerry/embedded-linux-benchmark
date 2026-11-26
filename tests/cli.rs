@@ -1226,3 +1226,35 @@ fn stress_events_record_one_short_run_and_keep_prior_stream() {
     assert!(String::from_utf8_lossy(&retry.stderr).contains("cannot create stress events"));
     assert_eq!(fs::read_to_string(&path).unwrap(), stream);
 }
+
+#[test]
+fn passive_qualification_observes_without_accepting_workload_options() {
+    let scratch = ScratchDirectory::create();
+    let base = successful_output(&["qualify", "passive"]);
+    assert!(base.starts_with(r#"{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"not_configured","inventory":{"schema_version":1,"#));
+    assert!(!base.contains(r#""thermal_window":"#) && !base.contains("Report:"));
+    let profile = scratch.0.join("board.profile");
+    std::fs::write(
+        &profile,
+        "eld-board-profile=1\ncompatible=fixture,qualification-cli\nrequire-pcie=0000:01:00.0\n",
+    )
+    .unwrap();
+    let supplied = successful_output(&[
+        "qualify",
+        "passive",
+        "--board-profile",
+        profile.to_str().unwrap(),
+    ]);
+    assert!(supplied.contains(r#""board_check":"see_inventory""#));
+    assert!(supplied.contains(r#""board_check":{"version":1,"scope":"passive_board_profile_pcie""#));
+    for args in [
+        vec!["qualify", "passive", "--duration", "2w"],
+        vec!["qualify", "passive", "--include-local-load"],
+        vec!["qualify", "run", "--profile", "overnight"],
+    ] {
+        let result = run(&args);
+        assert!(!result.status.success(), "{args:?}");
+        assert!(result.stdout.is_empty(), "{args:?}");
+    }
+    assert_eq!(scratch.names(), ["board.profile"]);
+}
