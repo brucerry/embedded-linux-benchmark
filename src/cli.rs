@@ -286,6 +286,7 @@ fn help() {
         "Usage:
   eld-engine accelerator inventory|interfaces
   eld-engine accelerator amdgpu-hwmon --device BDF
+  eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
   eld-engine qualify passive [--board-profile PATH]
   eld-engine qualify plan --profile bring-up|quick|manufacturing|overnight [--include-local-load]
@@ -445,6 +446,11 @@ pub(crate) fn run() -> Result<(), String> {
                     )
                 }
             }
+            return Ok(());
+        }
+        "power" if args.first().is_some_and(|name| name == "ina3221") => {
+            let options = Options::parse("power ina3221", &args[1..], &[("--node", Kind::Text)])?;
+            crate::ina3221::run(options.text("--node")?)?;
             return Ok(());
         }
         "inventory" => {

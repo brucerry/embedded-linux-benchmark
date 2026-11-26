@@ -1,7 +1,7 @@
 //! Explicit AMDGPU hwmon telemetry; never writes controls or opens PCI resources.
 use crate::{inventory, pcie, sysfs};
 use std::fs;
-use std::io::{self, Read};
+use std::io;
 use std::os::unix::fs::MetadataExt;
 use std::path::Path;
 
@@ -21,45 +21,6 @@ fn key(path: &Path) -> Result<(u64, u64), &'static str> {
         return Err("invalid");
     }
     Ok((stat.dev(), stat.ino()))
-}
-
-fn read(path: &Path) -> Result<String, &'static str> {
-    let mut raw = String::new();
-    sysfs::open_attribute(path)
-        .map_err(error)?
-        .take(129)
-        .read_to_string(&mut raw)
-        .map_err(error)?;
-    if raw.len() > 128 {
-        return Err("invalid");
-    }
-    Ok(raw.trim().to_owned())
-}
-
-fn numeric(path: &Path, signed: bool) -> String {
-    let value = read(path).and_then(|raw| {
-        let digits = if signed {
-            raw.strip_prefix('-').unwrap_or(&raw)
-        } else {
-            &raw
-        };
-        if !sysfs::name_digits(digits) {
-            return Err("invalid");
-        }
-        if signed {
-            raw.parse::<i64>()
-                .map(|v| v.to_string())
-                .map_err(|_| "invalid")
-        } else {
-            raw.parse::<u64>()
-                .map(|v| v.to_string())
-                .map_err(|_| "invalid")
-        }
-    });
-    match value {
-        Ok(value) => format!(r#"{{"status":"observed","value":"{value}"}}"#),
-        Err(status) => format!(r#"{{"status":"{status}"}}"#),
-    }
 }
 
 fn amdgpu_binding(target: &Path, drivers: &Path) -> Result<(u64, u64), &'static str> {
@@ -104,16 +65,16 @@ fn scan(
         }
         let path = item.path();
         let before = key(&path)?;
-        if read(&path.join("name"))? != "amdgpu" {
+        if sysfs::bounded_text(&path.join("name"))? != "amdgpu" {
             continue;
         }
         let temperatures = (1..=3)
-            .map(|i| numeric(&path.join(format!("temp{i}_input")), true))
+            .map(|i| sysfs::numeric_json(&path.join(format!("temp{i}_input")), true))
             .collect::<Vec<_>>()
             .join(",");
-        let power_average = numeric(&path.join("power1_average"), false);
-        let power_input = numeric(&path.join("power1_input"), false);
-        if key(&path)? != before || read(&path.join("name"))? != "amdgpu" {
+        let power_average = sysfs::numeric_json(&path.join("power1_average"), false);
+        let power_input = sysfs::numeric_json(&path.join("power1_input"), false);
+        if key(&path)? != before || sysfs::bounded_text(&path.join("name"))? != "amdgpu" {
             return Err("changed");
         }
         rows.push(format!(
