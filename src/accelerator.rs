@@ -64,7 +64,8 @@ fn id_json(v: Result<u16, &'static str>) -> String {
 
 fn scan(index: &Path, devices: &Path) -> Result<(bool, usize, Vec<String>), &'static str> {
     let initial = identity(index)?;
-    let (names, capped, mut unresolved) = listing(index)?;
+    let (names, capped, invalid_names) = listing(index)?;
+    let mut unresolved = invalid_names;
     let mut rows = Vec::new();
     for name in &names {
         let row = (|| -> Result<Option<String>, &'static str> {
@@ -73,7 +74,12 @@ fn scan(index: &Path, devices: &Path) -> Result<(bool, usize, Vec<String>), &'st
             let kind = match value >> 16 {
                 0x03 => "display_controller",
                 0x12 => "processing_accelerator_class",
-                _ => return Ok(None),
+                _ => {
+                    if inventory::pci_entry(index, devices, name)? != Some(before) {
+                        return Err("changed");
+                    }
+                    return Ok(None);
+                }
             };
             let vendor = inventory::pci_attr(&before.0.join("vendor"));
             let device = inventory::pci_attr(&before.0.join("device"));
@@ -93,7 +99,11 @@ fn scan(index: &Path, devices: &Path) -> Result<(bool, usize, Vec<String>), &'st
         }
     }
     let again = listing(index)?;
-    if identity(index)? != initial || again.0 != names || again.1 != capped {
+    if identity(index)? != initial
+        || again.0 != names
+        || again.1 != capped
+        || again.2 != invalid_names
+    {
         return Err("changed");
     }
     Ok((capped, unresolved, rows))
@@ -123,4 +133,77 @@ pub(crate) fn run() {
         "{}",
         render(Path::new("/sys/bus/pci/devices"), Path::new("/sys/devices"))
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct Fixture(PathBuf);
+    impl Fixture {
+        fn new() -> Self {
+            static NEXT: AtomicUsize = AtomicUsize::new(0);
+            loop {
+                let n = NEXT.fetch_add(1, Ordering::Relaxed);
+                let root =
+                    std::env::temp_dir().join(format!("eld-accel-{}-{n}", std::process::id()));
+                match fs::create_dir(&root) {
+                    Ok(()) => return Self(root),
+                    Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                    Err(e) => panic!("{e}"),
+                }
+            }
+        }
+    }
+    impl Drop for Fixture {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    #[test]
+    fn reports_class_candidates_but_does_not_follow_outside_devices() {
+        let f = Fixture::new();
+        let index = f.0.join("index");
+        let devices = f.0.join("devices");
+        fs::create_dir(&index).unwrap();
+        fs::create_dir(&devices).unwrap();
+        let add = |name: &str, place: &Path, value: &str| {
+            let path = place.join(name);
+            fs::create_dir(&path).unwrap();
+            fs::write(path.join("class"), value).unwrap();
+            fs::write(path.join("vendor"), "0x1234\n").unwrap();
+            fs::write(path.join("device"), "0x5678\n").unwrap();
+            symlink(&path, index.join(name)).unwrap();
+        };
+        add("0000:04:00.0", &devices, "0x120000\n");
+        add("0000:02:00.0", &devices, "0x030200\n");
+        add("0000:05:00.0", &devices, "0x020000\n");
+        add("0000:06:00.0", &devices, "0x1200000\n");
+        add("0000:07:00.0", &f.0, "0x120000\n");
+        fs::remove_file(devices.join("0000:04:00.0/device")).unwrap();
+        let json = render(&index, &devices);
+        assert!(json.contains(r#""status":"partial","scan_capped":false,"unresolved_entries":2"#));
+        assert!(json.contains(r#""class":"030200","kind":"display_controller""#));
+        assert!(json.contains(r#""class":"120000","kind":"processing_accelerator_class""#));
+        assert!(json.contains(r#""device":{"status":"unavailable"}"#));
+        assert!(json.find("0000:02:00.0").unwrap() < json.find("0000:04:00.0").unwrap());
+        for id in ["0000:05:00.0", "0000:06:00.0", "0000:07:00.0"] {
+            assert!(!json.contains(id));
+        }
+    }
+
+    #[test]
+    fn missing_bus_is_not_an_observed_empty_bus() {
+        let f = Fixture::new();
+        let index = f.0.join("index");
+        assert!(render(&index, &f.0).contains(r#""status":"unavailable""#));
+        fs::create_dir(&index).unwrap();
+        let empty = render(&index, &f.0);
+        assert!(empty.contains(r#""status":"observed","scan_capped":false,"unresolved_entries":0"#));
+        assert!(empty.ends_with(r#""candidates":[]}"#));
+    }
 }
