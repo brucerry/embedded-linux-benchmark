@@ -586,27 +586,20 @@ fn edac(root: &Path) -> String {
                 }
                 Err(e) => Observation::error(e),
             };
-            let (ce, ue) = match identify(&path) {
+            let [ce, ue, age] = match identify(&path) {
                 Ok(initial) => {
-                    let pair = (counter("ce_count"), counter("ue_count"));
+                    let sample = ["ce_count","ue_count","seconds_since_reset"].map(counter);
                     if identify(&path).ok() == Some(initial) {
-                        pair
+                        sample
                     } else {
-                        (Observation::Unavailable, Observation::Unavailable)
+                        std::array::from_fn(|_| Observation::Unavailable)
                     }
                 }
-                Err(e) => {
-                    let kind = e.kind();
-                    (
-                        Observation::error(io::Error::from(kind)),
-                        Observation::error(io::Error::from(kind)),
-                    )
-                }
+                Err(e) => std::array::from_fn(|_| Observation::error(io::Error::from(e.kind()))),
             };
             format!(
-                r#"{{"controller":"{name}","corrected_errors":{},"uncorrected_errors":{}}}"#,
-                ce.json(),
-                ue.json()
+                r#"{{"controller":"{name}","corrected_errors":{},"uncorrected_errors":{},"seconds_since_reset":{}}}"#,
+                ce.json(), ue.json(), age.json()
             )
         })
         .collect::<Vec<_>>()
@@ -720,12 +713,19 @@ mod tests {
         fs::create_dir(&second).unwrap();
         fs::write(first.join("ce_count"), "18446744073709551615\n").unwrap();
         fs::write(first.join("ue_count"), "0\n").unwrap();
+        fs::write(first.join("seconds_since_reset"), "31\n").unwrap();
+        let dimm = first.join("dimm0");
+        fs::create_dir(&dimm).unwrap();
+        fs::write(dimm.join("dimm_ce_count"), "99112233\n").unwrap();
+        fs::write(first.join("ce_noinfo_count"), "88776655\n").unwrap();
         fs::write(second.join("ce_count"), "18446744073709551616\n").unwrap();
         symlink(&first, root.join("mc3")).unwrap();
         let out = edac(&root);
-        assert!(out.contains(r#""controller":"mc1","corrected_errors":{"status":"observed","value":"18446744073709551615"},"uncorrected_errors":{"status":"observed","value":"0"}"#));
+        assert!(out.contains(r#""controller":"mc1","corrected_errors":{"status":"observed","value":"18446744073709551615"},"uncorrected_errors":{"status":"observed","value":"0"},"seconds_since_reset":{"status":"observed","value":"31"}"#));
         assert!(out.contains(r#""controller":"mc2","corrected_errors":{"status":"invalid"},"uncorrected_errors":{"status":"unavailable"}"#));
         assert!(out.contains(r#""controller":"mc3","corrected_errors":{"status":"invalid"}"#));
+        assert!(!out.contains("99112233") && !out.contains("88776655"));
+        assert!(out.contains(r#""seconds_since_reset":{"status":"unavailable"}"#));
         fs::remove_dir_all(root).unwrap();
     }
 
