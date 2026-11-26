@@ -445,6 +445,19 @@ change controller state, or benchmark storage. A live controller state does
 not certify drive health.
 
 
+#### Decode a previously captured SMART log
+
+`eld-engine storage nvme-smart-decode < captured-smart-log.bin` reads exactly
+512 bytes of raw NVMe SMART / Health Information log page 02h from standard
+input. Supply a finished file, not a live device path, a growing stream, or
+text/JSON. The Engine does not collect the log or open an NVMe device.
+The output includes warning bits, composite Kelvin temperature (zero left
+uninterpreted as null), normalized spare fields (reserved values are null),
+and the raw vendor endurance estimate, which can exceed 100. The 128-bit
+counters are exact decimal strings. No health verdict is inferred. Retain
+capture time and controller/namespace identity separately; the file format
+does not authenticate them. See [libnvme's log layout](https://github.com/linux-nvme/libnvme/blob/master/doc/rst/types.rst#nvme-smart-log).
+
 ### Preview a qualification profile
 
 ```sh

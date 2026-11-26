@@ -96,6 +96,65 @@ pub(crate) fn run(name: &str) -> Result<(), String> {
     Ok(())
 }
 
+const SMART_PAGE_BYTES: usize = 512;
+
+// NVMe SMART / Health Information log page 02h. This parser does not
+// establish the supplied page's provenance, age, or controller identity.
+fn decode_smart(input: impl Read) -> Result<String, String> {
+    let mut page = Vec::with_capacity(SMART_PAGE_BYTES + 1);
+    input
+        .take((SMART_PAGE_BYTES + 1) as u64)
+        .read_to_end(&mut page)
+        .map_err(|e| format!("cannot read NVMe SMART page from stdin: {e}"))?;
+    if page.len() != SMART_PAGE_BYTES {
+        return Err(
+            "expected exactly 512 bytes from one saved NVMe SMART log page on stdin".into(),
+        );
+    }
+
+    let count = |offset| {
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&page[offset..offset + 16]);
+        u128::from_le_bytes(bytes)
+    };
+    let bounded_percent = |v: u8| {
+        if v <= 100 {
+            v.to_string()
+        } else {
+            "null".into()
+        }
+    };
+    let kelvin = u16::from_le_bytes([page[1], page[2]]);
+    let kelvin = match kelvin {
+        0 => "null".into(),
+        value => value.to_string(),
+    };
+    Ok(format!(
+        concat!(
+            "{{\"schema_version\":1,\"source\":\"provided_smart_log_page\",",
+            "\"device_sampled\":false,\"critical_warning_raw\":{},",
+            "\"composite_temperature_kelvin\":{},\"available_spare_percent\":{},",
+            "\"available_spare_threshold_percent\":{},\"percent_used_raw\":{},",
+            "\"power_on_hours_raw\":\"{}\",\"unsafe_shutdowns_raw\":\"{}\",",
+            "\"media_errors_raw\":\"{}\",\"error_log_entries_raw\":\"{}\"}}",
+        ),
+        page[0],
+        kelvin,
+        bounded_percent(page[3]),
+        bounded_percent(page[4]),
+        page[5],
+        count(128),
+        count(144),
+        count(160),
+        count(176)
+    ))
+}
+
+pub(crate) fn decode_stdin() -> Result<(), String> {
+    println!("{}", decode_smart(io::stdin().lock())?);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

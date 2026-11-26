@@ -1258,3 +1258,56 @@ fn passive_qualification_observes_without_accepting_workload_options() {
     }
     assert_eq!(scratch.names(), ["board.profile"]);
 }
+
+#[test]
+fn offline_nvme_smart_decode_preserves_fields_and_rejects_bad_size() {
+    use std::io::Write;
+    use std::process::Stdio;
+
+    let decode = |data: &[u8]| {
+        let mut child = Command::new(env!("CARGO_BIN_EXE_eld-engine"))
+            .args(["storage", "nvme-smart-decode"])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        child.stdin.take().unwrap().write_all(data).unwrap();
+        child.wait_with_output().unwrap()
+    };
+    let mut page = [0u8; 513];
+    page[..6].copy_from_slice(&[8, 55, 1, 94, 101, 155]);
+    page[128..144].copy_from_slice(&23u128.to_le_bytes());
+    page[144..160].copy_from_slice(&31u128.to_le_bytes());
+    page[160..176].copy_from_slice(&u128::MAX.to_le_bytes());
+    page[176..192].copy_from_slice(&17u128.to_le_bytes());
+    let output = decode(&page[..512]);
+    assert!(output.status.success(), "{output:?}");
+    assert!(output.stderr.is_empty());
+    let text = String::from_utf8(output.stdout).unwrap();
+    for field in [
+        r#""critical_warning_raw":8"#,
+        r#""composite_temperature_kelvin":311"#,
+        r#""available_spare_percent":94"#,
+        r#""available_spare_threshold_percent":null"#,
+        r#""percent_used_raw":155"#,
+        r#""power_on_hours_raw":"23""#,
+        r#""unsafe_shutdowns_raw":"31""#,
+        r#""media_errors_raw":"340282366920938463463374607431768211455""#,
+        r#""error_log_entries_raw":"17""#,
+        r#""device_sampled":false"#,
+    ] {
+        assert!(text.contains(field), "{field} missing from {text}");
+    }
+    for size in [0, 511, 513] {
+        let output = decode(&page[..size]);
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&output.stderr).contains("exactly 512 bytes"));
+    }
+    assert!(
+        !run(&["storage", "nvme-smart-decode", "--controller", "nvme0"])
+            .status
+            .success()
+    );
+}
