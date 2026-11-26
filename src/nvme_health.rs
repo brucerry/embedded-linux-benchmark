@@ -124,6 +124,11 @@ fn decode_smart(input: impl Read) -> Result<String, String> {
             "null".into()
         }
     };
+    let units = |offset| {
+        let value = count(offset);
+        let status = if value == 0 { "unreported" } else { "reported" };
+        format!(r#"{{"status":"{status}","raw":"{value}"}}"#)
+    };
     let kelvin = u16::from_le_bytes([page[1], page[2]]);
     let kelvin = match kelvin {
         0 => "null".into(),
@@ -135,6 +140,7 @@ fn decode_smart(input: impl Read) -> Result<String, String> {
             "\"device_sampled\":false,\"critical_warning_raw\":{},",
             "\"composite_temperature_kelvin\":{},\"available_spare_percent\":{},",
             "\"available_spare_threshold_percent\":{},\"percent_used_raw\":{},",
+            "\"data_units_read\":{},\"data_units_written\":{},",
             "\"power_on_hours_raw\":\"{}\",\"unsafe_shutdowns_raw\":\"{}\",",
             "\"media_errors_raw\":\"{}\",\"error_log_entries_raw\":\"{}\"}}",
         ),
@@ -143,6 +149,8 @@ fn decode_smart(input: impl Read) -> Result<String, String> {
         bounded_percent(page[3]),
         bounded_percent(page[4]),
         page[5],
+        units(32),
+        units(48),
         count(128),
         count(144),
         count(160),

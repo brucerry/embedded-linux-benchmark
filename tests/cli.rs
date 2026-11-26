@@ -1277,6 +1277,8 @@ fn offline_nvme_smart_decode_preserves_fields_and_rejects_bad_size() {
     };
     let mut page = [0u8; 513];
     page[..6].copy_from_slice(&[8, 55, 1, 94, 101, 155]);
+    page[32..48].copy_from_slice(&1u128.to_le_bytes());
+    page[48..64].copy_from_slice(&u128::MAX.to_le_bytes());
     page[128..144].copy_from_slice(&23u128.to_le_bytes());
     page[144..160].copy_from_slice(&31u128.to_le_bytes());
     page[160..176].copy_from_slice(&u128::MAX.to_le_bytes());
@@ -1291,6 +1293,8 @@ fn offline_nvme_smart_decode_preserves_fields_and_rejects_bad_size() {
         r#""available_spare_percent":94"#,
         r#""available_spare_threshold_percent":null"#,
         r#""percent_used_raw":155"#,
+        r#""data_units_read":{"status":"reported","raw":"1"}"#,
+        r#""data_units_written":{"status":"reported","raw":"340282366920938463463374607431768211455"}"#,
         r#""power_on_hours_raw":"23""#,
         r#""unsafe_shutdowns_raw":"31""#,
         r#""media_errors_raw":"340282366920938463463374607431768211455""#,
@@ -1299,6 +1303,12 @@ fn offline_nvme_smart_decode_preserves_fields_and_rejects_bad_size() {
     ] {
         assert!(text.contains(field), "{field} missing from {text}");
     }
+    let zero = decode(&[0u8; 512]);
+    assert!(zero.status.success(), "{zero:?}");
+    let zero = String::from_utf8(zero.stdout).unwrap();
+    assert!(zero.contains(r#""data_units_read":{"status":"unreported","raw":"0"}"#));
+    assert!(zero.contains(r#""data_units_written":{"status":"unreported","raw":"0"}"#));
+    assert!(zero.contains(r#""critical_warning_raw":0"#));
     for size in [0, 511, 513] {
         let output = decode(&page[..size]);
         assert!(!output.status.success());

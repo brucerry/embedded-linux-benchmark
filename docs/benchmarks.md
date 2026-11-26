@@ -454,9 +454,14 @@ text/JSON. The Engine does not collect the log or open an NVMe device.
 The output includes warning bits, composite Kelvin temperature (zero left
 uninterpreted as null), normalized spare fields (reserved values are null),
 and the raw vendor endurance estimate, which can exceed 100. The 128-bit
-counters are exact decimal strings. No health verdict is inferred. Retain
-capture time and controller/namespace identity separately; the file format
-does not authenticate them. See [libnvme's log layout](https://github.com/linux-nvme/libnvme/blob/master/doc/rst/types.rst#nvme-smart-log).
+counters are exact decimal strings. The data units read and written are
+rounded-up groups of one thousand 512-byte units, not exact byte totals.
+Their raw zero means unreported, unlike a zero critical-warning mask.
+No health verdict is inferred. Keep capture time, controller identity, log
+identifier, controller/namespace scope, and a digest of the raw page with
+the capture; the raw page does not authenticate them. See the
+[NVM Express Base Specification 2.0e](https://nvmexpress.org/wp-content/uploads/NVM-Express-Base-Specification-2.0e-2024.07.29-Ratified.pdf),
+SMART / Health Information log.
 
 ### Preview a qualification profile
 
