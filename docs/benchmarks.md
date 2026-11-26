@@ -443,3 +443,21 @@ controller's Linux sysfs state, transport, model and firmware revision.
 It does not read serial numbers, SMART or media-error logs, open raw devices,
 change controller state, or benchmark storage. A live controller state does
 not certify drive health.
+
+
+### Preview a qualification profile
+
+```sh
+eld-engine qualify plan --profile bring-up
+eld-engine qualify plan --profile overnight --include-local-load
+```
+
+The versioned JSON plan does not detect hardware, write reports or run any
+step. Bring-up is always passive. Quick, manufacturing and overnight preview
+one CPU and one RAM phase only when requested with `--include-local-load`;
+otherwise those steps are marked skipped. Run selected steps separately on a
+suitable test machine. Overnight plans two sequential four-hour targets, not
+a guaranteed wall-clock runtime or a pass/fail verdict. Board-specific
+checks require an explicit profile. Physical peripherals, a network peer,
+and storage writes always require separately selected fixtures or budgets
+and are never planned for automatic execution.

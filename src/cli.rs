@@ -136,6 +136,8 @@ const GPIO_OPTIONS: &[(&str, Kind)] = &[
     ("--samples", Number(1, gpio::MAX_SAMPLES)),
     ("--timeout-ms", Number(1, gpio::MAX_TIMEOUT_MS)),
 ];
+const QUALIFICATION_PLAN_OPTIONS: &[(&str, Kind)] =
+    &[("--profile", Kind::Text), ("--include-local-load", Flag)];
 const STRESS_OPTIONS: &[(&str, Kind)] = &[
     ("--test", Kind::StressTest),
     ("--rounds", Number(1, stress::MAX_ROUNDS)),
@@ -282,6 +284,7 @@ fn help() {
     println!(
         "Usage:
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
+  eld-engine qualify plan --profile bring-up|quick|manufacturing|overnight [--include-local-load]
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
   eld-engine storage nvme-health --controller nvme0
@@ -433,6 +436,18 @@ pub(crate) fn run() -> Result<(), String> {
             )?;
             return Ok(());
         }
+        "qualify" if args.first().is_some_and(|role| role == "plan") => {
+            let options = Options::parse("qualify plan", &args[1..], QUALIFICATION_PLAN_OPTIONS)?;
+            println!(
+                "{}",
+                crate::qualification::render(
+                    options.text("--profile")?,
+                    options.flag("--include-local-load")
+                )?
+            );
+            return Ok(());
+        }
+        "qualify" => return Err("expected 'qualify plan'. See --help.".into()),
         "cpu" => (CPU_OPTIONS, Subject::Cpu),
         "ram" => (RAM_OPTIONS, Subject::Ram),
         "storage" if args.first().is_some_and(|role| role == "nvme-health") => {
