@@ -139,3 +139,61 @@ pub(crate) fn run(node: &str) -> Result<(), String> {
     );
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+
+    #[test]
+    fn same_address_keeps_the_board_rail_label_without_inferring_totals() {
+        let root = std::env::temp_dir().join(format!("eld-ina3221-{}", std::process::id()));
+        fs::create_dir(&root).unwrap();
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _guard = Cleanup(root.clone());
+        let devices = root.join("devices");
+        let driver = root.join("drivers/ina3221");
+        let dev = devices.join("i2c-1/1-0040");
+        let sensor = dev.join("hwmon/hwmon8");
+        for p in [&sensor, &driver] {
+            fs::create_dir_all(p).unwrap();
+        }
+        symlink(&dev, driver.join("1-0040")).unwrap();
+        symlink(&driver, dev.join("driver")).unwrap();
+        fs::write(sensor.join("name"), "ina3221\n").unwrap();
+        fs::write(sensor.join("in1_input"), "5050\n").unwrap();
+        fs::write(sensor.join("curr1_input"), "-31\n").unwrap();
+        fs::write(sensor.join("curr2_input"), "+123\n").unwrap();
+        fs::write(sensor.join("in3_label"), "unsafe\nextra\n").unwrap();
+        fs::write(sensor.join("curr4_input"), "1234567\n").unwrap();
+        for (reported, other) in [("VDD_IN", "VDD_GPU_SOC"), ("VDD_GPU_SOC", "VDD_IN")] {
+            fs::write(sensor.join("in1_label"), format!("{reported}\n")).unwrap();
+            let out = render("1-0040", &driver, &devices);
+            assert!(out.contains(r#""status":"observed","sampling":"sequential_sysfs_reads""#));
+            assert!(out.contains(&format!(
+                r#""label":{{"status":"observed","value":"{reported}"}}"#
+            )));
+            assert!(!out.contains(other));
+            assert!(out.contains(r#""voltage_millivolts":{"status":"observed","value":"5050"}"#));
+            assert!(out.contains(r#""current_milliamps":{"status":"observed","value":"-31"}"#));
+            assert!(out.contains(r#""channel":2,"label":{"status":"unavailable"}"#));
+            assert!(out.contains(r#""current_milliamps":{"status":"invalid"}"#));
+            assert!(out.contains(r#""channel":3,"label":{"status":"invalid"}"#));
+            assert!(!out.contains(r#""channel":4"#));
+            assert!(!out.contains("1234567"));
+        }
+        let outside = root.join("1-0041");
+        fs::create_dir(&outside).unwrap();
+        symlink(&outside, driver.join("1-0041")).unwrap();
+        assert!(render("1-0041", &driver, &devices).contains(r#""status":"invalid""#));
+        assert!(render("1-0042", &driver, &devices).contains(r#""status":"unavailable""#));
+        for bad in ["../1-0040", "01-0040", "1-0044", "1-40", "1-0040/"] {
+            assert!(node_name(bad).is_err());
+        }
+    }
+}
