@@ -142,10 +142,8 @@ impl ScratchDirectory {
 
         loop {
             let sequence = NEXT.fetch_add(1, Ordering::Relaxed);
-            let directory = std::env::temp_dir().join(format!(
-                "eld-engine-cli-{}-{sequence}",
-                std::process::id()
-            ));
+            let directory = std::env::temp_dir()
+                .join(format!("eld-engine-cli-{}-{sequence}", std::process::id()));
             match std::fs::create_dir(&directory) {
                 Ok(()) => return Self(directory),
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
@@ -172,6 +170,42 @@ impl Drop for ScratchDirectory {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
     }
+}
+
+#[test]
+fn inventory_evidence_writes_same_payload_and_refuses_path_reuse() {
+    use std::fs;
+    use std::os::unix::fs::{symlink, PermissionsExt};
+
+    let scratch = ScratchDirectory::create();
+    let evidence = scratch.0.join("evidence.json");
+    let args = ["inventory", "--evidence-json", evidence.to_str().unwrap()];
+    let stdout = successful_output(&args);
+    let saved = fs::read_to_string(&evidence).unwrap();
+    assert!(saved.starts_with(r#"{"evidence_schema_version":1,"kind":"passive_inventory","#));
+    assert!(saved.contains(r#","elapsed_monotonic_ms":"#));
+    let tail = format!(r#","inventory":{}}}"#, stdout.trim_end());
+    assert!(saved.trim_end().ends_with(&tail));
+    assert_eq!(
+        fs::metadata(&evidence).unwrap().permissions().mode() & 0o077,
+        0
+    );
+
+    let absent = scratch.0.join("absent");
+    let link = scratch.0.join("dangling.json");
+    symlink(&absent, &link).unwrap();
+    let partial = scratch.0.join("partial.json");
+    fs::write(&partial, b"{ incomplete").unwrap();
+    for path in [&evidence, &link, &partial] {
+        let result = run(&["inventory", "--evidence-json", path.to_str().unwrap()]);
+        assert!(!result.status.success());
+        assert!(result.stdout.is_empty());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("cannot save inventory evidence"));
+    }
+    assert_eq!(fs::read_to_string(&evidence).unwrap(), saved);
+    assert_eq!(fs::read(&partial).unwrap(), b"{ incomplete");
+    assert_eq!(fs::read_link(&link).unwrap(), absent);
+    assert!(!absent.exists());
 }
 
 #[test]
