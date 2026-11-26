@@ -284,7 +284,7 @@ impl<'a> Options<'a> {
 fn help() {
     println!(
         "Usage:
-  eld-engine accelerator inventory
+  eld-engine accelerator inventory|interfaces
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
   eld-engine qualify passive [--board-profile PATH]
   eld-engine qualify plan --profile bring-up|quick|manufacturing|overnight [--include-local-load]
@@ -432,7 +432,13 @@ pub(crate) fn run() -> Result<(), String> {
         "accelerator" => {
             match args {
                 [mode] if mode == "inventory" => crate::accelerator::run(),
-                _ => return Err("expected 'accelerator inventory'. See --help.".into()),
+                [mode] if mode == "interfaces" => crate::accelerator_interfaces::run(),
+                _ => {
+                    return Err(
+                        "expected 'accelerator inventory' or 'accelerator interfaces'. See --help."
+                            .into(),
+                    )
+                }
             }
             return Ok(());
         }

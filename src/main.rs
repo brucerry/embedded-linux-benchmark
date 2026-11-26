@@ -3,6 +3,7 @@ macro_rules! report_line {
 }
 
 mod accelerator;
+mod accelerator_interfaces;
 mod camera;
 mod can;
 mod cli;

@@ -486,3 +486,13 @@ compute capability. An empty result does not exclude SoC-integrated or
 differently classified accelerators. Missing PCI sysfs and a partial scan
 are reported separately from a completed scan with no class matches.
 See [Linux PCI sysfs](https://docs.kernel.org/PCI/sysfs-pci.html).
+
+
+`eld-engine accelerator interfaces` reports DRM render and Linux compute
+accelerator registrations separately. Missing class and readable empty class
+are distinct. A reported PCI association requires the class entry’s
+canonical device parent to match an indexed PCI function. Platform and
+ambiguous parent registrations can still appear with a null PCI function.
+This reads metadata only, not a character device, and cannot establish
+userspace access, compute capability or health.
+[Linux accelerator ABI](https://github.com/torvalds/linux/blob/v6.6/Documentation/accel/introduction.rst#L59-L81)
