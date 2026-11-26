@@ -4,6 +4,7 @@ macro_rules! report_line {
 
 mod accelerator;
 mod accelerator_interfaces;
+mod accelerator_telemetry;
 mod camera;
 mod can;
 mod cli;

@@ -496,3 +496,12 @@ ambiguous parent registrations can still appear with a null PCI function.
 This reads metadata only, not a character device, and cannot establish
 userspace access, compute capability or health.
 [Linux accelerator ABI](https://github.com/torvalds/linux/blob/v6.6/Documentation/accel/introduction.rst#L59-L81)
+
+
+On a known AMD GPU, `eld-engine accelerator amdgpu-hwmon --device BDF`
+reads documented temperature and SoC power channels from the selected PCI
+function only if it is bound to AMDGPU. Power is not GPU-only on APUs.
+Values are exact decimal strings; missing values are not zero. Reads may
+wake a power-managed device. The opt-in command does not run automatically,
+set power or fan controls, load drivers, or run compute.
+[Linux AMDGPU hwmon reference](https://docs.kernel.org/gpu/amdgpu/thermal.html#hwmon-interfaces)
