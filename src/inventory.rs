@@ -120,7 +120,80 @@ fn release() -> [Observation; 2] {
     }
 }
 
-pub(crate) fn run() {
+const MAX_REQUIRED_PCIE: usize = 16;
+
+fn required_bdfs(list: Option<&str>) -> Result<Vec<String>, String> {
+    let Some(list) = list else {
+        return Ok(Vec::new());
+    };
+    if list.len() > MAX_REQUIRED_PCIE * 13 {
+        return Err("require-pcie accepts at most 16 complete PCI device IDs".into());
+    }
+    let mut out = Vec::new();
+    for item in list.split(',') {
+        let id = crate::pcie::bdf(item)?;
+        if out.len() == MAX_REQUIRED_PCIE || out.contains(&id) {
+            return Err("require-pcie needs at most 16 unique PCI device IDs".into());
+        }
+        out.push(id);
+    }
+    Ok(out)
+}
+
+fn pci_status(index: &Path, sys_devices: &Path, bdf: &str) -> &'static str {
+    use std::os::unix::fs::MetadataExt;
+    let index_identity = || match fs::symlink_metadata(index) {
+        Ok(m) if m.is_dir() => Ok((m.dev(), m.ino())),
+        Ok(_) => Err("invalid"),
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => Err("inaccessible"),
+        Err(_) => Err("unavailable"),
+    };
+    let initial_index = match index_identity() {
+        Ok(id) => id,
+        Err(status) => return status,
+    };
+    let path = index.join(bdf);
+    let read = || -> Result<Option<(std::path::PathBuf, u64, u64)>, &'static str> {
+        match fs::symlink_metadata(&path) {
+            Ok(m) if m.is_symlink() => {}
+            Ok(_) => return Err("invalid"),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err("inaccessible"),
+            Err(_) => return Err("unavailable"),
+        }
+        let target = match fs::canonicalize(&path) {
+            Ok(p) => p,
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Err("inaccessible"),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Err("changed"),
+            Err(_) => return Err("invalid"),
+        };
+        if !target.starts_with(sys_devices)
+            || target.file_name().and_then(|x| x.to_str()) != Some(bdf)
+        {
+            return Err("invalid");
+        }
+        match fs::symlink_metadata(&target) {
+            Ok(m) if m.is_dir() => Ok(Some((target, m.dev(), m.ino()))),
+            Ok(_) => Err("invalid"),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Err("changed"),
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => Err("inaccessible"),
+            Err(_) => Err("unavailable"),
+        }
+    };
+    let first = read();
+    let second = read();
+    if index_identity() != Ok(initial_index) || first != second {
+        return "changed";
+    }
+    match second {
+        Ok(Some(_)) => "present",
+        Ok(None) => "missing",
+        Err(status) => status,
+    }
+}
+
+pub(crate) fn run(required: Option<&str>) -> Result<(), String> {
+    let required = required_bdfs(required)?;
     let [distribution, version] = release();
     let cells = [
         ("distribution_id", distribution),
@@ -142,15 +215,65 @@ pub(crate) fn run() {
         .map(|(key, value)| format!("{}:{}", json_string(key), value.json()))
         .collect::<Vec<_>>()
         .join(",");
+    let profile = if required.is_empty() {
+        String::new()
+    } else {
+        let rows = required
+            .iter()
+            .map(|bdf| {
+                format!(
+                    r#"{{"bdf":{},"status":"{}"}}"#,
+                    json_string(bdf),
+                    pci_status(
+                        Path::new("/sys/bus/pci/devices"),
+                        Path::new("/sys/devices"),
+                        bdf
+                    ),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        format!(r#","required_pcie":[{rows}]"#)
+    };
     println!(
-        r#"{{"schema_version":1,"process_architecture":{},{values}}}"#,
+        r#"{{"schema_version":1,"process_architecture":{},{values}{profile}}}"#,
         json_string(std::env::consts::ARCH)
     );
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn required_pcie_checks_bounds_and_bus_availability() {
+        use std::os::unix::fs::symlink;
+        assert!(required_bdfs(Some("0000:0A:00.0,0000:0a:00.0")).is_err());
+        assert!(required_bdfs(Some("../outside")).is_err());
+        assert!(required_bdfs(Some(&"x".repeat(209))).is_err());
+        assert_eq!(
+            required_bdfs(Some("0000:0A:00.0")).unwrap(),
+            ["0000:0a:00.0"]
+        );
+        let root = std::env::temp_dir().join(format!("eld-inventory-pcie-{}", std::process::id()));
+        let index = root.join("bus/pci/devices");
+        let devices = root.join("devices");
+        let id = "0000:01:00.0";
+        let path = index.join(id);
+        let dst = devices.join("pci0000:00").join(id);
+        assert_eq!(pci_status(&index, &devices, id), "unavailable");
+        fs::create_dir_all(&index).unwrap();
+        assert_eq!(pci_status(&index, &devices, id), "missing");
+        symlink(&dst, &path).unwrap();
+        assert_eq!(pci_status(&index, &devices, id), "changed");
+        fs::create_dir_all(&dst).unwrap();
+        assert_eq!(pci_status(&index, &devices, id), "present");
+        fs::remove_file(&path).unwrap();
+        symlink(&index, &path).unwrap();
+        assert_eq!(pci_status(&index, &devices, id), "invalid");
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn release_fields_are_data_never_shell_and_duplicates_are_refused() {

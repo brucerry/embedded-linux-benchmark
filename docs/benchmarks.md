@@ -63,6 +63,21 @@ Use the complete PCI domain, bus, device and function for the device you intend 
 
 `pcie throughput --device BDF --fixture` returns an unavailable error before opening a device. The published stock endpoint-test read, write and copy requests specify a transfer size and flags. The reviewed Linux 6.12 and 6.18 host drivers wait for IRQ completion without a transfer timeout. They perform completion or integrity checks but expose no per-direction timing or completed byte counter. A userspace timeout cannot interrupt that wait. A bounded throughput benchmark requires an identifiable driver ABI with a completion deadline and an exact dedicated endpoint fixture. [Linux 6.12 endpoint-test UAPI](https://github.com/torvalds/linux/blob/v6.12/include/uapi/linux/pcitest.h) · [Linux 6.18 endpoint-test driver](https://github.com/torvalds/linux/blob/v6.18/drivers/misc/pci_endpoint_test.c)
 
+### Check expected PCI devices
+
+Use an explicit list from a known board configuration to check PCI enumeration:
+
+```sh
+eld-engine inventory --require-pcie 0000:01:00.0,0000:02:00.0
+```
+
+This passive check accepts up to 16 unique bus addresses. It reports each as present,
+missing, or indeterminate (unavailable, inaccessible, invalid, or changed). A missing
+entry requires an available PCI device index. A present entry means the address was
+enumerated, not that the expected hardware or driver is healthy. PCI addresses can
+change with firmware or hardware configuration. Read the JSON statuses; an absent
+device does not by itself make the command exit nonzero.
+
 ### PCIe health snapshot
 
 ```sh
