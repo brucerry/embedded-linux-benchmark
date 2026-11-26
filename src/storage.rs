@@ -43,9 +43,7 @@ impl ScratchFile {
         let pid = std::process::id();
         for _ in 0..16 {
             let sequence = NEXT_FILE.fetch_add(1, Ordering::Relaxed);
-            let path = directory.join(format!(
-                ".eld-engine-{pid}-{stamp}-{sequence}"
-            ));
+            let path = directory.join(format!(".eld-engine-{pid}-{stamp}-{sequence}"));
             match OpenOptions::new()
                 .create_new(true)
                 .read(true)

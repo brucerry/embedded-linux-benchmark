@@ -1,8 +1,8 @@
 use crate::common::{Deadline, DEFAULT_DURATION_MS, MAX_DURATION_MS, MIB};
 use crate::report::{identify, Subject};
 use crate::{
-    camera, can, cpu, gpio, gpio_chardev, hdmi, i2c, iio, network, network_peer, pcie, ram, spi,
-    storage, stress, uart, usb,
+    camera, can, cpu, gpio, gpio_chardev, hdmi, i2c, iio, network, network_peer, pcie, pcie_health,
+    ram, spi, storage, stress, uart, usb,
 };
 use std::collections::HashMap;
 use std::env;
@@ -274,6 +274,7 @@ fn help() {
     [--samples N] [--timeout-ms MS]
   eld-engine camera --device PATH [--frames N] [--timeout-ms MS]
   eld-engine pcie link --device BDF
+  eld-engine pcie health --device BDF
   eld-engine pcie throughput --device BDF --fixture
   eld-engine iio --device NAME --channel INPUT [--samples N] [--timeout-ms MS]
   eld-engine usb --device PATH --interface N --out-endpoint ADDR --in-endpoint ADDR
@@ -558,7 +559,7 @@ pub(crate) fn run() -> Result<(), String> {
 fn run_pcie(args: &[String]) -> Result<(), String> {
     let (command, args) = args
         .split_first()
-        .ok_or("expected 'pcie link' or 'pcie throughput'")?;
+        .ok_or("expected 'pcie link', 'pcie health', or 'pcie throughput'")?;
     if help_requested(args) {
         help();
         return Ok(());
@@ -569,12 +570,16 @@ fn run_pcie(args: &[String]) -> Result<(), String> {
             identify(Subject::PcieLink);
             pcie::link(options.text("--device")?)
         }
+        "health" => {
+            let options = Options::parse("pcie health", args, PCIE_LINK_OPTIONS)?;
+            pcie_health::run(options.text("--device")?)
+        }
         "throughput" => {
             let options = Options::parse("pcie throughput", args, PCIE_THROUGHPUT_OPTIONS)?;
             identify(Subject::PcieThroughput);
             pcie::throughput(options.text("--device")?, options.flag("--fixture"))
         }
-        _ => Err("expected 'pcie link' or 'pcie throughput'".into()),
+        _ => Err("expected 'pcie link', 'pcie health', or 'pcie throughput'".into()),
     }
 }
 

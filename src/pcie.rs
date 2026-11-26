@@ -2,7 +2,7 @@ use crate::sysfs::open_attribute;
 use std::io::{self, Read};
 use std::path::Path;
 
-const LINK_ATTRIBUTES: [(&str, &str); 4] = [
+pub(crate) const LINK_ATTRIBUTES: [(&str, &str); 4] = [
     ("current_link_speed", "Negotiated link speed"),
     ("current_link_width", "Negotiated link width"),
     ("max_link_speed", "Maximum link speed"),

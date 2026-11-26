@@ -17,6 +17,7 @@ mod linux_socket;
 mod network;
 mod network_peer;
 mod pcie;
+mod pcie_health;
 mod peripheral;
 mod ram;
 mod report;
