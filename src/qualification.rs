@@ -11,10 +11,12 @@ fn parameters(profile: &str) -> Result<(u64, u64), String> {
     })
 }
 
+type PlannedWorkload = (&'static str, u64, Vec<String>);
+
 pub(crate) fn planned_load(
     profile: &str,
     include_load: bool,
-) -> Result<Vec<(&'static str, u64, Vec<String>)>, String> {
+) -> Result<Vec<PlannedWorkload>, String> {
     let (seconds, ram_kib) = parameters(profile)?;
     if include_load && seconds == 0 {
         return Err("the bring-up profile is passive only".into());

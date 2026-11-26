@@ -182,10 +182,7 @@ pub(crate) fn pci_entry(
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => Err("inaccessible"),
         Err(_) => Err("unavailable"),
     };
-    let initial_index = match index_identity() {
-        Ok(id) => id,
-        Err(status) => return Err(status),
-    };
+    let initial_index = index_identity()?;
     let path = index.join(bdf);
     let read = || -> Result<Option<PciEntry>, &'static str> {
         match fs::symlink_metadata(&path) {

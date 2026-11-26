@@ -228,12 +228,10 @@ fn boot_id(path: &Path) -> Option<String> {
     .then_some(value)
 }
 
-fn sample_key(
-    index: &Path,
-    devices: &Path,
-    boot: &Path,
-    name: &str,
-) -> Option<(InterfaceIdentity, u32, String)> {
+type CounterSampleKey = (InterfaceIdentity, u32, String);
+type CounterSnapshot = (String, Option<Counters>, Option<CounterSampleKey>);
+
+fn sample_key(index: &Path, devices: &Path, boot: &Path, name: &str) -> Option<CounterSampleKey> {
     let first = identity(index, devices, name).ok()?;
     let id = read_id(&first.0.join("ifindex"))?.parse::<u32>().ok()?;
     if id == 0 || identity(index, devices, name).ok().as_ref() != Some(&first) {
@@ -247,14 +245,7 @@ fn capture(
     devices: &Path,
     boot: &Path,
     name: &str,
-) -> Result<
-    (
-        String,
-        Option<Counters>,
-        Option<(InterfaceIdentity, u32, String)>,
-    ),
-    String,
-> {
+) -> Result<CounterSnapshot, String> {
     let before = sample_key(index, devices, boot, name);
     let (observation, counters) = observe(index, devices, name)?;
     let after = sample_key(index, devices, boot, name);
