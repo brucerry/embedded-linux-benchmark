@@ -161,3 +161,72 @@ pub(crate) fn run() {
         )
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::symlink;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn distinguishes_pci_platform_spoofed_and_missing_class() {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let root = loop {
+            let suffix = NEXT.fetch_add(1, Ordering::Relaxed);
+            let path =
+                std::env::temp_dir().join(format!("eld-iface-{}-{suffix}", std::process::id()));
+            match fs::create_dir(&path) {
+                Ok(()) => break path,
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+                Err(e) => panic!("{e}"),
+            }
+        };
+        struct Remove(PathBuf);
+        impl Drop for Remove {
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+        let _guard = Remove(root.clone());
+        let class_drm = root.join("drm");
+        let class_accel = root.join("accel");
+        let pci = root.join("pci");
+        let devices = root.join("devices");
+        let gpu = devices.join("pci0000:00/0000:00:02.0");
+        let platform = devices.join("platform/engine");
+        let alias = devices.join("platform/0000:00:02.0");
+        let rendered = gpu.join("drm/renderD128");
+        let registered = platform.join("accel/accel0");
+        let spoofed = alias.join("drm/renderD129");
+        let outside = root.join("renderD130");
+        for d in [&class_drm, &pci, &rendered, &registered, &spoofed, &outside] {
+            fs::create_dir_all(d).unwrap();
+        }
+        symlink(&gpu, pci.join("0000:00:02.0")).unwrap();
+        symlink(&gpu, rendered.join("device")).unwrap();
+        symlink(&platform, registered.join("device")).unwrap();
+        symlink(&alias, spoofed.join("device")).unwrap();
+        symlink(&rendered, class_drm.join("renderD128")).unwrap();
+        symlink(&spoofed, class_drm.join("renderD129")).unwrap();
+        symlink(&outside, class_drm.join("renderD130")).unwrap();
+        let missing = render(&class_drm, &class_accel, &devices, &pci);
+        assert!(missing.contains(r#""compute_accel":{"status":"unavailable""#));
+        fs::create_dir(&class_accel).unwrap();
+        let empty = render(&class_drm, &class_accel, &devices, &pci);
+        assert!(empty.contains(r#""compute_accel":{"status":"observed","scan_capped":false,"unresolved_entries":0,"registrations":[]"#));
+        symlink(&registered, class_accel.join("accel0")).unwrap();
+        let observed = render(&class_drm, &class_accel, &devices, &pci);
+        assert!(observed.contains(
+            r#""name":"renderD128","parent_status":"observed","pci_function":"0000:00:02.0""#
+        ));
+        assert!(observed
+            .contains(r#""name":"renderD129","parent_status":"observed","pci_function":null"#));
+        assert!(
+            observed.contains(r#""name":"accel0","parent_status":"observed","pci_function":null"#)
+        );
+        assert!(!observed.contains("renderD130"));
+        assert!(observed.contains(
+            r#""drm_render":{"status":"partial","scan_capped":false,"unresolved_entries":1"#
+        ));
+    }
+}
