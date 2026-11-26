@@ -71,6 +71,8 @@ Use the complete PCI domain, bus, device and function for the device you intend 
 
 Writes one versioned JSON object to stdout with the target and its upstream PCI devices. The command reads only allowlisted Linux sysfs attributes; it does not start a workload or change device state. Per-device AER message totals and named categories are separate from root-port hierarchy totals. Counters are decimal strings to preserve exact 64-bit values. An unavailable, inaccessible, or invalid attribute is not a zero. A single snapshot is cumulative, not a before/after measurement or proof that a specific component is faulty.
 
+Each PCI device row reports its observed driver binding. A bound driver can legitimately have no visible module; this does not indicate whether it was built in or separately loaded. A changing or dangling link is not reported as a stable binding.
+
 Use `--sample-ms 1000` to take a second snapshot after a bounded wait (1–60000 ms). No load is generated. The JSON contains both snapshots, the measured interval between sample starts, and a per-observer delta only when boot and sysfs identities match. A decrease, a changed category set, or an unavailable counter never becomes an invented zero. Counter deltas show what changed during the interval, not which component caused it.
 
 To assess a board's expected link, add `--min-width 4 --min-speed-gtps 8.0`.

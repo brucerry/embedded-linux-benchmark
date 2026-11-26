@@ -192,9 +192,90 @@ fn identity(path: &Path) -> io::Result<Identity> {
     })
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum Binding {
+    Bound {
+        driver: String,
+        module: Observed<String>,
+    },
+    Unbound,
+    Inaccessible,
+    Invalid,
+    Changed,
+}
+
+fn component(path: &Path, parent: &Path) -> Option<String> {
+    let value = path.strip_prefix(parent).ok()?.to_str()?;
+    (!value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.')))
+    .then(|| value.to_owned())
+}
+
+fn binding_once(device: &Path, drivers: &Path, modules: &Path) -> Binding {
+    let link = device.join("driver");
+    match fs::symlink_metadata(&link) {
+        Ok(meta) if meta.file_type().is_symlink() => {}
+        Ok(_) => return Binding::Invalid,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Binding::Unbound,
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Binding::Inaccessible,
+        Err(_) => return Binding::Invalid,
+    }
+    let target = match fs::canonicalize(&link) {
+        Ok(path) => path,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Binding::Changed,
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => return Binding::Inaccessible,
+        Err(_) => return Binding::Invalid,
+    };
+    let Some(driver) = component(&target, drivers) else {
+        return Binding::Invalid;
+    };
+    let module_link = target.join("module");
+    let module = match fs::symlink_metadata(&module_link) {
+        Ok(m) if m.file_type().is_symlink() => match fs::canonicalize(&module_link) {
+            Ok(p) => component(&p, modules).map_or(Observed::Invalid, Observed::Value),
+            Err(e) if e.kind() == io::ErrorKind::PermissionDenied => Observed::Inaccessible,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Observed::Unavailable,
+            Err(_) => Observed::Invalid,
+        },
+        Ok(_) => Observed::Invalid,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Observed::Unavailable,
+        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => Observed::Inaccessible,
+        Err(_) => Observed::Invalid,
+    };
+    Binding::Bound { driver, module }
+}
+
+fn binding_stable(before: Binding, after: Binding) -> Binding {
+    if before == after {
+        after
+    } else {
+        Binding::Changed
+    }
+}
+
+impl Binding {
+    fn json(&self) -> String {
+        match self {
+            Self::Bound { driver, module } => format!(
+                r#"{{"status":"bound","driver":{},"module":{}}}"#,
+                json_string(driver),
+                json_observed(module, |name| json_string(name)),
+            ),
+            Self::Unbound => r#"{"status":"unbound"}"#.to_owned(),
+            Self::Inaccessible => r#"{"status":"inaccessible"}"#.to_owned(),
+            Self::Invalid => r#"{"status":"invalid"}"#.to_owned(),
+            Self::Changed => r#"{"status":"changed"}"#.to_owned(),
+        }
+    }
+}
+
 struct SampleDevice {
     device: Device,
     identity: Identity,
+    binding: Binding,
     links: [Observed<String>; 4],
     counters: [Observed<Counts>; 3],
     root: [Observed<u64>; 3],
@@ -209,6 +290,14 @@ fn snapshot(devices: &[Device]) -> Result<Vec<SampleDevice>, String> {
                     .map_err(|e| format!("cannot identify PCI device {}: {e}", device.bdf))
             };
             let before = identify()?;
+            let bind = || {
+                binding_once(
+                    &device.path,
+                    Path::new("/sys/bus/pci/drivers"),
+                    Path::new("/sys/module"),
+                )
+            };
+            let previous_binding = bind();
             let links = pcie::LINK_ATTRIBUTES.map(|(attr, _)| {
                 read(&device.path.join(attr), |s| {
                     let v = s.trim();
@@ -221,6 +310,7 @@ fn snapshot(devices: &[Device]) -> Result<Vec<SampleDevice>, String> {
             let counters =
                 COUNTERS.map(|(name, key)| read(&device.path.join(name), |v| parse_counts(v, key)));
             let root = ROOT_COUNTERS.map(|name| root_count(&device.path, name));
+            let binding = binding_stable(previous_binding, bind());
             if before != identify()? {
                 return Err(format!(
                     "PCI device {} changed during observation",
@@ -230,6 +320,7 @@ fn snapshot(devices: &[Device]) -> Result<Vec<SampleDevice>, String> {
             Ok(SampleDevice {
                 device: device.clone(),
                 identity: before,
+                binding,
                 links,
                 counters,
                 root,
@@ -355,9 +446,10 @@ fn render(devices: &[SampleDevice], expectation: LinkExpectation) -> String {
                 json_observed(value, counts_json)
             });
             format!(
-                r#"{{"bdf":"{}","role":"{}","link":{{{}}},"device_aer":{{{}}}}}"#,
+                r#"{{"bdf":"{}","role":"{}","driver_binding":{},"link":{{{}}},"device_aer":{{{}}}}}"#,
                 sample.device.bdf,
                 if i == 0 { "target" } else { "upstream" },
+                sample.binding.json(),
                 links,
                 counters
             )
@@ -641,6 +733,7 @@ mod tests {
                 fs_device: 1,
                 inode,
             },
+            binding: Binding::Unbound,
             links: std::array::from_fn(|_| Observed::Unavailable),
             counters: std::array::from_fn(|_| Observed::Unavailable),
             root: std::array::from_fn(|_| Observed::Unavailable),
@@ -662,6 +755,49 @@ mod tests {
         );
         assert!(uuid("not-a-real-boot-id").is_none());
         assert!(!render_delta(&before, &replacement, &a, &a).contains("by_observer"));
+    }
+
+    #[test]
+    fn driver_binding_reports_optional_module_and_detects_change() {
+        use std::os::unix::fs::symlink;
+        let root = std::env::temp_dir().join(format!("eld-drive-binding-{}", std::process::id()));
+        let dev = root.join("device");
+        let drivers = root.join("drivers");
+        let modules = root.join("module");
+        let driver = drivers.join("fixture-driver");
+        let module = modules.join("fixture_module");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&dev).unwrap();
+        fs::create_dir_all(&driver).unwrap();
+        fs::create_dir_all(&module).unwrap();
+        let probe = || binding_once(&dev, &drivers, &modules);
+        assert_eq!(probe(), Binding::Unbound);
+        symlink(&driver, dev.join("driver")).unwrap();
+        let without_module = probe();
+        assert_eq!(
+            without_module,
+            Binding::Bound {
+                driver: "fixture-driver".into(),
+                module: Observed::Unavailable
+            }
+        );
+        symlink(&module, driver.join("module")).unwrap();
+        assert_eq!(
+            probe(),
+            Binding::Bound {
+                driver: "fixture-driver".into(),
+                module: Observed::Value("fixture_module".into())
+            }
+        );
+        fs::remove_file(dev.join("driver")).unwrap();
+        assert_eq!(binding_stable(without_module, probe()), Binding::Changed);
+        symlink(root.join("not-a-driver"), dev.join("driver")).unwrap();
+        assert_eq!(probe(), Binding::Changed);
+        fs::remove_file(dev.join("driver")).unwrap();
+        symlink(&module, dev.join("driver")).unwrap();
+        assert_eq!(probe(), Binding::Invalid);
+        assert!(component(&drivers.join("nested/escape"), &drivers).is_none());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
