@@ -682,6 +682,97 @@ fn cpu_frequency(root: &Path) -> String {
     result(status, &rows)
 }
 
+fn cpu_throttle(root: &Path) -> String {
+    use std::os::unix::fs::MetadataExt;
+    let result =
+        |status, rows: &str| format!(r#"{{"status":"{status}","cpu_observers":[{rows}]}}"#);
+    let entries = match fs::read_dir(root) {
+        Ok(v) => v,
+        Err(e) => {
+            return result(
+                match e.kind() {
+                    io::ErrorKind::NotFound => "unavailable",
+                    io::ErrorKind::PermissionDenied => "inaccessible",
+                    _ => "invalid",
+                },
+                "",
+            )
+        }
+    };
+    let mut ids = Vec::new();
+    for (seen, row) in entries.enumerate() {
+        if seen >= 512 {
+            return result("truncated", "");
+        }
+        let Ok(row) = row else {
+            return result("invalid", "");
+        };
+        if let Some(id) = row
+            .file_name()
+            .to_str()
+            .and_then(|v| numbered_child(v, "cpu"))
+        {
+            ids.push(id);
+        }
+    }
+    ids.sort_unstable();
+    let limited = ids.len() > 64;
+    let mut rows = Vec::new();
+    for id in ids.into_iter().take(64) {
+        let cpu = root.join(format!("cpu{id}"));
+        let path = cpu.join("thermal_throttle");
+        let identity = |p: &Path| -> io::Result<(u64, u64)> {
+            let m = fs::symlink_metadata(p)?;
+            if !m.is_dir() {
+                return Err(io::ErrorKind::InvalidData.into());
+            }
+            Ok((m.dev(), m.ino()))
+        };
+        let before = match (identity(&cpu), identity(&path)) {
+            (Ok(c), Ok(p)) => (c, p),
+            (Ok(_), Err(e)) if e.kind() == io::ErrorKind::NotFound => continue,
+            (Err(e), _) | (_, Err(e)) => {
+                let observation = Observation::error(e).json();
+                rows.push(format!(r#"{{"cpu":{id},"core_count":{observation},"package_count_at_cpu":{observation}}}"#));
+                continue;
+            }
+        };
+        let read = |file| match bounded(&path.join(file)) {
+            Err(e) => Observation::error(e),
+            Ok(v) => {
+                let v = v.trim();
+                if v.len() <= 20 && v.bytes().all(|b| b.is_ascii_digit()) {
+                    v.parse::<u64>()
+                        .ok()
+                        .map(|n| Observation::Available(n.to_string()))
+                        .unwrap_or(Observation::Invalid)
+                } else {
+                    Observation::Invalid
+                }
+            }
+        };
+        let mut core = read("core_throttle_count");
+        let mut package = read("package_throttle_count");
+        if (identity(&cpu).ok(), identity(&path).ok()) != (Some(before.0), Some(before.1)) {
+            core = Observation::Unavailable;
+            package = Observation::Unavailable;
+        }
+        rows.push(format!(
+            r#"{{"cpu":{id},"core_count":{},"package_count_at_cpu":{}}}"#,
+            core.json(),
+            package.json()
+        ));
+    }
+    let status = if limited {
+        "truncated"
+    } else if rows.is_empty() {
+        "unavailable"
+    } else {
+        "observed"
+    };
+    result(status, &rows.join(","))
+}
+
 pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result<(), String> {
     if required.is_some() && profile_path.is_some() {
         return Err("--require-pcie and --board-profile cannot be combined".into());
@@ -755,7 +846,7 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
         format!(r#","required_pcie":[{rows}]"#)
     };
     println!(
-        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{},"cpu_frequency":{}{profile_context}{profile}}}"#,
+        r#"{{"schema_version":1,"process_architecture":{},{values},"resources":{},"thermal":{},"memory_edac":{},"cpu_frequency":{},"cpu_thermal_throttle":{}{profile_context}{profile}}}"#,
         json_string(std::env::consts::ARCH),
         resources(),
         thermal(
@@ -763,7 +854,8 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
             Path::new("/sys/devices/virtual/thermal")
         ),
         edac(Path::new("/sys/devices/system/edac/mc")),
-        cpu_frequency(Path::new("/sys/devices/system/cpu/cpufreq"))
+        cpu_frequency(Path::new("/sys/devices/system/cpu/cpufreq")),
+        cpu_throttle(Path::new("/sys/devices/system/cpu"))
     );
     Ok(())
 }
@@ -771,6 +863,30 @@ pub(crate) fn run(required: Option<&str>, profile_path: Option<&Path>) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn thermal_throttle_keeps_package_observations_separate() {
+        let root = std::env::temp_dir().join(format!("eld-cputhrottle-{}", std::process::id()));
+        let a = root.join("cpu0/thermal_throttle");
+        let b = root.join("cpu1/thermal_throttle");
+        assert!(cpu_throttle(&root).contains(r#""status":"unavailable""#));
+        fs::create_dir_all(&a).unwrap();
+        fs::create_dir_all(&b).unwrap();
+        for p in [&a, &b] {
+            fs::write(p.join("package_throttle_count"), "7\n").unwrap();
+        }
+        fs::write(a.join("core_throttle_count"), "0\n").unwrap();
+        let out = cpu_throttle(&root);
+        assert_eq!(
+            out.matches(r#""package_count_at_cpu":{"status":"observed","value":"7"}"#)
+                .count(),
+            2
+        );
+        assert!(out.contains(r#""cpu":0,"core_count":{"status":"observed","value":"0"}"#));
+        assert!(out.contains(r#""cpu":1,"core_count":{"status":"unavailable"}"#));
+        assert!(!out.contains(r#""value":"14""#));
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn cpu_frequency_separates_policy_reporting_from_hardware() {

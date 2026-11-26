@@ -81,6 +81,9 @@ resets counters or injects errors.
 CPU frequency observations list up to 32 kernel policies and distinguish
 scaling-reported frequency from hardware-reported current frequency when
 available. Limits and changing clocks are not evidence of thermal throttling.
+Where the kernel exports thermal event counters, the Engine reports
+per-logical-CPU observations. Package events can be replicated across CPUs and
+are never summed. They are cumulative observations, not current throttle state.
 
 ### Check expected PCI devices
 
