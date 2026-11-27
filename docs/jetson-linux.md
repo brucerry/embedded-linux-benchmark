@@ -1,6 +1,6 @@
 # NVIDIA Jetson Linux builds
 
-Use the [native Linux build](../README.md#build-and-run) on a Jetson with a suitable Rust and C toolchain. To build on an x86-64 Linux host for a Jetson, target `aarch64-unknown-linux-gnu` and use the GCC driver designated for the Jetson Linux release on the target. It supplies the linker and its development sysroot. The benchmark uses the Rust standard library for CPU and RAM work.
+Use the [native Linux build](../README.md#run-on-a-board) on a Jetson with a suitable Rust and C toolchain. To build on an x86-64 Linux host for a Jetson, target `aarch64-unknown-linux-gnu` and use the GCC driver designated for the Jetson Linux release on the target. It supplies the linker and its development sysroot. The benchmark uses the Rust standard library for CPU and RAM work.
 
 ## Choose the release
 
