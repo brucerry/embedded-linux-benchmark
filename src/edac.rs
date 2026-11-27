@@ -22,6 +22,10 @@ fn controller(name: &str) -> bool {
     let Some(n) = name.strip_prefix("mc") else {
         return false;
     };
+    valid_suffix(n)
+}
+
+fn valid_suffix(n: &str) -> bool {
     !n.is_empty()
         && n.len() <= 7
         && n.bytes().all(|b| b.is_ascii_digit())
@@ -50,20 +54,21 @@ fn counter(p: &Path) -> Value {
     value.parse::<u64>().map_err(|_| "invalid")
 }
 
+fn identity(dir: &Path) -> Result<(u64, u64), &'static str> {
+    let info = fs::symlink_metadata(dir).map_err(status)?;
+    if !info.is_dir() {
+        return Err("invalid");
+    }
+    Ok((info.dev(), info.ino()))
+}
+
 fn snapshot(dir: &Path) -> Result<Snapshot, &'static str> {
-    let id = || {
-        let info = fs::symlink_metadata(dir).map_err(status)?;
-        if !info.is_dir() {
-            return Err("invalid");
-        }
-        Ok((info.dev(), info.ino()))
-    };
-    let identity = id()?;
+    let initial = identity(dir)?;
     let last_reset = dir.join("seconds_since_reset");
     let age_before = counter(&last_reset);
     let errors = COUNTERS.map(|name| counter(&dir.join(name)));
     let age_after = counter(&last_reset);
-    if id().ok() != Some(identity) {
+    if identity(dir).ok() != Some(initial) {
         return Err("controller_changed");
     }
     let reset_age = match (age_before, age_after) {
@@ -73,7 +78,7 @@ fn snapshot(dir: &Path) -> Result<Snapshot, &'static str> {
         _ => Err("observation_state_changed"),
     };
     Ok(Snapshot {
-        identity,
+        identity: initial,
         reset_age,
         errors,
     })
@@ -134,9 +139,57 @@ fn deltas(a: &Snapshot, b: &Snapshot, whole_window: Duration) -> Result<[Value; 
     }))
 }
 
+fn location_name(name: &str) -> bool {
+    name.strip_prefix("dimm")
+        .or_else(|| name.strip_prefix("rank"))
+        .map_or(false, valid_suffix)
+}
+
+fn location_detail(dir: &Path, name: &str, initial: &Snapshot) -> String {
+    let before = counter(&dir.join("seconds_since_reset"));
+    let unknown = ["ce_noinfo_count", "ue_noinfo_count"].map(|key| counter(&dir.join(key)));
+    let member = dir.join(name);
+    let row = match identity(&member) {
+        Ok(id) => {
+            let counts = ["dimm_ce_count", "dimm_ue_count"].map(|key| counter(&member.join(key)));
+            if identity(&member).ok() == Some(id) {
+                format!(
+                    r#"{{"status":"observed","counters":{}}}"#,
+                    render_error_values(&counts)
+                )
+            } else {
+                r#"{"status":"location_changed"}"#.into()
+            }
+        }
+        Err(value) => format!(r#"{{"status":"{value}"}}"#),
+    };
+    let after = counter(&dir.join("seconds_since_reset"));
+    let stable = matches!((&initial.reset_age, before, after), (Ok(a),Ok(b),Ok(c)) if *a <= b && b <= c)
+        || matches!((&initial.reset_age, before, after), (Err(a),Err(b),Err(c)) if *a == b && b == c);
+    if identity(dir).ok() != Some(initial.identity) || !stable {
+        return format!(r#"{{"location":"{name}","status":"observation_changed"}}"#);
+    }
+    format!(
+        r#"{{"location":"{name}","status":"observed","accounting":"details_not_additive_to_controller_total","unknown_location":{},"selected":{row}}}"#,
+        render_error_values(&unknown)
+    )
+}
+
 pub(crate) fn report(name: &str, wait_ms: Option<u64>) -> Result<String, String> {
+    report_for(name, wait_ms, None)
+}
+
+fn report_for(name: &str, wait_ms: Option<u64>, location: Option<&str>) -> Result<String, String> {
     if !controller(name) {
         return Err("expected an EDAC controller such as mc0".into());
+    }
+    if let Some(location) = location {
+        if !location_name(location) || wait_ms.is_some() {
+            return Err(
+                "location must be one DIMM or rank name and cannot be combined with sampling"
+                    .into(),
+            );
+        }
     }
     let dir = Path::new(ROOT).join(name);
     let start = Instant::now();
@@ -165,13 +218,20 @@ pub(crate) fn report(name: &str, wait_ms: Option<u64>) -> Result<String, String>
     } else {
         render(&first)
     };
+    let locations = location.map_or_else(String::new, |name| {
+        let detail = match &first {
+            Ok(first) => location_detail(&dir, name, first),
+            Err(reason) => format!(r#"{{"location":"{name}","status":"{reason}"}}"#),
+        };
+        format!(r#","location_detail":{detail}"#)
+    });
     Ok(format!(
-        r#"{{"schema_version":1,"kind":"linux_edac_memory","controller":"{name}","source":"linux_sysfs","result":{result}}}"#
+        r#"{{"schema_version":1,"kind":"linux_edac_memory","controller":"{name}","source":"linux_sysfs","result":{result}{locations}}}"#
     ))
 }
 
-pub(crate) fn run(name: &str, wait_ms: Option<u64>) -> Result<(), String> {
-    println!("{}", report(name, wait_ms)?);
+pub(crate) fn run(name: &str, wait_ms: Option<u64>, location: Option<&str>) -> Result<(), String> {
+    println!("{}", report_for(name, wait_ms, location)?);
     Ok(())
 }
 
@@ -213,6 +273,26 @@ mod tests {
             deltas(&near, &near, window),
             Err("reset_continuity_indeterminate")
         );
+    }
+
+    #[test]
+    fn location_is_detail_not_increment_to_controller_total() {
+        let dir = std::env::temp_dir().join(format!("eld-edac-location-{}", std::process::id()));
+        let dimm = dir.join("dimm0");
+        fs::create_dir_all(&dimm).unwrap();
+        fs::write(dir.join("ce_count"), "5\n").unwrap();
+        fs::write(dir.join("ce_noinfo_count"), "2\n").unwrap();
+        fs::write(dimm.join("dimm_ce_count"), "3\n").unwrap();
+        let totals = snapshot(&dir).unwrap();
+        assert_eq!(totals.errors[0], Ok(5));
+        let out = location_detail(&dir, "dimm0", &totals);
+        assert!(out.contains(r#""unknown_location":{"ce_count":{"status":"observed","value":"2"}"#));
+        assert!(out.contains(r#""selected":{"status":"observed","counters":{"ce_count":{"status":"observed","value":"3"}"#));
+        assert!(!out.contains(r#""value":"5""#));
+        assert!(location_detail(&dir, "rank1", &totals)
+            .contains(r#""selected":{"status":"unavailable"}"#));
+        assert!(location_name("rank1") && !location_name("../dimm0"));
+        fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

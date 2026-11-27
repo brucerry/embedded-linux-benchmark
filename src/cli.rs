@@ -334,7 +334,7 @@ fn help() {
                            [--local-test cpu|ram] [--max-local-load-secs SECONDS]
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
-  eld-engine ram edac --controller mc0 [--sample-ms MS]
+  eld-engine ram edac --controller mc0 [--sample-ms MS | --location DIMM_OR_RANK]
   eld-engine storage nvme-health --controller nvme0
   eld-engine storage mmc-health --card mmc0:0001
   eld-engine storage nvme-smart-decode < captured-smart-log.bin
@@ -680,10 +680,15 @@ pub(crate) fn run() -> Result<(), String> {
                 &args[1..],
                 &[
                     ("--controller", Kind::Text),
+                    ("--location", Kind::Text),
                     ("--sample-ms", Number(1, crate::edac::MAX_WAIT_MS)),
                 ],
             )?;
-            return crate::edac::run(options.text("--controller")?, options.number("--sample-ms"));
+            return crate::edac::run(
+                options.text("--controller")?,
+                options.number("--sample-ms"),
+                options.text("--location").ok(),
+            );
         }
         "ram" => (RAM_OPTIONS, Subject::Ram),
         "storage" if args.first().map_or(false, |role| role == "nvme-health") => {

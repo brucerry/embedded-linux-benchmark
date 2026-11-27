@@ -92,7 +92,7 @@ continuity across the measured window. The reset-age clock has one-second
 resolution. This is not atomic kernel telemetry or proof that the memory is
 healthy. An observed zero is not the same as missing EDAC data. Engine
 neither loads a driver nor accesses the write-only reset control. The
-broader `inventory` already lists visible EDAC controllers and DIMMs.
+broader `inventory` already lists visible EDAC controller totals.
 [Linux EDAC ABI](https://docs.kernel.org/6.18/admin-guide/abi-testing-files.html#abi-file-testing-sysfs-devices-edac)
 
 
@@ -102,3 +102,10 @@ with the host-side passive planner. This option takes a single snapshot
 and adds no sleep. Omit it for the default report. Evidence correlation
 matches the named controller to the requested one but does not
 authenticate the hardware.
+
+Use `eld-engine ram edac --controller mc0 --location dimm0` to record
+one explicitly selected DIMM or rank and the controller's unknown-location
+counts. The controller totals already include errors counted in those
+details. Do not add the details to the totals or require an exact sum
+across separate live reads. Location detail is a single observation
+and cannot be combined with the time-window option.
