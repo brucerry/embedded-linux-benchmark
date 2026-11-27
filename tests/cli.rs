@@ -1537,3 +1537,56 @@ fn passive_system_health_is_advertised_and_opt_in() {
         .trim_end()
         .ends_with(&format!(r#","qualification":{}}}"#, stdout.trim_end())));
 }
+
+#[test]
+fn amdgpu_ras_contract_rejects_invalid_device_and_correlates_evidence() {
+    let scratch = ScratchDirectory::create();
+    let file = scratch.0.join("amd.json");
+    let path = file.to_str().unwrap();
+    let cap = successful_output(&["capabilities"]);
+    assert!(cap.contains(r#""passive_amdgpu_umc_ras":{"schema":1,"flag":"--amdgpu-ras-device"}"#));
+    let bad = run(&[
+        "qualify",
+        "passive",
+        "--amdgpu-ras-device",
+        "../../umc_err_count",
+        "--evidence-json",
+        path,
+    ]);
+    assert!(!bad.status.success() && bad.stdout.is_empty() && !file.exists());
+    assert!(!successful_output(&["qualify", "passive"]).contains(r#""amdgpu_umc_ras":"#));
+
+    // A PCI domain with no present device exercises the optional result
+    // without probing a physical accelerator on any test host.
+    let bdf = ["ffff:ff:1f.7", "ffff:ff:1f.6", "ffff:ff:1f.5"]
+        .into_iter()
+        .find(|bdf| {
+            !std::path::Path::new("/sys/bus/pci/devices")
+                .join(bdf)
+                .exists()
+        })
+        .expect("a reserved out-of-fixture device address");
+    let one = successful_output(&["accelerator", "amdgpu-ras", "--device", bdf]);
+    assert!(one.contains(r#""status":"unavailable""#));
+    assert!(!one.contains(r#""corrected_errors":"#));
+    let id = "0123456789abcdeffedcba9876543210";
+    let args = [
+        "qualify",
+        "passive",
+        "--amdgpu-ras-device",
+        bdf,
+        "--run-id",
+        id,
+        "--evidence-json",
+        path,
+    ];
+    let stdout = successful_output(&args);
+    assert!(stdout.contains(&format!(r#""amdgpu_umc_ras":{}"#, one.trim_end())));
+    let saved = std::fs::read_to_string(&file).unwrap();
+    assert!(saved
+        .trim_end()
+        .ends_with(&format!(r#","qualification":{}}}"#, stdout.trim_end())));
+    let second = run(&args);
+    assert!(!second.status.success() && second.stdout.is_empty());
+    assert_eq!(saved, std::fs::read_to_string(file).unwrap());
+}

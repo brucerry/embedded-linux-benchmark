@@ -141,6 +141,7 @@ const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[
     ("--network-interface", Kind::Text),
     ("--nvme-controller", Kind::Text),
     ("--include-system-health", Flag),
+    ("--amdgpu-ras-device", Kind::Text),
     ("--evidence-json", Kind::Path),
     ("--run-id", Kind::Text),
 ];
@@ -299,11 +300,11 @@ fn help() {
   eld-engine pressure
   eld-engine numa inventory
   eld-engine accelerator inventory|interfaces
-  eld-engine accelerator amdgpu-hwmon --device BDF
+  eld-engine accelerator amdgpu-hwmon|amdgpu-ras --device BDF
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
   eld-engine qualify passive [--board-profile PATH] [--network-interface NAME] [--nvme-controller NAME]
-                             [--include-system-health] [--evidence-json NEW_PATH] [--run-id HEX32]
+                             [--include-system-health] [--amdgpu-ras-device BDF] [--evidence-json NEW_PATH] [--run-id HEX32]
   eld-engine qualify plan --profile bring-up|quick|manufacturing|overnight [--include-local-load]
                            [--local-test cpu|ram] [--max-local-load-secs SECONDS]
   eld-engine cpu [--duration-ms MS]
@@ -447,7 +448,8 @@ fn capabilities() -> String {
             r#""qualification_plan":{{"schema":1,"execution":"preview_only"}},"#,
             r#""storage_nvme_smart_decode":{{"schema":1,"input":"offline_page","input_bytes":{}}},"#,
             r#""storage_mmc_health":{{"schema":1,"input":"named_mmc_card"}},"#,
-            r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}}}}}}"#,
+            r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}},"#,
+            r#""passive_amdgpu_umc_ras":{{"schema":1,"flag":"--amdgpu-ras-device"}}}}}}"#,
         ),
         json_string(env!("CARGO_PKG_VERSION")),
         json_string(std::env::consts::ARCH),
@@ -491,13 +493,17 @@ pub(crate) fn run() -> Result<(), String> {
             match args {
                 [mode] if mode == "inventory" => crate::accelerator::run(),
                 [mode] if mode == "interfaces" => crate::accelerator_interfaces::run(),
+                [mode, rest @ ..] if mode == "amdgpu-ras" => {
+                    let options = Options::parse("accelerator amdgpu-ras", rest, PCIE_LINK_OPTIONS)?;
+                    println!("{}", crate::accelerator_telemetry::snapshot_umc_ras(options.text("--device")?)?);
+                }
                 [mode, rest @ ..] if mode == "amdgpu-hwmon" => {
                     let options = Options::parse("accelerator amdgpu-hwmon", rest, PCIE_LINK_OPTIONS)?;
                     crate::accelerator_telemetry::run(options.text("--device")?)?;
                 }
                 _ => {
                     return Err(
-                        "expected an accelerator subcommand: inventory, interfaces, or amdgpu-hwmon. See --help."
+                        "expected an accelerator subcommand: inventory, interfaces, amdgpu-hwmon, or amdgpu-ras. See --help."
                             .into(),
                     )
                 }
@@ -542,6 +548,7 @@ pub(crate) fn run() -> Result<(), String> {
                 options.path("--evidence-json"),
                 options.text("--run-id").ok(),
                 options.flag("--include-system-health"),
+                options.text("--amdgpu-ras-device").ok(),
             )?;
             return Ok(());
         }

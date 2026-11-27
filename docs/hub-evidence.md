@@ -24,3 +24,10 @@ The optional `qualification.system_health` object contains read-only NUMA
 topology and kernel pressure snapshots. Qualification schema v1 without the flag
 is unchanged. No load, active accelerator operation, driver modification,
 reflash or remediation is performed. Treat unknown contracts as unsupported.
+
+An Engine advertising `contracts.passive_amdgpu_umc_ras.schema=1` can include
+a passive AMDGPU memory-controller RAS observation with
+`--amdgpu-ras-device BDF`. It reads only the selected AMDGPU-bound PCI
+device's Linux `ras/umc_err_count` sysfs attribute, never driver controls.
+Counters are decimal strings; missing RAS support is not zero errors.
+This is one snapshot, not a fault injection test or a health verdict.
