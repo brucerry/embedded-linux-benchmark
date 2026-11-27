@@ -148,6 +148,47 @@ class Evidence(unittest.TestCase):
                 finally:
                     obj[field] = old
 
+    def test_thermal_window_arithmetic_and_missing_sensors(self):
+        q = fixture()
+        def reading(value):
+            return {"status": "observed", "value": value}
+        def zone(i, value):
+            return {"zone": f"thermal_zone{i}", "type": reading("reference"),
+                    "temperature_millicelsius": reading(value)}
+        before = {"status": "observed", "zones": [zone(0, "1200"), zone(1, "0")]}
+        after = {"status": "observed", "zones": [zone(0, "-300")]}
+        window = {
+            "requested_wait_ms": 3, "sample_start_interval_ms": 4,
+            "before": before, "after": after,
+            "differences": [
+                {"zone": "thermal_zone0", "difference_millicelsius": {
+                    "status": "observed_difference", "value": "-1500"
+                }},
+                {"zone": "thermal_zone1", "difference_millicelsius": {"status": "not_comparable"}},
+            ],
+        }
+        q["inventory"] = {"thermal": copy.deepcopy(before), "thermal_window": window}
+        def run():
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+        self.assertEqual(run()["status"], "correlated")
+        for obj, field, value in (
+            (window, "sample_start_interval_ms", 11),
+            (window, "requested_wait_ms", True),
+            (window["differences"][0]["difference_millicelsius"], "value", "-1499"),
+            (window["differences"][1], "difference_millicelsius",
+             {"status": "observed_difference", "value": "0"}),
+            (after["zones"][0]["type"], "value", "replacement"),
+            (after["zones"][0]["temperature_millicelsius"], "value", "-273151"),
+            (q["inventory"], "thermal", after),
+        ):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                old = obj[field]
+                try:
+                    obj[field] = value
+                    run()
+                finally:
+                    obj[field] = old
+
     def test_rejects_duplicate_truncated_and_nonfinite(self):
         for data in (b'{"a":1,"a":2}', b'{"a":', b'{"a":NaN}', b' ' * (m.MAX_BYTES + 1)):
             with self.subTest(data=data[:20]), self.assertRaises(ValueError):

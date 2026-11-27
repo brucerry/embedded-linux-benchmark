@@ -117,6 +117,12 @@ energy counter and range. Some drivers expose only energy. An unavailable or
 inaccessible power attribute is not zero. Do not sum parent and child zones,
 interpret ranges as measurements, or treat one zone as whole-device power.
 
+The reference verifier checks the requested interval, inventory baseline,
+ordered zone set and signed difference arithmetic. It preserves
+`not_comparable` because device identity is not exported in the report.
+It does not authenticate the sensor or convert correlation into a hardware
+qualification.
+
 Use `--include-timeline` to correlate the passive phases within a single
 qualification invocation. The optional `observation_timeline` includes only
 invoked phases in their actual sequential order, with start and finish offsets

@@ -117,6 +117,75 @@ def verify_network_window(window, elapsed):
         check(delta.keys() == {"status"}, "invalid withheld network delta")
 
 
+def verify_thermal_window(inventory, elapsed):
+    window = inventory["thermal_window"]
+    check(type(window) is dict and window.keys() == {
+        "requested_wait_ms", "sample_start_interval_ms", "before", "after", "differences"
+    }, "invalid thermal window")
+    wait, interval = window["requested_wait_ms"], window["sample_start_interval_ms"]
+    check(type(wait) is int and type(interval) is int and 1 <= wait <= 2000
+          and wait <= interval <= elapsed, "invalid thermal timing")
+
+    def indexed(snapshot):
+        check(type(snapshot) is dict and snapshot.keys() == {"status", "zones"}
+              and snapshot["status"] in ("observed", "truncated", "unavailable",
+                                         "inaccessible", "invalid")
+              and type(snapshot["zones"]) is list and len(snapshot["zones"]) <= 32,
+              "invalid thermal snapshot")
+        if snapshot["status"] not in ("observed", "truncated"):
+            check(not snapshot["zones"], "unexpected readings in unavailable thermal snapshot")
+        rows = {}
+        last = -1
+        for item in snapshot["zones"]:
+            check(type(item) is dict and item.keys() == {
+                "zone", "type", "temperature_millicelsius"
+            }, "invalid thermal row")
+            zone = item["zone"]
+            check(type(zone) is str and re.fullmatch(r"thermal_zone(0|[1-9][0-9]{0,6})", zone),
+                  "invalid thermal zone name")
+            index = int(zone[len("thermal_zone"):])
+            check(index > last, "thermal zones must be unique and ordered")
+            last = index
+            for field in ("type", "temperature_millicelsius"):
+                reading = item[field]
+                check(type(reading) is dict and reading.get("status") in (
+                    "observed", "unavailable", "inaccessible", "invalid"
+                ), "invalid thermal reading")
+                if reading["status"] != "observed":
+                    check(reading.keys() == {"status"}, "unexpected unavailable value")
+                    continue
+                value = reading.get("value")
+                check(reading.keys() == {"status", "value"} and type(value) is str and value,
+                      "invalid observed thermal value")
+                if field == "temperature_millicelsius":
+                    check(re.fullmatch(r"0|-?[1-9][0-9]{0,5}", value)
+                          and -273150 <= int(value) <= 300000, "invalid thermal temperature")
+            rows[index] = item
+        return rows
+
+    first, second = indexed(window["before"]), indexed(window["after"])
+    check(equal(inventory.get("thermal"), window["before"]), "thermal inventory baseline differs")
+    rows = window["differences"]
+    keys = sorted(first.keys() | second.keys())
+    check(type(rows) is list and len(rows) == len(keys), "wrong thermal difference count")
+    for row, key in zip(rows, keys):
+        check(type(row) is dict and row.keys() == {"zone", "difference_millicelsius"}
+              and row["zone"] == f"thermal_zone{key}", "invalid thermal difference row")
+        value = row["difference_millicelsius"]
+        if value == {"status": "not_comparable"}:
+            continue
+        a, b = first.get(key), second.get(key)
+        check(type(value) is dict and value.keys() == {"status", "value"}
+              and value["status"] == "observed_difference" and a is not None and b is not None
+              and a["type"].get("status") == "observed" and equal(a["type"], b["type"])
+              and a["temperature_millicelsius"]["status"] == "observed"
+              and b["temperature_millicelsius"]["status"] == "observed",
+              "thermal difference lacks matching readings")
+        expected = (int(b["temperature_millicelsius"]["value"])
+                    - int(a["temperature_millicelsius"]["value"]))
+        check(value["value"] == str(expected), "incorrect thermal difference")
+
+
 def verify_timeline(observation, elapsed):
     timeline = observation["observation_timeline"]
     check(type(timeline) is dict and timeline.keys() == {
@@ -164,6 +233,8 @@ def verify(evidence, stdout, run_id):
     network = q.get("network_health")
     if type(network) is dict and "mode" in network:
         verify_network_window(network, saved["elapsed_monotonic_ms"])
+    if "thermal_window" in q["inventory"]:
+        verify_thermal_window(q["inventory"], saved["elapsed_monotonic_ms"])
     if "observation_timeline" in q:
         verify_timeline(q, saved["elapsed_monotonic_ms"])
     return {"status": "correlated", "run_id": run_id,
