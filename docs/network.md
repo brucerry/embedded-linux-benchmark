@@ -49,3 +49,22 @@ The receiver accepts one connection from the named peer. The sender binds its so
 `--size-mib` accepts 1–64 (default 8), `--pings` accepts 1–1000 (default 20), and `--timeout-ms` accepts 1–30000 (default 30000). The deadline includes connection setup or waiting for the sender. Latency is the application's TCP echo round trip. The receiver then verifies a one-way payload and reports throughput. The sender times the transfer through the final acknowledgment. Swap roles for the reverse path. Linux routing and the selected addresses determine the actual path. The command does not identify the physical link or measure wire-level latency.
 
 A peer fixture using two distinct loopback addresses passed natively and with the OpenWrt 25.12.6 AArch64 APK and 24.10.8 MIPS little-endian IPK binaries under QEMU user mode. The same test passed with Jetson Linux 39.2.2 SDK and sample libraries. Hardware Ethernet and Wi-Fi measurements remain unverified.
+
+### Preview a dedicated link run
+
+The host-side planner emits argument arrays and planned byte and latency
+probe counts. It does not run commands, discover hosts or set up routes.
+
+```sh
+python3 scripts/plan_network_peer.py \
+  --sender eth1 172.31.95.1/30 --receiver enP1p1s0 172.31.95.2/30 \
+  --port 5555 --session "$(openssl rand -hex 16)"
+```
+
+Use independently verified addresses and confirm on both endpoints that the
+route uses the dedicated interface and source address, without a gateway
+or console tunnel in the measurement path. Start the receiver before the
+sender, save ingress/egress health on both sides, and retain the two
+process results. A preview does not prove routing, permission, or a
+physical measurement. Treat unsolicited traffic and a missing or mismatched
+peer as invalid runs, not as performance results.
