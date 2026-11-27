@@ -14,10 +14,10 @@ spec.loader.exec_module(m)
 TOKEN = "0123456789abcdeffedcba9876543210"
 
 
-def pack(q):
+def pack(q, elapsed=10):
     return json.dumps({
         "evidence_schema_version": 1, "kind": "passive_qualification",
-        "started_unix_ms": 100, "finished_unix_ms": 90, "elapsed_monotonic_ms": 10,
+        "started_unix_ms": 100, "finished_unix_ms": 90, "elapsed_monotonic_ms": elapsed,
         "qualification": q,
     }, ensure_ascii=False).encode()
 
@@ -63,6 +63,34 @@ class Evidence(unittest.TestCase):
         changed["qualification_schema_version"] = True
         with self.assertRaisesRegex(ValueError, "unsupported"):
             m.verify(pack(q), json.dumps(changed).encode(), TOKEN)
+
+    def test_checks_pressure_series_windows_even_when_both_captures_match(self):
+        q = fixture()
+        snapshot = {"schema_version": 1, "scope": "system_proc_pressure",
+                    **{field: {"status": "unavailable"} for field in ("cpu", "memory", "io")}}
+        series = {"schema_version": 1, "kind": "linux_pressure_series", "scope": "single_process",
+                  "sample_count": 2, "requested_gap_ms": 100, "workload_execution": "none",
+                  "samples": [{"index": i, "started_monotonic_ms": i * 102,
+                               "finished_monotonic_ms": i * 102 + 2, "pressure": snapshot}
+                              for i in range(2)]}
+        q["system_health"] = {"pressure_series": series}
+        def run():
+            return m.verify(pack(q, elapsed=104), json.dumps(q).encode(), TOKEN)
+        self.assertEqual(run()["status"], "correlated")
+        for obj, field, value in (
+            (series, "sample_count", 3), (series, "requested_gap_ms", 99),
+            (series["samples"][0], "index", False),
+            (series["samples"][1], "started_monotonic_ms", 101),
+            (series["samples"][1], "finished_monotonic_ms", 105),
+            (snapshot, "scope", "host_timestamp"),
+        ):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                old = obj[field]
+                try:
+                    obj[field] = value
+                    run()
+                finally:
+                    obj[field] = old
 
     def test_rejects_duplicate_truncated_and_nonfinite(self):
         for data in (b'{"a":1,"a":2}', b'{"a":', b'{"a":NaN}', b' ' * (m.MAX_BYTES + 1)):

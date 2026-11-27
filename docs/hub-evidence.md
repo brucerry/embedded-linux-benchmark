@@ -86,3 +86,8 @@ to include it in run-bound evidence. Both values are required: 2–8 samples,
 that process's series start. Observations are not synchronized across resources,
 hosts or runs. No workload or permanent collector is started. Do not interpret
 a missing PSI metric as zero or compare the monotonic offsets across devices.
+
+The offline verifier also checks that optional series metadata, sample count,
+sequence and monotonic intervals agree with the evidence envelope. Matching
+stdout alone cannot make malformed timing valid; these checks still do not
+authenticate the host or attest that a process exited successfully.

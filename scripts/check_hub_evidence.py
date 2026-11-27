@@ -61,6 +61,34 @@ def equal(x, y):
     return x == y
 
 
+def verify_pressure_series(series, elapsed):
+    expected = {"schema_version", "kind", "scope", "sample_count",
+                "requested_gap_ms", "workload_execution", "samples"}
+    check(type(series) is dict and series.keys() == expected
+          and type(series["schema_version"]) is int and series["schema_version"] == 1
+          and series["kind"] == "linux_pressure_series" and series["scope"] == "single_process"
+          and series["workload_execution"] == "none", "unsupported pressure series")
+    count, gap, rows = (series[k] for k in ("sample_count", "requested_gap_ms", "samples"))
+    check(type(count) is int and 2 <= count <= 8 and type(gap) is int and 100 <= gap <= 1000
+          and type(rows) is list and len(rows) == count, "invalid pressure series bounds")
+    previous = None
+    for index, row in enumerate(rows):
+        check(type(row) is dict and row.keys() == {
+            "index", "started_monotonic_ms", "finished_monotonic_ms", "pressure"
+        } and type(row["index"]) is int and row["index"] == index, "invalid pressure sample")
+        start, finish = row["started_monotonic_ms"], row["finished_monotonic_ms"]
+        check(type(start) is int and type(finish) is int and 0 <= start <= finish <= elapsed
+              and (previous is None or start - previous >= gap), "invalid pressure timing")
+        pressure = row["pressure"]
+        check(type(pressure) is dict and pressure.keys() == {
+            "schema_version", "scope", "cpu", "memory", "io"
+        } and type(pressure["schema_version"]) is int and pressure["schema_version"] == 1
+            and pressure["scope"] == "system_proc_pressure"
+            and all(type(pressure[k]) is dict for k in ("cpu", "memory", "io")),
+            "invalid pressure snapshot envelope")
+        previous = finish
+
+
 def verify(evidence, stdout, run_id):
     check(isinstance(run_id, str) and RUN_ID.fullmatch(run_id)
           and run_id != "0" * 32, "invalid expected run ID")
@@ -80,6 +108,9 @@ def verify(evidence, stdout, run_id):
           and type(q.get("inventory")) is dict, "unsupported passive observation")
     check(q.get("run_id") == run_id, "run ID mismatch")
     check(equal(saved["qualification"], q), "saved qualification differs from command output")
+    health = q.get("system_health")
+    if type(health) is dict and "pressure_series" in health:
+        verify_pressure_series(health["pressure_series"], saved["elapsed_monotonic_ms"])
     return {"status": "correlated", "run_id": run_id,
             "evidence_bytes": len(evidence), "sha256": hashlib.sha256(evidence).hexdigest(),
             "hardware_authenticity": "not_verified"}
