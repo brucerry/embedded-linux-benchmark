@@ -49,4 +49,4 @@ RUSTUP_TOOLCHAIN=1.96.0 bash scripts/build-preflight-assets.sh /path/to/new-dire
 
 The tar preserves executable modes. The CI job runs only on pushes to an
 `engine/*` branch after the normal CI checks pass, and retains the tar as an
-unsigned test artifact. It does not publish a release or qualify a board.
+unsigned test artifact. It does not publish a release or qualify a board. The existing hosted job's fixed preflight label is not the executable's compiled version or a public release tag.
