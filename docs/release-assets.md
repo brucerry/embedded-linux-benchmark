@@ -38,6 +38,28 @@ and machine-readable contracts available in this binary. Hardware,
 permissions and real board support are not checked by this command. A
 missing contract means a consumer must not assume that feature is available.
 
+## Hub deployment decision
+
+This is a consumer contract for future integration, not a claim that Hub
+can deploy the Engine today. Present check, deploy and run as separate steps.
+
+| Step | Required evidence | Stop rather than guessing |
+| --- | --- | --- |
+| **Check** | On the Hub host, verify access to the configured release, then check that the manifest and exact asset are available. On the authenticated Linux device, determine CPU architecture, required runtime libraries and writable executable space. | Distinguish unavailable host networking, missing release or asset, unverified provenance, and incompatible target. Never select an asset using the Hub host's CPU or libc. |
+| **Deploy** | Require approved target and asset, independently verified release identity and digest, and sufficient space in a private staging directory. Transfer via the authenticated SSH session (SFTP or SCP if supported), then verify the device-side digest of the copied bytes. | A filename match, source-only release, CI preflight archive, failed transfer, or missing verified digest is not a deployment. Do not fall back to another version or serial transfer silently. |
+| **Run** | After checking the copied binary, query `capabilities`, show supported commands, and run a fixed argument list only for a selected diagnostic. Save the exact asset/session identity beside the evidence. | A successful copy or capability probe does not establish device health. Separate unavailable readings, failed diagnostics, and unsupported operations. |
+
+For a static ARM64 asset, a compatible ARM64 Linux userspace is a candidate,
+not proof the board supports the kernel interfaces needed by a diagnostic.
+For x86-64, require a compatible glibc loader and direct dependencies; the
+recorded symbol floor is necessary but not sufficient. An empty
+`qualified_targets` field means the manifest declares no board qualification.
+Display that state even when a deliberately approved manual smoke test is
+possible. Never flash firmware, replace a system executable, or launch stress
+as a side effect of checking or transferring an asset.
+
+See [passive evidence handoff](hub-evidence.md) for the run and report checks.
+
 ## Internal build preflight
 
 On a clean Linux x86-64 checkout with Rust 1.96.0 and its
