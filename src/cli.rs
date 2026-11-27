@@ -142,6 +142,17 @@ const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[
     ("--network-interface", Kind::Text),
     ("--nvme-controller", Kind::Text),
     ("--include-system-health", Flag),
+    (
+        "--pressure-series-samples",
+        Number(2, crate::pressure::MAX_SAMPLES),
+    ),
+    (
+        "--pressure-series-gap-ms",
+        Number(
+            crate::pressure::MIN_INTERVAL_MS,
+            crate::pressure::MAX_INTERVAL_MS,
+        ),
+    ),
     ("--pcie-health-device", Kind::Text),
     ("--pcie-health-sample-ms", Number(1, 2000)),
     ("--evidence-json", Kind::Path),
@@ -300,6 +311,7 @@ fn help() {
         "Usage:
   eld-engine capabilities
   eld-engine pressure
+  eld-engine pressure series --samples N --interval-ms MS
   eld-engine numa inventory
   eld-engine accelerator inventory|interfaces
   eld-engine accelerator amdgpu-hwmon --device BDF
@@ -307,7 +319,8 @@ fn help() {
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
   eld-engine qualify passive [--board-profile PATH | --require-pcie BDF[=VVVV:DDDD][,...]] [--network-interface NAME] [--nvme-controller NAME]
-                             [--include-system-health] [--pcie-health-device BDF [--pcie-health-sample-ms MS]]
+                             [--include-system-health [--pressure-series-samples N --pressure-series-gap-ms MS]]
+                             [--pcie-health-device BDF [--pcie-health-sample-ms MS]]
                              [--evidence-json NEW_PATH] [--run-id HEX32]
   eld-engine qualify plan --profile bring-up|quick|manufacturing|overnight [--include-local-load]
                            [--local-test cpu|ram] [--max-local-load-secs SECONDS]
@@ -455,7 +468,8 @@ fn capabilities() -> String {
             r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}},"#,
             r#""offline_amdgpu_ras":{{"schema":1,"input":"literal_capture_text","max_bytes":{}}},"#,
             r#""passive_pcie_health":{{"schema":1,"max_sample_wait_ms":2000}},"#,
-            r#""passive_pcie_expectation":{{"schema":1,"flag":"--require-pcie"}}}}}}"#,
+            r#""passive_pcie_expectation":{{"schema":1,"flag":"--require-pcie"}},"#,
+            r#""pressure_series":{{"schema":1,"max_samples":{},"max_gap_ms":{},"qualification_flag":"--pressure-series-samples"}}}}}}"#,
         ),
         json_string(env!("CARGO_PKG_VERSION")),
         json_string(std::env::consts::ARCH),
@@ -463,6 +477,8 @@ fn capabilities() -> String {
         crate::qualification::MAX_EVIDENCE_BYTES,
         crate::nvme_health::SMART_PAGE_BYTES,
         crate::ras_capture::LIMIT,
+        crate::pressure::MAX_SAMPLES,
+        crate::pressure::MAX_INTERVAL_MS,
     )
 }
 
@@ -489,6 +505,25 @@ pub(crate) fn run() -> Result<(), String> {
             }
             Options::parse("numa inventory", rest, &[])?;
             crate::numa::run();
+            return Ok(());
+        }
+        "pressure" if args.first().map_or(false, |v| v == "series") => {
+            use crate::pressure::{self, MAX_INTERVAL_MS, MAX_SAMPLES, MIN_INTERVAL_MS};
+            let opt = Options::parse(
+                "pressure series",
+                &args[1..],
+                &[
+                    ("--samples", Number(2, MAX_SAMPLES)),
+                    ("--interval-ms", Number(MIN_INTERVAL_MS, MAX_INTERVAL_MS)),
+                ],
+            )?;
+            let count = opt
+                .number("--samples")
+                .ok_or("pressure series requires --samples")?;
+            let gap = opt
+                .number("--interval-ms")
+                .ok_or("pressure series requires --interval-ms")?;
+            println!("{}", pressure::series(count, gap)?);
             return Ok(());
         }
         "pressure" => {
@@ -569,13 +604,24 @@ pub(crate) fn run() -> Result<(), String> {
                 (None, Some(expected)) => BoardScope::RequiredPcie(expected),
                 (None, None) => BoardScope::None,
             };
+            use crate::qualification::SystemHealthScope;
+            let health = match (
+                options.flag("--include-system-health"),
+                options.number("--pressure-series-samples"),
+                options.number("--pressure-series-gap-ms"),
+            ) {
+                (true, Some(count), Some(gap_ms)) => SystemHealthScope::WithPressureSeries { count, gap_ms },
+                (true, None, None) => SystemHealthScope::Snapshot,
+                (false, None, None) => SystemHealthScope::None,
+                _ => return Err("pressure series requires --include-system-health and both pressure-series options".into()),
+            };
             crate::qualification::run_passive(
                 board,
                 options.text("--network-interface").ok(),
                 options.text("--nvme-controller").ok(),
                 options.path("--evidence-json"),
                 options.text("--run-id").ok(),
-                options.flag("--include-system-health"),
+                health,
                 device.map(|bdf| (bdf, sample)),
             )?;
             return Ok(());

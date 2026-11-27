@@ -82,6 +82,34 @@ pub(crate) fn snapshot() -> String {
     )
 }
 
+pub(crate) const MIN_INTERVAL_MS: u64 = 100;
+pub(crate) const MAX_INTERVAL_MS: u64 = 1000;
+pub(crate) const MAX_SAMPLES: u64 = 8;
+
+pub(crate) fn series(count: u64, interval_ms: u64) -> Result<String, String> {
+    use std::time::{Duration, Instant};
+    if !(2..=MAX_SAMPLES).contains(&count)
+        || !(MIN_INTERVAL_MS..=MAX_INTERVAL_MS).contains(&interval_ms)
+    {
+        return Err("pressure series exceeds sample bounds".into());
+    }
+    let epoch = Instant::now();
+    let mut rows = Vec::with_capacity(count as usize);
+    for index in 0..count {
+        if index > 0 {
+            std::thread::sleep(Duration::from_millis(interval_ms));
+        }
+        let started_ms = epoch.elapsed().as_millis();
+        let sample = snapshot();
+        let finished_ms = epoch.elapsed().as_millis();
+        rows.push(format!(r#"{{"index":{index},"started_monotonic_ms":{started_ms},"finished_monotonic_ms":{finished_ms},"pressure":{sample}}}"#));
+    }
+    Ok(format!(
+        r#"{{"schema_version":1,"kind":"linux_pressure_series","scope":"single_process","sample_count":{count},"requested_gap_ms":{interval_ms},"workload_execution":"none","samples":[{}]}}"#,
+        rows.join(",")
+    ))
+}
+
 pub(crate) fn run() {
     println!("{}", snapshot());
 }

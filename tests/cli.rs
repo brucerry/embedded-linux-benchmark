@@ -1646,3 +1646,53 @@ fn passive_pcie_expectations_are_opt_in_and_preserve_missing_rows() {
         .trim_end()
         .ends_with(&format!(r#","qualification":{}}}"#, output.trim_end())));
 }
+
+#[test]
+fn passive_pressure_series_requires_explicit_paired_bounds() {
+    let scratch = ScratchDirectory::create();
+    let path = scratch.0.join("series.json");
+    let file = path.to_str().unwrap();
+    let cap = successful_output(&["capabilities"]);
+    assert!(cap.contains(r#""pressure_series":{"schema":1,"max_samples":8,"max_gap_ms":1000,"qualification_flag":"--pressure-series-samples"}"#));
+    for args in [
+        vec!["--include-system-health", "--pressure-series-samples", "2"],
+        vec![
+            "--pressure-series-samples",
+            "2",
+            "--pressure-series-gap-ms",
+            "100",
+        ],
+        vec![
+            "--include-system-health",
+            "--pressure-series-samples",
+            "9",
+            "--pressure-series-gap-ms",
+            "100",
+        ],
+    ] {
+        let full = ["qualify", "passive", "--evidence-json", file]
+            .into_iter()
+            .chain(args)
+            .collect::<Vec<_>>();
+        let out = run(&full);
+        assert!(!out.status.success() && out.stdout.is_empty() && !path.exists());
+    }
+    let output = successful_output(&[
+        "qualify",
+        "passive",
+        "--include-system-health",
+        "--pressure-series-samples",
+        "2",
+        "--pressure-series-gap-ms",
+        "100",
+        "--run-id",
+        "0123456789abcdeffedcba9876543210",
+        "--evidence-json",
+        file,
+    ]);
+    assert!(output.contains(r#""kind":"linux_pressure_series","scope":"single_process","sample_count":2,"requested_gap_ms":100,"workload_execution":"none""#));
+    assert!(std::fs::read_to_string(path)
+        .unwrap()
+        .trim_end()
+        .ends_with(&format!(r#","qualification":{}}}"#, output.trim_end())));
+}

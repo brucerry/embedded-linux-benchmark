@@ -78,3 +78,11 @@ those labels. It counts named PCIe expectation states per host only. The
 same BDF on two hosts is not the same device. A report with no expectation
 rows is not a pass. Keep each original report and its digest; do not use a
 demo summary to trigger remediation.
+
+The `pressure_series` capability supports a short passive comparison window.
+Use `--include-system-health --pressure-series-samples N --pressure-series-gap-ms MS`
+to include it in run-bound evidence. Both values are required: 2–8 samples,
+100–1000 ms between reads. Each sample records its start and end relative to
+that process's series start. Observations are not synchronized across resources,
+hosts or runs. No workload or permanent collector is started. Do not interpret
+a missing PSI metric as zero or compare the monotonic offsets across devices.

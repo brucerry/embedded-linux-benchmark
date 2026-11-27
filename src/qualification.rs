@@ -128,13 +128,19 @@ pub(crate) enum BoardScope<'a> {
     RequiredPcie(&'a str),
 }
 
+pub(crate) enum SystemHealthScope {
+    None,
+    Snapshot,
+    WithPressureSeries { count: u64, gap_ms: u64 },
+}
+
 /// Read inventory and selected passive snapshots. No workload argv.
 fn passive(
     board: BoardScope<'_>,
     network_interface: Option<&str>,
     nvme_controller: Option<&str>,
     run_id: Option<&str>,
-    include_system_health: bool,
+    health_scope: SystemHealthScope,
     pcie: Option<(&str, Option<u64>)>,
 ) -> Result<String, String> {
     let run = match run_id {
@@ -165,14 +171,24 @@ fn passive(
         BoardScope::RequiredPcie(expected) => (Some(expected), None, "see_required_pcie"),
     };
     let inventory = crate::inventory::snapshot(required, profile, None)?;
-    let health = if include_system_health {
-        format!(
-            r#","system_health":{{"schema_version":1,"numa":{},"pressure":{}}}"#,
-            crate::numa::snapshot(),
-            crate::pressure::snapshot()
-        )
-    } else {
-        String::new()
+    let health = match health_scope {
+        SystemHealthScope::None => String::new(),
+        _ => {
+            let numa = crate::numa::snapshot();
+            let pressure = crate::pressure::snapshot();
+            let series =
+                if let SystemHealthScope::WithPressureSeries { count, gap_ms } = health_scope {
+                    format!(
+                        r#","pressure_series":{}"#,
+                        crate::pressure::series(count, gap_ms)?
+                    )
+                } else {
+                    String::new()
+                };
+            format!(
+                r#","system_health":{{"schema_version":1,"numa":{numa},"pressure":{pressure}{series}}}"#,
+            )
+        }
     };
     Ok(format!(
         r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{pcie}{run}}}"#
@@ -195,7 +211,7 @@ pub(crate) fn run_passive(
     nvme_controller: Option<&str>,
     evidence_path: Option<&std::path::Path>,
     run_id: Option<&str>,
-    include_system_health: bool,
+    health_scope: SystemHealthScope,
     pcie: Option<(&str, Option<u64>)>,
 ) -> Result<(), String> {
     use crate::common::{unix_ms, write_new_evidence};
@@ -206,7 +222,7 @@ pub(crate) fn run_passive(
         network_interface,
         nvme_controller,
         run_id,
-        include_system_health,
+        health_scope,
         pcie,
     )?;
     if let Some((path, (started, timer))) = evidence_path.zip(clock) {
