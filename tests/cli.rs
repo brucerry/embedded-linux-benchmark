@@ -1537,3 +1537,32 @@ fn passive_system_health_is_advertised_and_opt_in() {
         .trim_end()
         .ends_with(&format!(r#","qualification":{}}}"#, stdout.trim_end())));
 }
+
+#[test]
+fn offline_ras_decodes_literal_capture_without_probing_devices() {
+    let cap = successful_output(&["capabilities"]);
+    assert!(cap.contains(
+        r#""offline_amdgpu_ras":{"schema":1,"input":"literal_capture_text","max_bytes":128}"#
+    ));
+    assert!(!cap.contains("passive_amdgpu_umc_ras"));
+    let decode = |text: &str| run(&["accelerator", "amdgpu-ras-decode", "--capture-text", text]);
+    let capture = decode("ue: 0\nce: 9007199254740993\n");
+    assert!(capture.status.success() && capture.stderr.is_empty());
+    let body = String::from_utf8(capture.stdout).unwrap();
+    assert!(body.contains(r#""capture_identity":"unverified","live_query":"not_performed""#));
+    assert!(body.contains(r#""corrected_errors":"9007199254740993","uncorrected_errors":"0""#));
+    let result = decode("Query currently inaccessible");
+    assert!(result.status.success());
+    let body = String::from_utf8(result.stdout).unwrap();
+    assert!(body.contains(r#""status":"unavailable""#) && !body.contains("corrected_errors"));
+    for bad in [
+        "ce: 0",
+        "ce: 0\nue: 0\nce: 1",
+        "ce: 18446744073709551616\nue: 0",
+        "/sys/class/drm/card0/device/ras/umc_err_count",
+        &"x".repeat(129),
+    ] {
+        let result = decode(bad);
+        assert!(!result.status.success() && result.stdout.is_empty());
+    }
+}

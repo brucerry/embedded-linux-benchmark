@@ -34,3 +34,12 @@ contract does not open those files or advertise live RAS support. Lab imports
 of previously captured observations are a separate, offline operation.
 
 [Linux 6.6 AMDGPU read path](https://github.com/torvalds/linux/blob/v6.6/drivers/gpu/drm/amd/amdgpu/amdgpu_ras.c#L600-L622)
+
+When `contracts.offline_amdgpu_ras.schema` is 1, Hub can decode previously
+captured AMDGPU RAS text locally via the fixed argument list
+`accelerator amdgpu-ras-decode --capture-text TEXT`. Provide the capture
+text as a literal argument (128 ASCII bytes maximum), not a path or shell
+fragment. Never read live sysfs RAS attributes to supply this command.
+`decoded` is a parsing status; it says nothing about the device or when the
+text was collected. Keep provenance outside this output, do not treat it as a
+live metric, and never calculate a hardware-counter delta from this alone.

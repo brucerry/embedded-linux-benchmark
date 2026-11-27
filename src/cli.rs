@@ -300,6 +300,7 @@ fn help() {
   eld-engine numa inventory
   eld-engine accelerator inventory|interfaces
   eld-engine accelerator amdgpu-hwmon --device BDF
+  eld-engine accelerator amdgpu-ras-decode --capture-text TEXT
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
   eld-engine qualify passive [--board-profile PATH] [--network-interface NAME] [--nvme-controller NAME]
@@ -447,13 +448,15 @@ fn capabilities() -> String {
             r#""qualification_plan":{{"schema":1,"execution":"preview_only"}},"#,
             r#""storage_nvme_smart_decode":{{"schema":1,"input":"offline_page","input_bytes":{}}},"#,
             r#""storage_mmc_health":{{"schema":1,"input":"named_mmc_card"}},"#,
-            r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}}}}}}"#,
+            r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}},"#,
+            r#""offline_amdgpu_ras":{{"schema":1,"input":"literal_capture_text","max_bytes":{}}}}}}}"#,
         ),
         json_string(env!("CARGO_PKG_VERSION")),
         json_string(std::env::consts::ARCH),
         json_string(std::env::consts::OS),
         crate::qualification::MAX_EVIDENCE_BYTES,
         crate::nvme_health::SMART_PAGE_BYTES,
+        crate::ras_capture::LIMIT,
     )
 }
 
@@ -491,13 +494,21 @@ pub(crate) fn run() -> Result<(), String> {
             match args {
                 [mode] if mode == "inventory" => crate::accelerator::run(),
                 [mode] if mode == "interfaces" => crate::accelerator_interfaces::run(),
+                [mode, rest @ ..] if mode == "amdgpu-ras-decode" => {
+                    let options = Options::parse(
+                        "accelerator amdgpu-ras-decode",
+                        rest,
+                        &[("--capture-text", Kind::Text)],
+                    )?;
+                    println!("{}", crate::ras_capture::decode(options.text("--capture-text")?)?);
+                }
                 [mode, rest @ ..] if mode == "amdgpu-hwmon" => {
                     let options = Options::parse("accelerator amdgpu-hwmon", rest, PCIE_LINK_OPTIONS)?;
                     crate::accelerator_telemetry::run(options.text("--device")?)?;
                 }
                 _ => {
                     return Err(
-                        "expected an accelerator subcommand: inventory, interfaces, or amdgpu-hwmon. See --help."
+                        "expected an accelerator subcommand: inventory, interfaces, amdgpu-hwmon, or amdgpu-ras-decode. See --help."
                             .into(),
                     )
                 }

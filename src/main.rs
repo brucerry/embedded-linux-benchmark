@@ -31,6 +31,7 @@ mod peripheral;
 mod pressure;
 mod qualification;
 mod ram;
+mod ras_capture;
 mod report;
 mod spi;
 mod storage;
