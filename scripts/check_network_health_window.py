@@ -53,11 +53,10 @@ def snapshot(sample, interface):
     return {k: field(sample["counters"][k], decimal) for k in KEYS}
 
 
-def verify(raw, interface, wait_ms):
+def recompute(report, interface, wait_ms, allow_legacy=False):
     check(type(interface) is str and interface not in (".", "..")
           and re.fullmatch(r"[A-Za-z0-9_.-]{1,15}", interface), "invalid interface")
     check(type(wait_ms) is int and 1 <= wait_ms <= 60000, "invalid selected interval")
-    report = parse(raw)
     shape(report, ("schema_version", "mode", "requested_wait_ms", "sample_start_interval_ms",
                    "continuity", "before", "after", "delta"), "invalid NIC window")
     check(type(report["schema_version"]) is int and report["schema_version"] == 1
@@ -85,10 +84,20 @@ def verify(raw, interface, wait_ms):
                                           "value": str(pairs[k][1] - pairs[k][0])}
                                          if k in pairs else {"status": "endpoint_unavailable"})
                                      for k in KEYS}}
-    check(equal(report["delta"], expected), "reported NIC delta disagrees with sample pair")
+    reported = report["delta"]
+    if (allow_legacy and expected["status"] == "observed_differences"
+            and type(reported) is dict and reported.keys() == {"status", "counters"}):
+        expected = {k: expected[k] for k in ("status", "counters")}
+    check(equal(reported, expected), "reported NIC delta disagrees with sample pair")
+    return expected
+
+
+def verify(raw, interface, wait_ms):
+    report = parse(raw)
+    expected = recompute(report, interface, wait_ms)
     return {"schema_version": 1, "kind": "offline_nic_window_check", "interface": interface,
             "evidence_sha256": hashlib.sha256(raw).hexdigest(), "delta": expected,
-            "continuity_claim": continuity, "identity_attestation": "not_verified",
+            "continuity_claim": report["continuity"], "identity_attestation": "not_verified",
             "measurement_scope": "counter_arithmetic_only"}
 
 

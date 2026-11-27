@@ -99,7 +99,8 @@ class Evidence(unittest.TestCase):
         q = fixture()
         window = {"schema_version": 1, "mode": "two_passive_snapshots", "requested_wait_ms": 5,
                   "sample_start_interval_ms": 5, "continuity": "unknown",
-                  "before": {"interface": "lo"}, "after": {"interface": "lo"},
+                  "before": {"schema_version": 1, "interface": "lo", "status": "unavailable"},
+                  "after": {"schema_version": 1, "interface": "lo", "status": "unavailable"},
                   "delta": {"status": "not_comparable"}}
         q["network_health"] = window
 
@@ -121,6 +122,23 @@ class Evidence(unittest.TestCase):
                     run()
                 finally:
                     obj[field] = old
+
+    def test_matching_network_envelopes_cannot_hide_forged_deltas(self):
+        from test_network_health_window import fixture as nic_fixture
+        q = fixture()
+        window = nic_fixture()
+        window.update(requested_wait_ms=5, sample_start_interval_ms=5)
+        q["network_health"] = window
+        def run():
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+
+        self.assertEqual(run()["status"], "correlated")
+        window["delta"].pop("comparable_counters")
+        window["delta"].pop("counter_coverage")
+        self.assertEqual(run()["status"], "correlated")  # older collectors omitted coverage
+        window["delta"]["counters"]["rx_bytes"]["value"] = "0"
+        with self.assertRaisesRegex(ValueError, "delta disagrees"):
+            run()  # altered identically in stdout and saved evidence
 
     def test_rejects_overlaps_and_unreported_observation_timeline_phases(self):
         q = fixture()

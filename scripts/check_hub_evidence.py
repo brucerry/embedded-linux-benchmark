@@ -122,20 +122,9 @@ def verify_network_window(window, elapsed):
     check(all(type(row) is dict for row in (a, b, delta))
           and type(a.get("interface")) is str and a.get("interface") == b.get("interface"),
           "network snapshot interface mismatch")
-    continuity = window["continuity"]
-    check(continuity in ("same_identity_observed", "identity_changed", "unknown"),
-          "invalid network continuity")
-    status = delta.get("status")
-    if continuity == "same_identity_observed":
-        check(a.get("status") == b.get("status") == "observed"
-              and status in ("observed_differences", "counter_decreased_or_reset"),
-              "invalid network delta for matched identity")
-    else:
-        check(delta == {"status": "not_comparable"}, "network delta without continuity")
-    if status == "observed_differences":
-        check(type(delta.get("counters")) is dict, "missing network counters")
-    else:
-        check(delta.keys() == {"status"}, "invalid withheld network delta")
+    # Import locally to share the same pure arithmetic with the standalone CLI.
+    from check_network_health_window import recompute
+    recompute(window, a["interface"], wait, allow_legacy=True)
 
 
 def verify_thermal_window(inventory, elapsed):

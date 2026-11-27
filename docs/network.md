@@ -116,3 +116,8 @@ reset/withhold behavior against the two snapshots and returns their evidence
 hash. It does not run a command on the target or prove the report came from
 the claimed device, that a reset did not occur between samples, or that the
 interface identity claim is authentic.
+
+The controller's passive-evidence verifier uses the same arithmetic for nested
+NIC windows. Older saved windows without coverage fields are accepted only
+when their original counter values and withheld/reset states are consistent.
+Matching saved JSON and stdout by themselves cannot establish valid arithmetic.
