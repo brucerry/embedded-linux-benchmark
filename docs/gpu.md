@@ -48,6 +48,41 @@ use the [optional CUDA helper](cuda.md), a separate `eld-engine-cuda` executable
 built with the NVIDIA Toolkit. The helper's build and CLI checks passed;
 physical GPU performance remains unverified.
 
+## Optional NVIDIA health capture
+
+This separate helper is not part of the built-in executable or the default
+suite. On Linux, build it with NVIDIA's official `nvml.h` and the appropriate
+development library. The header and installed runtime must support
+`nvmlDeviceGetTemperatureV`. Use the actual driver library on the target,
+not a toolkit stub.
+
+```sh
+mkdir -p target
+cc -std=c11 -O2 -I"$NVML_INCLUDE_DIR" cuda/nvml-health.c \
+  -L"$NVML_LIB_DIR" -lnvidia-ml -o target/eld-engine-nvml
+GPU=0000:01:00.0
+if capture=$(target/eld-engine-nvml --device "$GPU"); then
+  eld-engine accelerator nvidia-health-decode --device "$GPU" --capture-text "$capture"
+fi
+```
+
+Set the include and library paths to the NVIDIA development files. Choose
+the BDF from accelerator inventory. The helper requests NVML's no-attach
+initialization mode and queries the selected GPU's identity, temperature,
+power, and volatile corrected and uncorrected ECC totals. It does not
+enumerate devices, start compute, reset counters, or set controls.
+Vendor queries may still affect device power state. Unsupported,
+inaccessible, and unavailable readings stay separate from zero.
+The unsigned capture format reports negative temperatures as unavailable.
+
+This helper was checked against the official header with synthetic library
+responses only. Physical NVIDIA and Jetson runtime behavior and telemetry
+have not been verified. Run the fixture without a driver or GPU:
+
+```sh
+python3 tests/nvml_health_fixture.py --include-dir "$NVML_INCLUDE_DIR"
+```
+
 ## PCI accelerator candidates
 
 `eld-engine accelerator inventory` lists PCI display-controller and
