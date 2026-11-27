@@ -1,8 +1,11 @@
 import copy
+import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import subprocess
+import sys
 import unittest
 
 spec = importlib.util.spec_from_file_location(
@@ -223,6 +226,28 @@ class Evidence(unittest.TestCase):
                 "before": {"status": "unavailable", "zones": []},
                 "after": {"status": "unavailable", "zones": []}, "differences": [],
             }, "thermal": {"status": "unavailable", "zones": []}}}, plan)
+
+    def test_receipt_binds_exact_plan_bytes_only_when_supplied(self):
+        q = {k: v for k, v in fixture().items() if k != "pcie_health"}
+        plan = {"plan_schema_version": 1, "execution": "none",
+                "max_evidence_bytes": m.MAX_BYTES, "optional": [],
+                "argv": ["qualify", "passive", "--run-id", TOKEN,
+                         "--evidence-json", "/tmp/report.json"]}
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            evidence, stdout, saved = (root / name for name in ("evidence", "stdout", "plan"))
+            evidence.write_bytes(pack(q))
+            stdout.write_text(json.dumps(q), encoding="utf-8")
+            plan_data = (json.dumps(plan, indent=2) + "\n").encode()
+            saved.write_bytes(plan_data)
+            command = [sys.executable, "-B", m.__file__, "--evidence", str(evidence),
+                       "--stdout", str(stdout), "--run-id", TOKEN]
+            legacy = subprocess.run(command, capture_output=True, check=True, timeout=4)
+            self.assertNotIn("plan_sha256", json.loads(legacy.stdout))
+            receipt = subprocess.run(command + ["--plan", str(saved)], capture_output=True,
+                                     check=True, timeout=4)
+            self.assertEqual(json.loads(receipt.stdout)["plan_sha256"],
+                             hashlib.sha256(plan_data).hexdigest())
 
     def test_rejects_duplicate_truncated_and_nonfinite(self):
         for data in (b'{"a":1,"a":2}', b'{"a":', b'{"a":NaN}', b' ' * (m.MAX_BYTES + 1)):

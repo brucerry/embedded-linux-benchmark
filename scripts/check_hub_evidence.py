@@ -308,8 +308,11 @@ def main():
     p.add_argument("--plan", help="previously generated trusted passive plan; never executed")
     a = p.parse_args()
     try:
-        plan = parse(read_bounded(a.plan)) if a.plan else None
+        plan_data = read_bounded(a.plan) if a.plan else None
+        plan = parse(plan_data) if plan_data is not None else None
         receipt = verify(read_bounded(a.evidence), read_bounded(a.stdout), a.run_id, plan)
+        if plan_data is not None:
+            receipt["plan_sha256"] = hashlib.sha256(plan_data).hexdigest()
     except (OSError, ValueError, RecursionError) as exc:
         p.exit(1, f"Evidence rejected: {exc}\n")
     print(json.dumps(receipt, sort_keys=True))

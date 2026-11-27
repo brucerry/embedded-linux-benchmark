@@ -58,7 +58,9 @@ Pass `--plan` to the verifier with the trusted plan previously generated
 by `scripts/plan_hub_passive.py` for this run. The verifier checks run ID,
 evidence size, and the exact planned set of optional observations; a skipped
 feature is not counted as present. This reference mode covers only the
-planner's basic passive invocation. It does not run the plan, verify the
+planner's basic passive invocation. The CLI receipt adds `plan_sha256` only
+when it verifies a plan, binding the exact supplied bytes for audit comparison.
+The digest is not a signature. This mode does not run the plan, verify the
 remote output path, or authenticate the plan or device.
 
 For local contract testing, `scripts/check_hub_evidence.py` correlates
