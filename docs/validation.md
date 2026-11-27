@@ -56,3 +56,13 @@ I2C and SPI transaction validation used mocks. Physical bus transfers, physical 
 | Jetson Linux 36.5.2 and 39.2.2 AArch64 GNU/Linux | QEMU user mode with each SDK sysroot and matching NVIDIA sample libraries |
 
 The OpenWrt guests enabled loopback in the test setup. The Jetson tests used the host kernel, filesystem, and TCP stack through QEMU user mode. The SDK checks exercised CPU and RAM, storage with sync and cleanup, TCP loopback, and stress with and without opted-in storage. Physical-board measurements remain unverified. [OpenWrt SDK records](openwrt-compatibility.md) · [MIPS SDK records](openwrt-platforms.md) · [Jetson SDK records](jetson-linux.md)
+
+## Evaluate planned PCIe requirements offline
+
+Use `scripts/evaluate_pcie_requirements.py --help` with the trusted preview,
+the exact saved report and stdout, and the observed process exit status.
+A positively identified device passes only the declared requirement.
+Missing or mismatched devices fail; unavailable observations stay
+unavailable. No requirements means not assessed. This score does not
+certify the board or establish hardware, transport, or manufacturing
+provenance. Read the JSON outcome rather than using tool exit as a pass.
