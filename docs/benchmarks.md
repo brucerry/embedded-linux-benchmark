@@ -11,6 +11,19 @@ numbers, or execute a system configuration file. The architecture describes
 the executable, not a claim about the physical board under emulation.
 Unavailable, inaccessible, and invalid observations stay separate.
 
+## CPU and RAM
+
+```sh
+eld-engine cpu --duration-ms 500
+eld-engine ram --duration-ms 500 --buffer-kib 1024
+```
+
+The CPU test measures single-threaded 32-bit integer throughput. The RAM test
+copies between two buffers of the selected size. Both are active local loads:
+use short runs on a lab board and interpret results in the context of its power,
+cooling and firmware configuration. See [automatic stress](#automatic-stress) for
+a longer or combined run.
+
 ## Storage
 
 Select an existing writable directory and a size of 1–64 MiB. The command creates a uniquely named regular file with owner-only permissions, writes the requested payload sequentially, then reads and verifies the same byte count. Exclusive creation protects existing files. The command removes the scratch file on success or a handled error and reports the path if removal fails.
