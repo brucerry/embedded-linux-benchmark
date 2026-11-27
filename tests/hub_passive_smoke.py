@@ -1,0 +1,39 @@
+"""Exercise plan and evidence correlation with a trusted, locally built Engine."""
+import argparse
+from pathlib import Path
+import secrets
+import subprocess
+import sys
+import tempfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from check_hub_evidence import parse, read_bounded, verify  # noqa: E402
+from plan_hub_passive import plan  # noqa: E402
+
+
+def invoke(binary, *args):
+    return subprocess.run([str(binary), *args], check=True, capture_output=True,
+                          timeout=15).stdout
+
+
+def smoke(binary):
+    with tempfile.TemporaryDirectory(prefix="eld-hub-passive-") as directory:
+        cap = parse(invoke(binary, "capabilities"))
+        for i, options in enumerate(([], ["system-health", "timeline"])):
+            token = secrets.token_hex(16)
+            output = Path(directory) / f"evidence-{i}.json"
+            preview = plan(cap, token, str(output), options)
+            if any(row["status"] != "planned" for row in preview["optional"]):
+                raise ValueError("local build did not advertise expected passive options")
+            # Use only the deterministic argv from the local capability planner.
+            stdout = invoke(binary, *preview["argv"])
+            result = verify(read_bounded(output), stdout, token, preview)
+            if result["status"] != "correlated" or result["hardware_authenticity"] != "not_verified":
+                raise ValueError("unexpected offline validation result")
+    print("Engine passive evidence smoke passed (baseline and negotiated options)")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("engine", type=Path, help="trusted locally built Engine executable")
+    smoke(parser.parse_args().engine.resolve(strict=True))
