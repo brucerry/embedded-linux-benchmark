@@ -132,3 +132,27 @@ class BoardBringupTest(unittest.TestCase):
                                    "hardware_authenticity": "not_verified"})
         with self.assertRaisesRegex(ValueError, "invalid requested PCIe health"):
             make("pci0000:01")
+
+
+    def test_pcie_window_preview_does_not_fall_back_to_single_snapshot(self):
+        device = "0000:01:00.0"
+        self.cap["contracts"]["passive_pcie_health"] = {"schema": 1, "max_sample_wait_ms": 10}
+
+        def make(wait, selected=device):
+            result = preview(self.cap, self.run_id, "/tmp/new-run/result.json",
+                             pcie_health_device=selected, pcie_health_sample_ms=wait)
+            row = next(r for r in result["steps"] if r["id"] == "selected_pcie_health")
+            return result, row
+
+        planned, row = make(10)
+        self.assertEqual(row, {"id": "selected_pcie_health", "status": "planned",
+                               "device": device, "scope": "two_passive_snapshots",
+                               "hardware_authenticity": "not_verified", "requested_ms": 10})
+        self.assertEqual(planned["passive_plan"]["argv"][-4:],
+                         ["--pcie-health-device", device, "--pcie-health-sample-ms", "10"])
+        unsupported, row = make(11)
+        self.assertEqual(row["status"], "unsupported")
+        self.assertNotIn("--pcie-health-device", unsupported["passive_plan"]["argv"])
+        for bad, selected in ((True, device), (0, device), (2001, device), (5, None)):
+            with self.subTest(bad=bad, selected=selected), self.assertRaises(ValueError):
+                make(bad, selected)

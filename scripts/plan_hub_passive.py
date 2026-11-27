@@ -22,11 +22,12 @@ def supports_thermal_wait(contracts, wait):
             and wait <= row["max_sample_wait_ms"] <= 2000)
 
 
-def supports_pcie_health(contracts):
+def supports_pcie_health(contracts, wait=None):
     row = contracts.get("passive_pcie_health")
     return (type(row) is dict and type(row.get("schema")) is int and row["schema"] == 1
             and type(row.get("max_sample_wait_ms")) is int
-            and 1 <= row["max_sample_wait_ms"] <= 2000)
+            and 1 <= row["max_sample_wait_ms"] <= 2000
+            and (wait is None or (type(wait) is int and 1 <= wait <= row["max_sample_wait_ms"])))
 
 
 def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_controller=None,
@@ -112,7 +113,7 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_co
               "Engine does not advertise passive PCIe health schema 1")
         argv.extend(("--pcie-health-device", pcie_health_device))
         if pcie_health_sample_ms is not None:
-            check(pcie_health_sample_ms <= contracts["passive_pcie_health"]["max_sample_wait_ms"],
+            check(supports_pcie_health(contracts, pcie_health_sample_ms),
                   "Engine does not advertise the requested PCIe health wait")
             argv.extend(("--pcie-health-sample-ms", str(pcie_health_sample_ms)))
     results = []

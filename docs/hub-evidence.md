@@ -60,8 +60,9 @@ For trusted plan verification, give the planner one explicit
 verifier checks the target, requested and measured intervals, observer
 scopes, and reported per-device and root AER arithmetic. It cannot
 independently authenticate boot or sysfs identity or judge link performance.
-The bring-up preview supports single snapshots. A planned marker does not
-imply the device is present or confirm a physical observation.
+The bring-up preview supports either mode. It does not silently fall
+back to a single snapshot when a requested interval is unsupported. A
+planned marker does not imply device presence or physical verification.
 
 Pass `--plan` to the verifier with the trusted plan previously generated
 by `scripts/plan_hub_passive.py` for this run. The verifier checks run ID,
