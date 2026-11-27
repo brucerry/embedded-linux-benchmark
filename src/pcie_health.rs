@@ -569,6 +569,33 @@ fn comparison(
     {
         return Err("device_identity_changed");
     }
+    // A driver rebind may reset counters without changing the PCI sysfs inode.
+    let known_binding = |binding: &Binding| match binding {
+        Binding::Unbound => true,
+        Binding::Bound { module, .. } => {
+            matches!(module, Observed::Value(_) | Observed::Unavailable)
+        }
+        _ => false,
+    };
+    if first.iter().zip(second).any(|(a, b)| {
+        matches!(a.binding, Binding::Changed) || matches!(b.binding, Binding::Changed)
+    }) {
+        return Err("driver_binding_changed");
+    }
+    if first
+        .iter()
+        .zip(second)
+        .any(|(a, b)| !known_binding(&a.binding) || !known_binding(&b.binding))
+    {
+        return Err("driver_binding_indeterminate");
+    }
+    if first
+        .iter()
+        .zip(second)
+        .any(|(a, b)| a.binding != b.binding)
+    {
+        return Err("driver_binding_changed");
+    }
     Ok(())
 }
 
@@ -768,6 +795,26 @@ mod tests {
         assert_eq!(
             comparison(&before, &replacement, &a, &a),
             Err("device_identity_changed")
+        );
+        let mut rebound = [make(4)];
+        rebound[0].binding = Binding::Bound {
+            driver: "fixture".into(),
+            module: Observed::Unavailable,
+        };
+        assert_eq!(
+            comparison(&before, &rebound, &a, &a),
+            Err("driver_binding_changed")
+        );
+        assert!(!render_delta(&before, &rebound, &a, &a).contains("by_observer"));
+        rebound[0].binding = Binding::Changed;
+        assert_eq!(
+            comparison(&rebound, &rebound, &a, &a),
+            Err("driver_binding_changed")
+        );
+        rebound[0].binding = Binding::Inaccessible;
+        assert_eq!(
+            comparison(&rebound, &rebound, &a, &a),
+            Err("driver_binding_indeterminate")
         );
         assert!(uuid("not-a-real-boot-id").is_none());
         assert!(!render_delta(&before, &replacement, &a, &a).contains("by_observer"));

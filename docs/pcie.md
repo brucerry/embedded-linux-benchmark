@@ -58,7 +58,7 @@ Writes one versioned JSON object to stdout with the target and its upstream PCI 
 
 Each PCI device row reports its observed driver binding. A bound driver can legitimately have no visible module; this does not indicate whether it was built in or separately loaded. A changing or dangling link is not reported as a stable binding.
 
-Use `--sample-ms 1000` to take a second snapshot after a bounded wait (1–60000 ms). No load is generated. The JSON contains both snapshots, the measured interval between sample starts, and a per-observer delta only when boot and sysfs identities match. A decrease, a changed category set, or an unavailable counter never becomes an invented zero. Counter deltas show what changed during the interval, not which component caused it.
+Use `--sample-ms 1000` to take a second snapshot after a bounded wait (1–60000 ms). No load is generated. The JSON contains both snapshots, the measured interval between sample starts, and a per-observer delta only when boot and sysfs identities match and both driver bindings are stable and agree. This does not detect an unobserved rebind that returns to the same driver between samples. A decrease, a changed category set, or an unavailable counter never becomes an invented zero. Counter deltas show what changed during the interval, not which component caused it.
 
 To assess a board's expected link, add `--min-width 4 --min-speed-gtps 8.0`.
 The optional `target_link_expectation` object compares only the selected device's
