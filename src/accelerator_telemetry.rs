@@ -1,4 +1,4 @@
-//! Explicit AMDGPU hwmon and memory RAS telemetry; never writes controls or opens PCI resources.
+//! Explicit AMDGPU hwmon telemetry; never writes controls or opens PCI resources.
 use crate::{inventory, pcie, sysfs};
 use std::fs;
 use std::io;
@@ -121,90 +121,10 @@ pub(crate) fn run(device: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn ras_counters(text: &str) -> Result<(u64, u64), &'static str> {
-    let (mut ce, mut ue) = (None, None);
-    for line in text.lines() {
-        let (label, value) = line.split_once(':').ok_or("invalid")?;
-        let value = value.trim();
-        if !sysfs::name_digits(value) {
-            return Err("invalid");
-        }
-        let dest = match label {
-            "ce" => &mut ce,
-            "ue" => &mut ue,
-            _ => return Err("invalid"),
-        };
-        if dest
-            .replace(value.parse::<u64>().map_err(|_| "invalid")?)
-            .is_some()
-        {
-            return Err("invalid");
-        }
-    }
-    Ok((ce.ok_or("invalid")?, ue.ok_or("invalid")?))
-}
-
-fn read_umc_ras(
-    bdf: &str,
-    index: &Path,
-    devices: &Path,
-    drivers: &Path,
-) -> Result<(u64, u64), &'static str> {
-    let device = inventory::pci_entry(index, devices, bdf)?.ok_or("unavailable")?;
-    if inventory::pci_attr(&device.0.join("vendor"))? != 0x1002 {
-        return Err("unsupported");
-    }
-    let driver = amdgpu_binding(&device.0, drivers)?;
-    let ras = device.0.join("ras");
-    let before = key(&ras)?;
-    let value = ras_counters(&sysfs::bounded_text(&ras.join("umc_err_count"))?)?;
-    if key(&ras)? != before
-        || amdgpu_binding(&device.0, drivers) != Ok(driver)
-        || inventory::pci_entry(index, devices, bdf)? != Some(device)
-    {
-        return Err("changed");
-    }
-    Ok(value)
-}
-
-pub(crate) fn snapshot_umc_ras(device: &str) -> Result<String, String> {
-    let bdf = pcie::bdf(device)?;
-    let data = read_umc_ras(
-        &bdf,
-        Path::new("/sys/bus/pci/devices"),
-        Path::new("/sys/devices"),
-        Path::new("/sys/bus/pci/drivers"),
-    );
-    let (status, counters) = match data {
-        Ok((ce, ue)) => (
-            "observed",
-            format!(r#","corrected_errors":"{ce}","uncorrected_errors":"{ue}""#),
-        ),
-        Err(status) => (status, String::new()),
-    };
-    Ok(format!(
-        r#"{{"schema_version":1,"kind":"amdgpu_umc_ras_observation","bdf":"{bdf}","status":"{status}"{counters}}}"#
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::os::unix::fs::symlink;
-
-    #[test]
-    fn ras_rejects_unknown_duplicate_missing_or_overflowed_counts() {
-        assert_eq!(ras_counters("ce:0\nue:0"), Ok((0, 0)));
-        for bad in [
-            "ce: 0",
-            "ce: 0\nce: 2",
-            "ue: -1\nce: 0",
-            "ue: 0\nce: 18446744073709551616",
-            "ue: 0\nce: 0\nother: 1",
-        ] {
-            assert_eq!(ras_counters(bad), Err("invalid"));
-        }
-    }
 
     #[test]
     fn amdgpu_read_is_scoped_and_preserves_signed_and_wide_values() {
@@ -243,23 +163,6 @@ mod tests {
             r#""soc_power_average_microwatts":{"status":"observed","value":"9007199254740993"}"#
         ));
         assert!(sample.contains(r#""soc_power_instant_microwatts":{"status":"invalid"}"#));
-        let ras = dev.join("ras");
-        fs::create_dir(&ras).unwrap();
-        assert_eq!(
-            read_umc_ras(bdf, &index, &devices, &drivers),
-            Err("unavailable")
-        );
-        fs::write(ras.join("umc_err_count"), "ue: 0\nce: 9007199254740993\n").unwrap();
-        assert_eq!(
-            read_umc_ras(bdf, &index, &devices, &drivers),
-            Ok((9007199254740993, 0))
-        );
-        fs::remove_file(ras.join("umc_err_count")).unwrap();
-        symlink(sensor.join("temp1_input"), ras.join("umc_err_count")).unwrap();
-        assert_eq!(
-            read_umc_ras(bdf, &index, &devices, &drivers),
-            Err("invalid")
-        );
         fs::remove_file(&driver_link).unwrap();
         symlink(&sensor, &driver_link).unwrap();
         assert!(render(bdf, &index, &devices, &drivers).contains(r#""status":"unsupported""#));

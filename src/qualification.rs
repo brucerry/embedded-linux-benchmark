@@ -129,7 +129,6 @@ fn passive(
     nvme_controller: Option<&str>,
     run_id: Option<&str>,
     include_system_health: bool,
-    ras_device: Option<&str>,
 ) -> Result<String, String> {
     let run = match run_id {
         Some(id) if valid_run_id(id) => format!(r#","run_id":{}"#, json_string(id)),
@@ -141,10 +140,6 @@ fn passive(
         }
         None => String::new(),
     };
-    let ras = ras_device
-        .map(crate::accelerator_telemetry::snapshot_umc_ras)
-        .transpose()?
-        .map_or_else(String::new, |value| format!(r#","amdgpu_umc_ras":{value}"#));
     let network = network_interface
         .map(crate::network_health::snapshot)
         .transpose()?
@@ -169,7 +164,7 @@ fn passive(
         "not_configured"
     };
     Ok(format!(
-        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{ras}{run}}}"#
+        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{run}}}"#
     ))
 }
 
@@ -190,7 +185,6 @@ pub(crate) fn run_passive(
     evidence_path: Option<&std::path::Path>,
     run_id: Option<&str>,
     include_system_health: bool,
-    ras_device: Option<&str>,
 ) -> Result<(), String> {
     use crate::common::{unix_ms, write_new_evidence};
     use std::time::{Instant, SystemTime};
@@ -201,7 +195,6 @@ pub(crate) fn run_passive(
         nvme_controller,
         run_id,
         include_system_health,
-        ras_device,
     )?;
     if let Some((path, (started, timer))) = evidence_path.zip(clock) {
         let elapsed = timer.elapsed().as_millis();

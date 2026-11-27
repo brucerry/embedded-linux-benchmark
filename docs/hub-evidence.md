@@ -25,9 +25,12 @@ topology and kernel pressure snapshots. Qualification schema v1 without the flag
 is unchanged. No load, active accelerator operation, driver modification,
 reflash or remediation is performed. Treat unknown contracts as unsupported.
 
-An Engine advertising `contracts.passive_amdgpu_umc_ras.schema=1` can include
-a passive AMDGPU memory-controller RAS observation with
-`--amdgpu-ras-device BDF`. It reads only the selected AMDGPU-bound PCI
-device's Linux `ras/umc_err_count` sysfs attribute, never driver controls.
-Counters are decimal strings; missing RAS support is not zero errors.
-This is one snapshot, not a fault injection test or a health verdict.
+## Accelerator error counters
+
+Do not use the AMDGPU RAS sysfs error-count files as passive telemetry.
+Some kernel/ASIC combinations reset hardware error counters as a side effect
+of the read. A read-only file descriptor does not prevent this. This Engine
+contract does not open those files or advertise live RAS support. Lab imports
+of previously captured observations are a separate, offline operation.
+
+[Linux 6.6 AMDGPU read path](https://github.com/torvalds/linux/blob/v6.6/drivers/gpu/drm/amd/amdgpu/amdgpu_ras.c#L600-L622)
