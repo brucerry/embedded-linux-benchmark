@@ -140,6 +140,7 @@ const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[
     ("--board-profile", Kind::Path),
     ("--network-interface", Kind::Text),
     ("--nvme-controller", Kind::Text),
+    ("--include-system-health", Flag),
     ("--evidence-json", Kind::Path),
     ("--run-id", Kind::Text),
 ];
@@ -302,7 +303,7 @@ fn help() {
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
   eld-engine qualify passive [--board-profile PATH] [--network-interface NAME] [--nvme-controller NAME]
-                             [--evidence-json NEW_PATH] [--run-id HEX32]
+                             [--include-system-health] [--evidence-json NEW_PATH] [--run-id HEX32]
   eld-engine qualify plan --profile bring-up|quick|manufacturing|overnight [--include-local-load]
                            [--local-test cpu|ram] [--max-local-load-secs SECONDS]
   eld-engine cpu [--duration-ms MS]
@@ -445,7 +446,8 @@ fn capabilities() -> String {
             r#""passive_qualification":{{"observation_schema":1,"evidence_schema":1,"run_id":"hex32","max_evidence_bytes":{}}},"#,
             r#""qualification_plan":{{"schema":1,"execution":"preview_only"}},"#,
             r#""storage_nvme_smart_decode":{{"schema":1,"input":"offline_page","input_bytes":{}}},"#,
-            r#""storage_mmc_health":{{"schema":1,"input":"named_mmc_card"}}}}}}"#,
+            r#""storage_mmc_health":{{"schema":1,"input":"named_mmc_card"}},"#,
+            r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}}}}}}"#,
         ),
         json_string(env!("CARGO_PKG_VERSION")),
         json_string(std::env::consts::ARCH),
@@ -539,6 +541,7 @@ pub(crate) fn run() -> Result<(), String> {
                 options.text("--nvme-controller").ok(),
                 options.path("--evidence-json"),
                 options.text("--run-id").ok(),
+                options.flag("--include-system-health"),
             )?;
             return Ok(());
         }

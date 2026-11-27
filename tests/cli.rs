@@ -1505,3 +1505,35 @@ fn qualification_preview_selects_local_workload_and_fails_closed_on_budget() {
         assert!(!out.status.success() && out.stdout.is_empty(), "{cmd:?}");
     }
 }
+
+#[test]
+fn passive_system_health_is_advertised_and_opt_in() {
+    let scratch = ScratchDirectory::create();
+    let evidence = scratch.0.join("system-health.json");
+    let run_id = "0123456789abcdeffedcba9876543210";
+    let capabilities = successful_output(&["capabilities"]);
+    assert!(capabilities.contains(r#""passive_system_health":{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}"#));
+    assert!(!successful_output(&["qualify", "passive"]).contains(r#""system_health":"#));
+    let stdout = successful_output(&[
+        "qualify",
+        "passive",
+        "--include-system-health",
+        "--run-id",
+        run_id,
+        "--evidence-json",
+        evidence.to_str().unwrap(),
+    ]);
+    assert!(stdout.contains(r#""system_health":{"schema_version":1,"numa":{"schema_version":1,"scope":"linux_numa_inventory""#));
+    assert!(stdout.contains(r#""pressure":{"schema_version":1,"scope":"system_proc_pressure""#));
+    assert!(stdout.contains(r#""workload_execution":"none""#));
+    assert!(
+        stdout.ends_with(&format!(r#","run_id":"{run_id}"}}"#))
+            || stdout
+                .trim_end()
+                .ends_with(&format!(r#","run_id":"{run_id}"}}"#))
+    );
+    let saved = std::fs::read_to_string(evidence).unwrap();
+    assert!(saved
+        .trim_end()
+        .ends_with(&format!(r#","qualification":{}}}"#, stdout.trim_end())));
+}

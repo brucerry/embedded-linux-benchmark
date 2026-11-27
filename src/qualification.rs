@@ -128,6 +128,7 @@ fn passive(
     network_interface: Option<&str>,
     nvme_controller: Option<&str>,
     run_id: Option<&str>,
+    include_system_health: bool,
 ) -> Result<String, String> {
     let run = match run_id {
         Some(id) if valid_run_id(id) => format!(r#","run_id":{}"#, json_string(id)),
@@ -148,13 +149,22 @@ fn passive(
         .transpose()?
         .map_or_else(String::new, |value| format!(r#","nvme_health":{value}"#));
     let inventory = crate::inventory::snapshot(None, board_profile, None)?;
+    let health = if include_system_health {
+        format!(
+            r#","system_health":{{"schema_version":1,"numa":{},"pressure":{}}}"#,
+            crate::numa::snapshot(),
+            crate::pressure::snapshot()
+        )
+    } else {
+        String::new()
+    };
     let board_check = if board_profile.is_some() {
         "see_inventory"
     } else {
         "not_configured"
     };
     Ok(format!(
-        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{run}}}"#
+        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{run}}}"#
     ))
 }
 
@@ -174,11 +184,18 @@ pub(crate) fn run_passive(
     nvme_controller: Option<&str>,
     evidence_path: Option<&std::path::Path>,
     run_id: Option<&str>,
+    include_system_health: bool,
 ) -> Result<(), String> {
     use crate::common::{unix_ms, write_new_evidence};
     use std::time::{Instant, SystemTime};
     let clock = evidence_path.map(|_| (SystemTime::now(), Instant::now()));
-    let observation = passive(board_profile, network_interface, nvme_controller, run_id)?;
+    let observation = passive(
+        board_profile,
+        network_interface,
+        nvme_controller,
+        run_id,
+        include_system_health,
+    )?;
     if let Some((path, (started, timer))) = evidence_path.zip(clock) {
         let elapsed = timer.elapsed().as_millis();
         let finished = unix_ms(SystemTime::now());

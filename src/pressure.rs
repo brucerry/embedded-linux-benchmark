@@ -72,14 +72,18 @@ fn read(dir: &Path, resource: &str) -> String {
     result.unwrap_or_else(|status| format!(r#"{{"status":"{status}"}}"#))
 }
 
-pub(crate) fn run() {
+pub(crate) fn snapshot() -> String {
     let dir = Path::new("/proc/pressure");
-    println!(
+    format!(
         r#"{{"schema_version":1,"scope":"system_proc_pressure","cpu":{},"memory":{},"io":{}}}"#,
         read(dir, "cpu"),
         read(dir, "memory"),
         read(dir, "io")
-    );
+    )
+}
+
+pub(crate) fn run() {
+    println!("{}", snapshot());
 }
 
 #[cfg(test)]

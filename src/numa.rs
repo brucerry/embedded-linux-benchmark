@@ -100,14 +100,18 @@ fn observe(root: &Path) -> Reading<Vec<String>> {
     Ok(rows)
 }
 
-pub(crate) fn run() {
-    println!(
+pub(crate) fn snapshot() -> String {
+    format!(
         r#"{{"schema_version":1,"scope":"linux_numa_inventory","nodes":{}}}"#,
         result(observe(Path::new("/sys/devices/system/node")), |v| format!(
             "[{}]",
             v.join(",")
         ))
-    );
+    )
+}
+
+pub(crate) fn run() {
+    println!("{}", snapshot());
 }
 
 #[cfg(test)]
