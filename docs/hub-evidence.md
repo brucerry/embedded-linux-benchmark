@@ -288,9 +288,18 @@ python3 scripts/compare_nvme_smart_evidence.py \
   --after after.bin after.json AFTER_SHA256
 ```
 
-Supply independently identified captures from the same controller and in
-the correct order. The checker verifies each page and decode, refuses two
+Supply independently identified captures from the same controller and
+the same SMART log scope (controller-wide or the same namespace), in the
+correct order. The checker verifies each page and decode, refuses two
 byte-identical pages as insufficient evidence of distinct captures, and
 reports exact decimal differences, possible resets, or unreported
-endpoints. It does not establish drive identity, chronology, or health.
-Do not use raw device paths or infer a physical fault from the comparison alone.
+endpoints. It does not establish drive identity, scope, chronology, or
+health. Do not use raw device paths or infer a fault from this alone.
+
+NVMe read/write data-unit counters report rounded-up groups of 1,000
+accounted 512-byte units, not exact bytes. An observed delta of `"0"`
+means **no change in reported groups**, not zero bytes or no I/O. For
+example, two readings of `"1"` can conceal as many as 999 additional
+accounted units. A raw counter value of zero means **unreported** and
+does not produce an observed zero delta. See the
+[libnvme SMART log field definitions](https://manpages.debian.org/unstable/libnvme-dev/nvme_smart_log.2.en.html).

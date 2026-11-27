@@ -36,6 +36,16 @@ class NvmeComparison(unittest.TestCase):
         self.assertEqual(result["drive_health"], "not_assessed")
         self.assertIs(result["device_sampled"], False)
 
+    def test_unchanged_reported_group_is_distinct_from_unreported(self):
+        # Distinct pages because the media-error count changes. Neither
+        # data-unit value proves that no underlying write I/O occurred.
+        result = compare(self.capture(10, 1), self.capture(11, 1))
+        self.assertEqual(result["counters"]["data_units_written"],
+                         {"status": "observed", "value": "0"})
+        self.assertEqual(result["counters"]["data_units_read"],
+                         {"status": "not_comparable", "reason": "unreported_endpoint"})
+        self.assertEqual(result["measurement_scope"], "counter_arithmetic_only")
+
     def test_decreased_and_unreported_are_not_zero(self):
         result = compare(self.capture(10, 5), self.capture(2, 0))
         self.assertEqual(result["counters"]["media_errors_raw"], {"status": "decreased_or_reset"})
