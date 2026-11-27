@@ -36,7 +36,39 @@ def smoke(engine):
         refusal = subprocess.run(argv, capture_output=True, timeout=5)
         if refusal.returncode != 1 or refusal.stdout or b"does not match" not in refusal.stderr:
             raise ValueError("receipt verifier accepted a tampered decoded counter")
-    print("Synthetic NVMe CLI evidence correlation and decoded-counter refusal passed")
+        report.write_bytes(decoded)
+        later = bytearray(page)
+        later[48:64] = (2**112 + 2**64 + 3).to_bytes(16, "little")
+        later[160:176] = (2**128 - 2).to_bytes(16, "little")
+        later_page = Path(directory) / "later.bin"
+        later_report = Path(directory) / "later.json"
+        later_page.write_bytes(later)
+        later_decoded = subprocess.run(
+            [engine, "storage", "nvme-smart-decode"], input=bytes(later),
+            capture_output=True, check=True, timeout=5,
+        ).stdout
+        later_report.write_bytes(later_decoded)
+        pair = [sys.executable, "-B", str(SCRIPTS / "compare_nvme_smart_evidence.py"),
+                "--before", str(raw), str(report), digest,
+                "--after", str(later_page), str(later_report), hashlib.sha256(later).hexdigest()]
+        comparison = json.loads(subprocess.run(
+            pair, capture_output=True, check=True, timeout=5,
+        ).stdout)
+        expected = {
+            "data_units_written": {"status": "observed", "value": str(2**112)},
+            "data_units_read": {"status": "not_comparable", "reason": "unreported_endpoint"},
+            "media_errors_raw": {"status": "decreased_or_reset"},
+            "unsafe_shutdowns_raw": {"status": "observed", "value": "0"},
+        }
+        if (comparison["device_sampled"] is not False
+                or comparison["capture_identity"] != "not_verified"
+                or any(comparison["counters"][key] != value for key, value in expected.items())):
+            raise ValueError("unexpected offline comparison semantics")
+        later_report.write_bytes(decoded)
+        refusal = subprocess.run(pair, capture_output=True, timeout=5)
+        if refusal.returncode != 1 or refusal.stdout or b"does not match" not in refusal.stderr:
+            raise ValueError("comparison accepted a report bound to the wrong page")
+    print("Synthetic NVMe decode, evidence correlation and counter comparison passed")
 
 
 if __name__ == "__main__":
