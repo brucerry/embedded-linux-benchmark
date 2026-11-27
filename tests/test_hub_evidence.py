@@ -123,6 +123,27 @@ class Evidence(unittest.TestCase):
                 finally:
                     obj[field] = old
 
+    def test_nvme_scope_and_controller_binding(self):
+        q = fixture()
+        q.pop("pcie_health")
+        nvme = {"schema_version": 1, "controller": "nvme0", "status": "unavailable", "smart_sampled": False}
+        q["nvme_health"] = nvme
+        argv = ["qualify", "passive", "--run-id", TOKEN, "--evidence-json", "/tmp/test/report",
+                "--nvme-controller", "nvme0"]
+        plan = {"plan_schema_version": 1, "argv": argv, "execution": "none",
+                "max_evidence_bytes": 1048576, "optional": []}
+        def run():
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN, plan)
+
+        self.assertEqual(run()["status"], "correlated")
+        nvme["controller"] = "nvme1"
+        with self.assertRaisesRegex(ValueError, "differs from trusted plan"):
+            run()
+        nvme["controller"] = "nvme0"
+        nvme["smart_sampled"] = True
+        with self.assertRaisesRegex(ValueError, "invalid passive NVMe"):
+            run()
+
     def test_matching_network_envelopes_cannot_hide_forged_deltas(self):
         from test_network_health_window import fixture as nic_fixture
         q = fixture()

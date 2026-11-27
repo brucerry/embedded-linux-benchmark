@@ -250,3 +250,9 @@ anything and does not assume a default interface. When this plan is supplied
 to the evidence verifier, the interface and interval must match both saved
 snapshots and the window as appropriate; the verifier checks counter
 arithmetic separately.
+
+`plan_hub_passive.py --nvme-controller nvme0` previews a single explicitly
+selected controller only when the capture advertises the sysfs-only contract.
+The evidence verifier requires the same controller and `smart_sampled: false`.
+A withheld controller stays withheld; this check performs no raw I/O and
+cannot infer SMART status or drive health.

@@ -473,6 +473,7 @@ fn capabilities() -> String {
             r#""passive_qualification":{{"observation_schema":1,"evidence_schema":1,"run_id":"hex32","max_evidence_bytes":{}}},"#,
             r#""qualification_plan":{{"schema":1,"execution":"preview_only"}},"#,
             r#""storage_nvme_smart_decode":{{"schema":1,"input":"offline_page","input_bytes":{}}},"#,
+            r#""passive_nvme_controller":{{"schema":1,"flag":"--nvme-controller","scope":"selected_sysfs_attributes_only"}},"#,
             r#""storage_mmc_health":{{"schema":1,"input":"named_mmc_card"}},"#,
             r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}},"#,
             r#""offline_nvidia_health":{{"schema":1,"input":"normalized_nvml_v1_literal","max_bytes":{}}},"#,

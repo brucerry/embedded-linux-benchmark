@@ -14,6 +14,7 @@ MAX_BYTES = 1024 * 1024
 RUN_ID = re.compile("[0-9a-f]{32}")
 PCI_BDF = re.compile(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-1][0-9a-f]\.[0-7]")
 PCI_ID = re.compile(r"[0-9a-f]{4}")
+NVME_CONTROLLER = re.compile(r"nvme(?:0|[1-9][0-9]{0,6})", re.ASCII)
 NIC_INTERFACE = re.compile(r"[A-Za-z0-9_.-]{1,15}", re.ASCII)
 
 
@@ -115,6 +116,34 @@ def verify_pressure_series(series, elapsed):
             and all(type(pressure[k]) is dict for k in ("cpu", "memory", "io")),
             "invalid pressure snapshot envelope")
         previous = finish
+
+
+def verify_nvme_controller(snapshot, expected=None):
+    common = {"schema_version", "controller", "status", "smart_sampled"}
+    attributes = {"state", "transport", "model", "firmware_revision"}
+    check(type(snapshot) is dict and common <= snapshot.keys()
+          and type(snapshot["schema_version"]) is int and snapshot["schema_version"] == 1
+          and type(snapshot["controller"]) is str and NVME_CONTROLLER.fullmatch(snapshot["controller"])
+          and snapshot["smart_sampled"] is False, "invalid passive NVMe controller snapshot")
+    check(expected is None or snapshot["controller"] == expected,
+          "NVMe controller differs from trusted plan")
+    unavailable = ("unavailable", "inaccessible", "invalid")
+    if snapshot["status"] != "observed":
+        check(snapshot.keys() == common and snapshot["status"] in (*unavailable, "changed"),
+              "invalid withheld NVMe snapshot")
+        return
+    check(snapshot.keys() == common | attributes, "unexpected passive NVMe fields")
+    for name in attributes:
+        field = snapshot[name]
+        check(type(field) is dict and "status" in field, "invalid passive NVMe attribute")
+        if field["status"] == "observed":
+            check(field.keys() == {"status", "value"} and type(field["value"]) is str
+                  and 0 < len(field["value"]) <= 128
+                  and field["value"] == field["value"].strip()
+                  and all(" " <= c <= "~" for c in field["value"]), "invalid NVMe attribute text")
+        else:
+            check(field.keys() == {"status"} and field["status"] in unavailable,
+                  "invalid withheld NVMe attribute")
 
 
 def verify_network_window(window, elapsed):
@@ -334,6 +363,13 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
               and int(argv[pos+3]) <= 2000, "invalid planned NIC window")
         nic = (argv[pos+1], int(argv[pos+3]))
         expected.extend(argv[pos:pos+4])
+    nvme = None
+    pos = len(expected)
+    if argv[pos:pos+1] == ["--nvme-controller"]:
+        check(len(argv) > pos + 1 and type(argv[pos+1]) is str
+              and NVME_CONTROLLER.fullmatch(argv[pos+1]), "invalid planned NVMe controller")
+        nvme = argv[pos+1]
+        expected.extend(argv[pos:pos+2])
     cap = plan["max_evidence_bytes"]
     check(type(cap) is int and 0 < evidence_bytes <= cap <= MAX_BYTES,
           "evidence exceeds plan byte limit")
@@ -344,6 +380,9 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
         actual_edac = observation.get("edac_health")
         check(type(actual_edac) is dict and actual_edac.get("controller") == edac,
               "EDAC controller differs from plan")
+    if nvme is not None:
+        verify_nvme_controller(observation.get("nvme_health"), nvme)
+        planned.add("nvme_health")
     if nic is not None:
         network = observation.get("network_health")
         check(type(network) is dict and type(network.get("before")) is dict
@@ -412,6 +451,8 @@ def verify(evidence, stdout, run_id, plan=None):
     network = q.get("network_health")
     if type(network) is dict and "mode" in network:
         verify_network_window(network, saved["elapsed_monotonic_ms"])
+    if "nvme_health" in q:
+        verify_nvme_controller(q["nvme_health"])
     if "edac_health" in q:
         verify_edac_health(q["edac_health"])
     if "required_pcie" in q["inventory"]:

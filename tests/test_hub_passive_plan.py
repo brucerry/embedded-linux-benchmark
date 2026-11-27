@@ -65,3 +65,16 @@ class PassivePlan(unittest.TestCase):
                                              "--network-health-sample-ms", "100",
                                              "--include-system-health"])
         self.assertEqual(result["execution"], "none")
+
+    def test_nvme_requires_named_controller_and_sysfs_only_advertisement(self):
+        c = self.capabilities()
+        with self.assertRaisesRegex(ValueError, "does not advertise"):
+            plan(c, TOKEN, PATH, [], nvme_controller="nvme0")
+        c["contracts"]["passive_nvme_controller"] = {
+            "schema": 1, "flag": "--nvme-controller", "scope": "selected_sysfs_attributes_only",
+        }
+        for value in ("nvme01", "nvme0n1", "/dev/nvme0", "nvme00000000"):
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "invalid requested NVMe"):
+                plan(c, TOKEN, PATH, [], nvme_controller=value)
+        self.assertEqual(plan(c, TOKEN, PATH, [], nvme_controller="nvme0")["argv"][-2:],
+                         ["--nvme-controller", "nvme0"])

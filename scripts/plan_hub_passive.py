@@ -6,12 +6,12 @@ import argparse
 import json
 
 from check_hub_evidence import (
-    EDAC_CONTROLLER, MAX_BYTES, OPTIONAL_PASSIVE, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded, valid_nic_interface,
+    EDAC_CONTROLLER, MAX_BYTES, NVME_CONTROLLER, OPTIONAL_PASSIVE, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded, valid_nic_interface,
 )
 
 
 def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_controller=None,
-         network_interface=None, network_sample_ms=None):
+         network_interface=None, network_sample_ms=None, nvme_controller=None):
     check(type(run_id) is str and RUN_ID.fullmatch(run_id) and run_id != "0" * 32,
           "invalid run ID")
     check_evidence_path(output_path)
@@ -59,6 +59,15 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_co
               "Engine does not advertise the requested NIC window")
         argv.extend(("--network-interface", network_interface,
                      "--network-health-sample-ms", str(network_sample_ms)))
+    if nvme_controller is not None:
+        check(type(nvme_controller) is str and NVME_CONTROLLER.fullmatch(nvme_controller),
+              "invalid requested NVMe controller")
+        advertised = contracts.get("passive_nvme_controller")
+        check(type(advertised) is dict and type(advertised.get("schema")) is int
+              and advertised["schema"] == 1 and advertised.get("flag") == "--nvme-controller"
+              and advertised.get("scope") == "selected_sysfs_attributes_only",
+              "Engine does not advertise passive NVMe controller selection")
+        argv.extend(("--nvme-controller", nvme_controller))
     results = []
     for feature in options:
         name, flag, _field = OPTIONAL_PASSIVE[feature]
@@ -82,9 +91,10 @@ def main():
     args.add_argument("--edac-controller", help="one explicit EDAC controller")
     args.add_argument("--network-interface", help="one explicitly selected NIC interface")
     args.add_argument("--network-sample-ms", type=int, help="passive NIC window in milliseconds")
+    args.add_argument("--nvme-controller", help="one explicitly selected NVMe controller; no SMART or raw I/O")
     a = args.parse_args()
     try:
-        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms)
+        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller)
     except (OSError, ValueError) as exc:
         args.exit(1, f"invalid: {exc}\n")
     print(json.dumps(result, sort_keys=True))
