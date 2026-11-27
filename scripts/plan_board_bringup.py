@@ -31,6 +31,7 @@ def preview(capabilities, run_id, evidence_path, expected_pcie=None, edac_contro
     if nvme_controller is not None:
         check(type(nvme_controller) is str and NVME_CONTROLLER.fullmatch(nvme_controller),
               "invalid requested NVMe controller")
+    check(type(capabilities) is dict, "unsupported capabilities")
     contracts = capabilities.get("contracts")
     check(type(contracts) is dict, "unsupported capabilities")
     pcie = expected_pcie if supports(contracts, "passive_pcie_expectation", "--require-pcie") else None

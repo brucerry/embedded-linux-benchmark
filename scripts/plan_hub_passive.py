@@ -15,7 +15,8 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_co
     check(type(run_id) is str and RUN_ID.fullmatch(run_id) and run_id != "0" * 32,
           "invalid run ID")
     check_evidence_path(output_path)
-    check(type(capabilities.get("capabilities_schema_version")) is int
+    check(type(capabilities) is dict
+          and type(capabilities.get("capabilities_schema_version")) is int
           and capabilities["capabilities_schema_version"] == 1
           and capabilities.get("os_target") == "linux"
           and type(capabilities.get("contracts")) is dict, "unsupported capabilities")
@@ -95,7 +96,7 @@ def main():
     a = args.parse_args()
     try:
         result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller)
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:
         args.exit(1, f"invalid: {exc}\n")
     print(json.dumps(result, sort_keys=True))
 
