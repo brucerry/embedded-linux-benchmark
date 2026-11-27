@@ -67,6 +67,9 @@ jobs:
           RUSTUP_TOOLCHAIN: 1.96.0
         run: bash scripts/build-preflight-assets.sh "$RUNNER_TEMP/eld-engine-preflight" v0.2.1-preflight
 
+      - name: Check offline asset previews against preflight bytes
+        run: python3 -B tests/engine_assets_smoke.py "$RUNNER_TEMP/eld-engine-preflight/assets"
+
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: eld-engine-unsigned-preflight
