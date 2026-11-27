@@ -58,7 +58,7 @@ Pass `--plan` to the verifier with the trusted plan previously generated
 by `scripts/plan_hub_passive.py` for this run. The verifier checks run ID,
 evidence size, and the exact planned set of optional observations; a skipped
 feature is not counted as present. This reference mode covers only the
-planner's basic passive invocation. The CLI receipt adds `plan_sha256` only
+planner's supported passive invocations. The CLI receipt adds `plan_sha256` only
 when it verifies a plan, binding the exact supplied bytes for audit comparison.
 The digest is not a signature. This mode does not run the plan, verify the
 remote output path, or authenticate the plan or device.
@@ -82,8 +82,11 @@ reported with a successful command exit; Hub must inspect the row status.
 
 The offline verifier checks unique device addresses and consistency between
 the state and reported expected/observed IDs. A matching pair does not prove
-that the capture came from that device. The basic `--plan` verifier mode
-does not request PCIe expectations and rejects unexpected board checks.
+that the capture came from that device. For an explicit check, pass the same
+canonical BDF list to `plan_hub_passive.py --require-pcie BDF[=vvvv:dddd][,...]`.
+The preview refuses absent capability; with `--plan` the verifier also matches
+each expected BDF and ID pair in order. Other board profiles remain outside
+this reference plan.
 
 For a small offline interoperability demo, `scripts/summarize_hub_evidence.py`
 groups up to eight previously retrieved, correlated report pairs by

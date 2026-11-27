@@ -266,6 +266,25 @@ class Evidence(unittest.TestCase):
             with self.subTest(rows=rows), self.assertRaises(ValueError):
                 verify_rows(rows)
 
+    def test_planned_pcie_expectations_bind_order_and_requested_ids(self):
+        q = fixture()
+        del q["pcie_health"]
+        q["board_check"] = "see_required_pcie"
+        ids = {"vendor": "1234", "device": "abcd"}
+        rows = [{"bdf": "0000:01:00.0", "status": "match", "expected": ids, "observed": ids},
+                {"bdf": "0000:02:00.0", "status": "missing"}]
+        plan = {"plan_schema_version": 1, "execution": "none", "max_evidence_bytes": m.MAX_BYTES,
+                "argv": ["qualify", "passive", "--run-id", TOKEN, "--evidence-json",
+                         "/tmp/report.json", "--require-pcie", "0000:01:00.0=1234:abcd,0000:02:00.0"],
+                "optional": []}
+        def verify_rows(actual):
+            q["inventory"]["required_pcie"] = actual
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN, plan)
+        self.assertEqual(verify_rows(rows)["status"], "correlated")
+        for changed in (rows[::-1], rows[:1], [{**rows[0], "bdf": "0000:03:00.0"}, rows[1]]):
+            with self.subTest(changed=changed), self.assertRaisesRegex(ValueError, "disagree with plan"):
+                verify_rows(changed)
+
     def test_rejects_duplicate_truncated_and_nonfinite(self):
         for data in (b'{"a":1,"a":2}', b'{"a":', b'{"a":NaN}', b' ' * (m.MAX_BYTES + 1)):
             with self.subTest(data=data[:20]), self.assertRaises(ValueError):

@@ -228,6 +228,25 @@ def verify_timeline(observation, elapsed):
         last = finish
 
 
+def pcie_expectations(request):
+    check(type(request) is str and 0 < len(request) <= 383, "invalid PCIe expectation request")
+    parsed = []
+    seen = set()
+    for item in request.split(","):
+        bdf, mark, identity = item.partition("=")
+        check(len(parsed) < 16 and PCI_BDF.fullmatch(bdf) and bdf not in seen,
+              "expected up to 16 unique canonical PCIe addresses")
+        expected = None
+        if mark:
+            vendor, _, device = identity.partition(":")
+            check(PCI_ID.fullmatch(vendor) and PCI_ID.fullmatch(device),
+                  "expected canonical PCI vendor and device IDs")
+            expected = {"vendor": vendor, "device": device}
+        parsed.append((bdf, expected))
+        seen.add(bdf)
+    return parsed
+
+
 def verify_required_pcie(rows):
     check(type(rows) is list and 1 <= len(rows) <= 16, "invalid PCIe row count")
     addresses = set()
@@ -267,6 +286,11 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
           "plan request does not match run identity")
     check_evidence_path(argv[5])
     expected.append(argv[5])
+    required = None
+    if argv[6:7] == ["--require-pcie"]:
+        check(len(argv) >= 8, "expected an explicit PCIe request")
+        required = pcie_expectations(argv[7])
+        expected.extend(argv[6:8])
     cap = plan["max_evidence_bytes"]
     check(type(cap) is int and 0 < evidence_bytes <= cap <= MAX_BYTES,
           "evidence exceeds plan byte limit")
@@ -294,9 +318,18 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
           "observation features disagree with plan")
     check("thermal_window" not in observation["inventory"],
           "unplanned thermal sample")
-    check(not {"required_pcie", "board_profile"}.intersection(observation["inventory"])
-          and observation.get("board_check", "not_configured") == "not_configured",
-          "unplanned board expectation")
+    inventory = observation["inventory"]
+    check("board_profile" not in inventory, "unplanned board profile")
+    if required is None:
+        check("required_pcie" not in inventory
+              and observation.get("board_check", "not_configured") == "not_configured",
+              "unplanned board expectation")
+    else:
+        rows = inventory.get("required_pcie")
+        check(observation.get("board_check") == "see_required_pcie" and type(rows) is list,
+              "planned PCIe rows missing")
+        actual = [(row["bdf"], row.get("expected")) for row in rows]
+        check(actual == required, "PCIe rows disagree with plan")
 
 
 def verify(evidence, stdout, run_id, plan=None):

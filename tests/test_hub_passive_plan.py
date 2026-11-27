@@ -36,3 +36,15 @@ class PassivePlan(unittest.TestCase):
         c["contracts"]["passive_qualification"]["evidence_schema"] = True
         with self.assertRaises(ValueError):
             plan(c, TOKEN, PATH, [])
+
+    def test_explicit_pcie_requires_advertisement_and_canonical_ids(self):
+        c = self.capabilities()
+        request = "0000:01:00.0=1234:abcd,0000:02:00.0"
+        with self.assertRaisesRegex(ValueError, "does not advertise"):
+            plan(c, TOKEN, PATH, [], request)
+        c["contracts"]["passive_pcie_expectation"] = {"schema": 1, "flag": "--require-pcie"}
+        p = plan(c, TOKEN, PATH, [], request)
+        self.assertEqual(p["argv"][-2:], ["--require-pcie", request])
+        for value in ("0000:01:00.0,0000:01:00.0", "0000:01:00.0=abcd", "0000:01:20.0"):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                plan(c, TOKEN, PATH, [], value)

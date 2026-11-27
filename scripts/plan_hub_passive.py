@@ -6,11 +6,11 @@ import argparse
 import json
 
 from check_hub_evidence import (
-    MAX_BYTES, OPTIONAL_PASSIVE, RUN_ID, check, check_evidence_path, parse, read_bounded,
+    MAX_BYTES, OPTIONAL_PASSIVE, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded,
 )
 
 
-def plan(capabilities, run_id, output_path, options):
+def plan(capabilities, run_id, output_path, options, required_pcie=None):
     check(type(run_id) is str and RUN_ID.fullmatch(run_id) and run_id != "0" * 32,
           "invalid run ID")
     check_evidence_path(output_path)
@@ -30,6 +30,13 @@ def plan(capabilities, run_id, output_path, options):
     check(len(options) <= len(OPTIONAL_PASSIVE) and len(set(options)) == len(options)
           and all(k in OPTIONAL_PASSIVE for k in options), "unknown or duplicate optional feature")
     argv = ["qualify", "passive", "--run-id", run_id, "--evidence-json", output_path]
+    if required_pcie is not None:
+        pcie_expectations(required_pcie)
+        advertised = contracts.get("passive_pcie_expectation")
+        check(type(advertised) is dict and type(advertised.get("schema")) is int
+              and advertised["schema"] == 1 and advertised.get("flag") == "--require-pcie",
+              "Engine does not advertise the requested PCIe expectation")
+        argv.extend(("--require-pcie", required_pcie))
     results = []
     for feature in options:
         name, flag, _field = OPTIONAL_PASSIVE[feature]
@@ -49,9 +56,10 @@ def main():
     args.add_argument("--run-id", required=True)
     args.add_argument("--evidence-path", required=True)
     args.add_argument("--feature", action="append", choices=tuple(OPTIONAL_PASSIVE), default=[])
+    args.add_argument("--require-pcie", help="explicit canonical BDF[=vvvv:dddd] list")
     a = args.parse_args()
     try:
-        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature)
+        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie)
     except (OSError, ValueError) as exc:
         args.exit(1, f"invalid: {exc}\n")
     print(json.dumps(result, sort_keys=True))
