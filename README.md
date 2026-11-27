@@ -11,19 +11,78 @@ Hardware benchmarks and diagnostics for Linux boards and servers, in a dependenc
 
 ---
 
-## Get started
+## Run on a board
 
-Install Rust and Cargo 1.66 or newer and a native C linker on Linux.
+Pick the verified [release binary](https://github.com/brucerry/embedded-linux-diagnostic-engine/releases) that matches the **board's CPU and C library**, or build it with the board's SDK. Match its SHA-256 against the release checksums before copying it. On the board, name the executable `eld-engine`:
 
 ```sh
-cargo build --release --locked
-./target/release/eld-engine --help
-./target/release/eld-engine cpu
-./target/release/eld-engine ram --duration-ms 500 --buffer-kib 1024
-./target/release/eld-engine stress auto
+chmod +x ./eld-engine
+./eld-engine --help
+./eld-engine capabilities
+./eld-engine inventory
 ```
 
-The default stress run runs three roughly 10-second rounds of overlapping CPU, RAM, and sustained TCP loopback, and checks available PCIe, USB, and HDMI status without opening a device node. Run a soak for up to 14 days with `stress auto --duration 2w`. Storage writes require a directory and an explicit size budget; peer networking and active peripheral tests remain separate, explicit commands. See the [benchmark guide](docs/benchmarks.md) for commands, limits, and how to interpret results.
+The examples below use `eld-engine` on PATH. Use `./eld-engine` if you copied it into the current directory. Replace example IDs and paths with those on your board. A command can be built in even when the board lacks the device, driver, kernel interface, or permission it needs.
+
+---
+
+## Diagnose a GPU or accelerator
+
+These commands are built into `eld-engine` in v0.3.0:
+
+```sh
+eld-engine accelerator inventory
+eld-engine accelerator interfaces
+# Replace this example with the PCI address (BDF) from inventory.
+GPU=0000:65:00.0
+eld-engine pcie link --device "$GPU"
+eld-engine pcie health --device "$GPU" --sample-ms 1000
+# Only for an AMDGPU-bound device with supported sensors:
+eld-engine accelerator amdgpu-hwmon --device "$GPU"
+```
+
+Start by checking whether the GPU enumerated and bound to the expected driver. Then check the negotiated PCIe link and any available error-counter changes. The AMD command reads selected temperature and power sensors; on an APU, reported power may cover the whole SoC. On a supported Jetson, `eld-engine power ina3221 --node 1-0040` reads voltage and current from the selected rail monitor. Use the actual bus and address, and don't assume a rail is GPU-only.
+
+These observations do not prove compute works or expose live NVIDIA ECC or health. Missing readings aren't zero. The [optional CUDA helper](docs/cuda.md) is a **separate executable**, `eld-engine-cuda`, for selected-GPU compute and host↔device transfers. Its build and CLI checks passed, but physical GPU performance is not verified.
+
+---
+
+## On-board diagnostic commands
+
+### Passive inspection
+
+These commands do not generate test traffic or write to the selected device.
+
+| Component | Built-in command | What it checks |
+| --- | --- | --- |
+| Board, CPU, memory, thermal | `eld-engine inventory` | Board and kernel metadata, resources, and available thermal and error counters |
+| CPU, memory, I/O pressure | `eld-engine pressure` | Linux PSI where available |
+| Expected PCIe device | `eld-engine inventory --require-pcie 0000:01:00.0=14c3:7990` | Whether the expected vendor/device is at that PCI address |
+| Ethernet or Wi-Fi interface | `eld-engine network health --interface eth0 --sample-ms 1000` | Link state and comparable error/drop counter changes, not throughput |
+| NVMe controller | `eld-engine storage nvme-health --controller nvme0` | Controller state, transport, model, and firmware; not a live SMART read |
+| eMMC | `eld-engine storage mmc-health --card mmc0:0001` | Cached wear indicators when the driver exposes them; not SD card support |
+| HDMI output | `eld-engine hdmi status --connector card0-HDMI-A-1` | Connection and advertised modes, not active signal timing |
+
+### Active tests on a lab board
+
+Use dedicated fixtures for bus tests. Don't run them against an in-use device, console, or production link. See the [benchmark guide](docs/benchmarks.md#peripherals) for wiring, prerequisites, and limits.
+
+| Component | Built-in command | Prerequisite |
+| --- | --- | --- |
+| CPU / RAM | `eld-engine cpu --duration-ms 500` / `eld-engine ram --duration-ms 500 --buffer-kib 1024` | Brief local load |
+| Storage | `eld-engine storage --dir /tmp --size-mib 4` | Writable scratch space with 4 MiB free; use a mounted test volume to measure storage rather than RAM-backed `/tmp` |
+| TCP | `eld-engine network --size-mib 4` | Local loopback only; [peer mode](docs/benchmarks.md#tcp-peer-throughput-and-round-trip-latency) for a separate lab link |
+| UART | `eld-engine uart --device /dev/ttyUSB0 --loopback` | Dedicated serial loopback, not a console |
+| I²C | `eld-engine i2c --adapter /dev/i2c-1 --address 0x48 --fixture --read-bytes 2` | Isolated fixture that supports those reads |
+| SPI | `eld-engine spi --device /dev/spidev0.0 --loopback` | Dedicated MOSI↔MISO loopback |
+| GPIO input | `eld-engine gpio --chip /dev/gpiochip0 --offset 7 --input-fixture` | Spare input using the GPIO v2 ABI |
+| IIO input | `eld-engine iio --device iio:device0 --channel in_voltage0 --samples 100` | Known sensor channel safe for repeated reads |
+| USB | `eld-engine usb --device /dev/bus/usb/001/011 --interface 0 --out-endpoint 0x01 --in-endpoint 0x81 --loopback` | Dedicated bulk echo fixture with matching endpoints |
+| CAN / CAN FD | `eld-engine can receive --interface can0 --tx-id 0x124 --rx-id 0x123 --session 1234abcd --fixture` | Isolated two-node bus; start the receiver, then use the [matching sender](docs/benchmarks.md#classic-can-and-can-fd-peer-fixture) |
+| Camera | `eld-engine camera --device /dev/video0 --frames 60` | Selected V4L2 capture device |
+| HDMI input capture | `eld-engine hdmi capture --device /dev/video0 --fixture --frames 60` | Dedicated HDMI capture source on V4L2 |
+
+For a short single-component stress check, use `eld-engine stress auto --test cpu --duration 5s`. The default auto suite applies CPU, RAM, and TCP loopback load. Storage writes are opt-in and budgeted. Active peripheral and accelerator checks aren't part of that default suite. The [stress guide](docs/benchmarks.md#automatic-stress) covers longer soaks and limits.
 
 ---
 
