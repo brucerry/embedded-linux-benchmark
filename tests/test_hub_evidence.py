@@ -93,6 +93,52 @@ class Evidence(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid PCIe health observer"):
             m.verify(pack(q), json.dumps(q).encode(), TOKEN, selected)
 
+    def test_planned_pcie_link_fields_match_the_producer(self):
+        from test_pcie_snapshot_comparison import TARGET, fixture as capture
+        from plan_hub_passive import plan
+        from test_hub_passive_plan import PassivePlan
+        cap = PassivePlan().capabilities()
+        cap["contracts"]["passive_pcie_health"] = {"schema": 1, "max_sample_wait_ms": 2000}
+        for endpoint in ("single", "before", "after"):
+            with self.subTest(endpoint=endpoint):
+                q = fixture()
+                snapshot = capture(1, 0)["snapshot"]
+                if endpoint == "single":
+                    q["pcie_health"] = snapshot
+                    wait = None
+                else:
+                    q["pcie_health"] = {
+                        "schema_version": 1, "device": TARGET, "requested_wait_ms": 5,
+                        "sample_start_interval_ms": 6, "before": copy.deepcopy(snapshot),
+                        "after": copy.deepcopy(snapshot),
+                        "delta": {"status": "not_comparable", "reason": "boot_identity_unavailable"},
+                    }
+                    snapshot = q["pcie_health"][endpoint]
+                    wait = 5
+                selected = plan(cap, TOKEN, "/tmp/owned/evidence.json", [], pcie_health_device=TARGET,
+                                pcie_health_sample_ms=wait)
+                observer = snapshot["observations"][1]
+                valid = {
+                    "current_link_speed": {"status": "observed", "value": "future vendor  format"},
+                    "current_link_width": {"status": "observed", "value": "~" * 128},
+                    "max_link_speed": {"status": "invalid"},
+                    "max_link_width": {"status": "unavailable"},
+                }
+
+                def validate(link):
+                    observer["link"] = link
+                    return m.verify(pack(q), json.dumps(q).encode(), TOKEN, selected)
+
+                self.assertEqual(validate(valid)["status"], "correlated")
+                invalid = [{k: v for k, v in valid.items() if k != "max_link_speed"},
+                           dict(valid, extra={"status": "unavailable"}), [],
+                           dict(valid, max_link_width={"status": "unavailable", "value": "0"})]
+                for raw in (False, 4, "", " 4", "4 ", "4\tGT/s", "４", "x" * 129):
+                    invalid.append(dict(valid, current_link_width={"status": "observed", "value": raw}))
+                for link in invalid:
+                    with self.subTest(link=link), self.assertRaisesRegex(ValueError, "invalid PCIe link"):
+                        validate(link)
+
     def test_cpu_frequency_does_not_replace_hardware_value_with_scaling_estimate(self):
         q = fixture()
         row = {"policy": "policy0", "scaling_reported_khz": {"status": "observed", "value": "1200000"},

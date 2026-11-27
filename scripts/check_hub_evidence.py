@@ -434,6 +434,27 @@ def verify_edac_health(value):
                   ("unavailable", "inaccessible", "invalid"), "invalid EDAC field status")
 
 
+PCIE_LINK_FIELDS = ("current_link_speed", "current_link_width", "max_link_speed", "max_link_width")
+
+
+def verify_pcie_link(link):
+    check(type(link) is dict and link.keys() == set(PCIE_LINK_FIELDS),
+          "invalid PCIe link fields")
+    for value in link.values():
+        check(type(value) is dict, "invalid PCIe link observation")
+        status = value.get("status")
+        if status == "observed":
+            raw = value.get("value")
+            # pcie_health.rs trims sysfs values. Keep the remaining opaque
+            # driver string, without guessing a unit or generation.
+            check(value.keys() == {"status", "value"} and type(raw) is str
+                  and re.fullmatch(r"[!-~](?:[ -~]{0,126}[!-~])?", raw),
+                  "invalid PCIe link observation value")
+        else:
+            check(value.keys() == {"status"} and status in ("unavailable", "inaccessible", "invalid"),
+                  "invalid PCIe link observation status")
+
+
 def verify_planned_pcie_health(snapshot, device):
     check(type(snapshot) is dict
           and snapshot.keys() == {"schema_version", "device", "observations", "root_hierarchy_aer"}
@@ -448,8 +469,9 @@ def verify_planned_pcie_health(snapshot, device):
         check(type(row) is dict and row.keys() == {"bdf", "role", "driver_binding", "link", "device_aer"}
               and type(row["bdf"]) is str and PCI_BDF.fullmatch(row["bdf"])
               and row["bdf"] not in known and row["role"] == ("target" if i == 0 else "upstream")
-              and (i != 0 or row["bdf"] == device) and type(row["link"]) is dict,
+              and (i != 0 or row["bdf"] == device),
               "invalid PCIe health observer")
+        verify_pcie_link(row["link"])
         counters = row["device_aer"]
         check(type(counters) is dict and counters.keys() == set(DEVICE_KEYS), "invalid PCIe device AER")
         known[row["bdf"]] = (binding(row["driver_binding"]),

@@ -20,7 +20,11 @@ def fixture(at, count):
     total = {"status": "observed", "value": {
         "total_messages": str(count), "categories": {"RxErr": str(count)}}}
     rows = [{"bdf": bdf, "role": role, "driver_binding": {"status": "unbound"},
-             "link": {}, "device_aer": dict(zip(DEVICE_KEYS, (total, absent, absent)))}
+             "link": {"current_link_speed": {"status": "observed", "value": "8.0 GT/s PCIe"},
+                      "current_link_width": {"status": "observed", "value": "4"},
+                      "max_link_speed": {"status": "unavailable"},
+                      "max_link_width": {"status": "inaccessible"}},
+             "device_aer": dict(zip(DEVICE_KEYS, (total, absent, absent)))}
             for bdf, role in ((TARGET, "target"), (PARENT, "upstream"))]
     return {"schema_version": 1, "kind": "pcie_saved_snapshot",
             "boot_id": "00000000-0000-4000-8000-000000000001",
