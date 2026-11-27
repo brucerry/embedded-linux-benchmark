@@ -37,20 +37,6 @@ the capture; the raw page does not authenticate them. See the
 [NVM Express Base Specification 2.0e](https://nvmexpress.org/wp-content/uploads/NVM-Express-Base-Specification-2.0e-2024.07.29-Ratified.pdf),
 SMART / Health Information log.
 
-## Passive MMC wear observations
-
-`eld-engine storage mmc-health --card mmc0:0001` reads the named
-MMC card's cached kernel sysfs `pre_eol_info` and `life_time` when
-the MMC driver exposes them. The integers are raw device codes. They
-are not fresh readings, exact wear percentages, a health verdict, or
-estimated time to failure. Linux only populates those cached fields
-for supported Extended CSD revisions (revision 7 or later), so a zero
-can also be an unpopulated value on an older card. The tool preserves
-zero as a raw observation without interpreting it as healthy. SD cards
-are not supported by this command. No block device is opened, no MMC
-command is sent, and no serial number is collected. See the Linux
-[MMC attribute definitions](https://github.com/torvalds/linux/blob/master/drivers/mmc/core/mmc.c).
-
 ### Verify a saved SMART decode
 
 After decoding a saved regular file to JSON, verify the copy against the digest
@@ -65,3 +51,28 @@ python3 scripts/check_nvme_smart_evidence.py \
 The receipt binds the raw page and decoded report by hash. It does not certify
 the original capture, controller identity, or drive health. The verifier
 does not open device nodes or start I/O against the controller.
+
+## Passive MMC wear observations
+
+`eld-engine storage mmc-health --card mmc0:0001` reads the named
+MMC card's cached kernel sysfs `pre_eol_info` and `life_time` when
+the MMC driver exposes them. The integers are raw device codes. They
+are not fresh readings, exact wear percentages, a health verdict, or
+estimated time to failure. Linux only populates those cached fields
+for supported Extended CSD revisions (revision 7 or later), so a zero
+can also be an unpopulated value on an older card. The tool preserves
+zero as a raw observation without interpreting it as healthy. SD cards
+are not supported by this command. No block device is opened, no MMC
+command is sent, and no serial number is collected. See the Linux
+[MMC attribute definitions](https://github.com/torvalds/linux/blob/master/drivers/mmc/core/mmc.c).
+
+A host-side consumer can validate the saved JSON without opening a card:
+
+```sh
+python3 scripts/check_mmc_health_evidence.py --report mmc.json --card mmc0:0001
+```
+
+Pass `--expected-sha256` if the controller already has a trusted file digest.
+The checker binds the report to the selected card identifier and preserves
+raw field availability. It does not confirm the source device or infer wear
+from raw codes, including zero.
