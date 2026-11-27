@@ -23,6 +23,7 @@ mod mmc_health;
 mod network;
 mod network_health;
 mod network_peer;
+mod numa;
 mod nvme_health;
 mod pcie;
 mod pcie_health;

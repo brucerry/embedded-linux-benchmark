@@ -296,6 +296,7 @@ fn help() {
         "Usage:
   eld-engine capabilities
   eld-engine pressure
+  eld-engine numa inventory
   eld-engine accelerator inventory|interfaces
   eld-engine accelerator amdgpu-hwmon --device BDF
   eld-engine power ina3221 --node BUS-ADDRESS
@@ -468,6 +469,15 @@ pub(crate) fn run() -> Result<(), String> {
         "capabilities" => {
             Options::parse("capabilities", args, &[])?;
             println!("{}", capabilities());
+            return Ok(());
+        }
+        "numa" => {
+            let (sub, rest) = args.split_first().ok_or("expected numa inventory")?;
+            if sub != "inventory" {
+                return Err("expected numa inventory".into());
+            }
+            Options::parse("numa inventory", rest, &[])?;
+            crate::numa::run();
             return Ok(());
         }
         "pressure" => {
