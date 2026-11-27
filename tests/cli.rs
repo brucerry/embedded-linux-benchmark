@@ -1566,3 +1566,28 @@ fn offline_ras_decodes_literal_capture_without_probing_devices() {
         assert!(!result.status.success() && result.stdout.is_empty());
     }
 }
+
+#[test]
+fn passive_pcie_health_advertises_limit_and_checks_selection_before_evidence() {
+    let scratch = ScratchDirectory::create();
+    let evidence = scratch.0.join("pcie.json");
+    let path = evidence.to_str().unwrap();
+    let cap = successful_output(&["capabilities"]);
+    assert!(cap.contains(r#""passive_pcie_health":{"schema":1,"max_sample_wait_ms":2000}"#));
+    assert!(!successful_output(&["qualify", "passive"]).contains(r#""pcie_health":"#));
+    for args in [
+        vec!["--pcie-health-sample-ms", "10"],
+        vec!["--pcie-health-device", "../../bad"],
+        vec![
+            "--pcie-health-device",
+            "0000:00:00.0",
+            "--pcie-health-sample-ms",
+            "2001",
+        ],
+    ] {
+        let a = ["qualify", "passive", "--evidence-json", path];
+        let full = a.into_iter().chain(args).collect::<Vec<_>>();
+        let out = run(&full);
+        assert!(!out.status.success() && out.stdout.is_empty() && !evidence.exists());
+    }
+}

@@ -609,11 +609,11 @@ fn observe(requested: &str) -> Result<Vec<SampleDevice>, String> {
     Ok(result)
 }
 
-pub(crate) fn run(
+pub(crate) fn render_snapshot(
     device: &str,
     sample_ms: Option<u64>,
     expectation: LinkExpectation,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let requested = pcie::bdf(device)?;
     if let Some(ms) = sample_ms {
         let boot_before = read_boot();
@@ -625,14 +625,22 @@ pub(crate) fn run(
         let boot_after = read_boot();
         let deltas = render_delta(&first, &second, &boot_before, &boot_after);
         let interval = second_started.duration_since(started).as_millis();
-        println!(
+        Ok(format!(
             r#"{{"schema_version":1,"device":"{requested}","requested_wait_ms":{ms},"sample_start_interval_ms":{interval},"before":{},"after":{},"delta":{deltas}}}"#,
             render(&first, expectation),
             render(&second, expectation)
-        );
+        ))
     } else {
-        println!("{}", render(&observe(&requested)?, expectation));
+        Ok(render(&observe(&requested)?, expectation))
     }
+}
+
+pub(crate) fn run(
+    device: &str,
+    sample_ms: Option<u64>,
+    expectation: LinkExpectation,
+) -> Result<(), String> {
+    println!("{}", render_snapshot(device, sample_ms, expectation)?);
     Ok(())
 }
 

@@ -43,3 +43,13 @@ fragment. Never read live sysfs RAS attributes to supply this command.
 `decoded` is a parsing status; it says nothing about the device or when the
 text was collected. Keep provenance outside this output, do not treat it as a
 live metric, and never calculate a hardware-counter delta from this alone.
+
+An Engine advertising `contracts.passive_pcie_health.schema=1` accepts the
+optional `--pcie-health-device BDF` argument. A second opt-in,
+`--pcie-health-sample-ms` (1–2000), takes two reads without applying load.
+The evidence preserves actual monotonic interval and separates endpoint
+observations, upstream observations, and root-hierarchy totals. Do not
+sum those scopes, attribute a partner's errors to the endpoint, or compare
+windows across a boot/device change. A missing requested BDF is a command
+error; use the board profile checks if the expectation is that a device
+must exist. This does not measure PCIe throughput.

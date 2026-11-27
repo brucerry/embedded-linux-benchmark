@@ -141,6 +141,8 @@ const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[
     ("--network-interface", Kind::Text),
     ("--nvme-controller", Kind::Text),
     ("--include-system-health", Flag),
+    ("--pcie-health-device", Kind::Text),
+    ("--pcie-health-sample-ms", Number(1, 2000)),
     ("--evidence-json", Kind::Path),
     ("--run-id", Kind::Text),
 ];
@@ -304,7 +306,8 @@ fn help() {
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
   eld-engine qualify passive [--board-profile PATH] [--network-interface NAME] [--nvme-controller NAME]
-                             [--include-system-health] [--evidence-json NEW_PATH] [--run-id HEX32]
+                             [--include-system-health] [--pcie-health-device BDF [--pcie-health-sample-ms MS]]
+                             [--evidence-json NEW_PATH] [--run-id HEX32]
   eld-engine qualify plan --profile bring-up|quick|manufacturing|overnight [--include-local-load]
                            [--local-test cpu|ram] [--max-local-load-secs SECONDS]
   eld-engine cpu [--duration-ms MS]
@@ -449,7 +452,8 @@ fn capabilities() -> String {
             r#""storage_nvme_smart_decode":{{"schema":1,"input":"offline_page","input_bytes":{}}},"#,
             r#""storage_mmc_health":{{"schema":1,"input":"named_mmc_card"}},"#,
             r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}},"#,
-            r#""offline_amdgpu_ras":{{"schema":1,"input":"literal_capture_text","max_bytes":{}}}}}}}"#,
+            r#""offline_amdgpu_ras":{{"schema":1,"input":"literal_capture_text","max_bytes":{}}},"#,
+            r#""passive_pcie_health":{{"schema":1,"max_sample_wait_ms":2000}}}}}}"#,
         ),
         json_string(env!("CARGO_PKG_VERSION")),
         json_string(std::env::consts::ARCH),
@@ -546,6 +550,11 @@ pub(crate) fn run() -> Result<(), String> {
         "qualify" if args.first().map_or(false, |role| role == "passive") => {
             let options =
                 Options::parse("qualify passive", &args[1..], QUALIFICATION_PASSIVE_OPTIONS)?;
+            let sample = options.number("--pcie-health-sample-ms");
+            let device = options.text("--pcie-health-device").ok();
+            if device.is_none() && sample.is_some() {
+                return Err("--pcie-health-sample-ms requires --pcie-health-device".into());
+            }
             crate::qualification::run_passive(
                 options.path("--board-profile"),
                 options.text("--network-interface").ok(),
@@ -553,6 +562,7 @@ pub(crate) fn run() -> Result<(), String> {
                 options.path("--evidence-json"),
                 options.text("--run-id").ok(),
                 options.flag("--include-system-health"),
+                device.map(|bdf| (bdf, sample)),
             )?;
             return Ok(());
         }

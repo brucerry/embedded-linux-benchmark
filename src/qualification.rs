@@ -129,6 +129,7 @@ fn passive(
     nvme_controller: Option<&str>,
     run_id: Option<&str>,
     include_system_health: bool,
+    pcie: Option<(&str, Option<u64>)>,
 ) -> Result<String, String> {
     let run = match run_id {
         Some(id) if valid_run_id(id) => format!(r#","run_id":{}"#, json_string(id)),
@@ -148,6 +149,10 @@ fn passive(
         .map(crate::nvme_health::snapshot)
         .transpose()?
         .map_or_else(String::new, |value| format!(r#","nvme_health":{value}"#));
+    let pcie = pcie
+        .map(|(device, ms)| crate::pcie_health::render_snapshot(device, ms, Default::default()))
+        .transpose()?
+        .map_or_else(String::new, |value| format!(r#","pcie_health":{value}"#));
     let inventory = crate::inventory::snapshot(None, board_profile, None)?;
     let health = if include_system_health {
         format!(
@@ -164,7 +169,7 @@ fn passive(
         "not_configured"
     };
     Ok(format!(
-        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{run}}}"#
+        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{pcie}{run}}}"#
     ))
 }
 
@@ -185,6 +190,7 @@ pub(crate) fn run_passive(
     evidence_path: Option<&std::path::Path>,
     run_id: Option<&str>,
     include_system_health: bool,
+    pcie: Option<(&str, Option<u64>)>,
 ) -> Result<(), String> {
     use crate::common::{unix_ms, write_new_evidence};
     use std::time::{Instant, SystemTime};
@@ -195,6 +201,7 @@ pub(crate) fn run_passive(
         nvme_controller,
         run_id,
         include_system_health,
+        pcie,
     )?;
     if let Some((path, (started, timer))) = evidence_path.zip(clock) {
         let elapsed = timer.elapsed().as_millis();
