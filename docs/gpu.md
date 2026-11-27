@@ -75,6 +75,12 @@ Vendor queries may still affect device power state. Unsupported,
 inaccessible, and unavailable readings stay separate from zero.
 The unsigned capture format reports negative temperatures as unavailable.
 
+Treat volatile ECC totals as snapshots. They reset on driver load, which can
+happen more than once per Linux boot. A matching GPU and boot, or a higher
+later total, does not establish continuity. Only compute a difference if
+both captures are independently known to come from the same driver load.
+[NVIDIA NVML ECC counter types](https://docs.nvidia.com/deploy/nvml-api/620/api/group__nvmlDeviceEnums.html#_CPPv420nvmlEccCounterType_t)
+
 This helper was checked against the official header with synthetic library
 responses only. Physical NVIDIA and Jetson runtime behavior and telemetry
 have not been verified. Run the fixture without a driver or GPU:

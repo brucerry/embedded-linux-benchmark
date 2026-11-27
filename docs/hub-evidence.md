@@ -166,4 +166,10 @@ cannot authenticate the device, collector or time. It does not accept a path,
 run a vendor tool, attach to a workload, or read live NVML. The power value's
 sampling behavior depends on the collecting hardware and vendor API.
 
+Render `ecc_scope: volatile_total` as a single-capture counter, not an
+interval or lifetime count. A Linux driver reload can reset it in the same
+boot. This format carries no driver-load identity, so do not derive a delta
+from it alone, even if the later total is higher. See
+[optional NVIDIA health capture](gpu.md#optional-nvidia-health-capture).
+
 [NVIDIA NVML device queries](https://docs.nvidia.com/deploy/nvml-api/latest/api/group__nvmlDeviceQueries.html)
