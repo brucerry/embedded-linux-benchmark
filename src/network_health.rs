@@ -101,8 +101,14 @@ fn counter_deltas(before: Option<Counters>, after: Option<Counters>, same: bool)
         (Ok(a), Ok(b)) => b.checked_sub(a).ok_or("counter_decreased_or_reset"),
         _ => Err("endpoint_unavailable"),
     });
+    let comparable = diffs.iter().filter(|field| field.is_ok()).count();
+    let coverage = match comparable {
+        0 => "none",
+        n if n == COUNTER_KEYS.len() => "complete",
+        _ => "partial",
+    };
     format!(
-        r#"{{"status":"observed_differences","counters":{{{}}}}}"#,
+        r#"{{"status":"observed_differences","counter_coverage":"{coverage}","comparable_counters":{comparable},"counters":{{{}}}}}"#,
         counter_json(&diffs)
     )
 }
@@ -141,6 +147,15 @@ fn operstate(s: &str) -> Result<String, &'static str> {
 }
 
 type InterfaceIdentity = (std::path::PathBuf, u64, u64);
+type StatsIdentity = Result<(u64, u64), &'static str>;
+
+fn statistics_identity(path: &Path) -> StatsIdentity {
+    match fs::symlink_metadata(path) {
+        Ok(m) if m.is_dir() => Ok((m.dev(), m.ino())),
+        Ok(_) => Err("invalid"),
+        Err(e) => Err(reason(e)),
+    }
+}
 
 fn identity(index: &Path, devices: &Path, name: &str) -> Result<InterfaceIdentity, &'static str> {
     let item = index.join(name);
@@ -186,11 +201,7 @@ fn observe(index: &Path, devices: &Path, name: &str) -> Result<(String, Option<C
     let duplex = read(&path.join("duplex"), duplex);
     let operstate = read(&path.join("operstate"), operstate);
     let stats = path.join("statistics");
-    let stats_identity = || match fs::symlink_metadata(&stats) {
-        Ok(m) if m.is_dir() => Ok((m.dev(), m.ino())),
-        Ok(_) => Err("invalid"),
-        Err(e) => Err(reason(e)),
-    };
+    let stats_identity = || statistics_identity(&stats);
     let previous_stats = stats_identity();
     let counters = COUNTER_KEYS.map(|key| {
         if key == "carrier_changes" {
@@ -240,7 +251,7 @@ fn boot_id(path: &Path) -> Option<String> {
     .then_some(value)
 }
 
-type CounterSampleKey = (InterfaceIdentity, u32, String);
+type CounterSampleKey = (InterfaceIdentity, u32, String, StatsIdentity);
 type CounterSnapshot = (String, Option<Counters>, Option<CounterSampleKey>);
 
 fn sample_key(index: &Path, devices: &Path, boot: &Path, name: &str) -> Option<CounterSampleKey> {
@@ -249,7 +260,8 @@ fn sample_key(index: &Path, devices: &Path, boot: &Path, name: &str) -> Option<C
     if id == 0 || identity(index, devices, name).ok().as_ref() != Some(&first) {
         return None;
     }
-    Some((first, id, boot_id(boot)?))
+    let stats = statistics_identity(&first.0.join("statistics"));
+    Some((first, id, boot_id(boot)?, stats))
 }
 
 fn capture(
@@ -333,6 +345,7 @@ mod tests {
         assert!(delta.contains(r#""rx_missed_errors":{"status":"endpoint_unavailable"}"#));
         assert!(delta.contains(r#""rx_bytes":{"status":"observed","value":"0"}"#));
         assert!(delta.contains(r#""tx_bytes":{"status":"endpoint_unavailable"}"#));
+        assert!(delta.contains(r#""counter_coverage":"partial","comparable_counters":3"#));
         assert_eq!(carrier("1"), Ok("true".into()));
         b[0] = Ok(5);
         assert_eq!(
@@ -343,6 +356,18 @@ mod tests {
             counter_deltas(Some(a), Some(b), false),
             r#"{"status":"not_comparable"}"#
         );
+    }
+
+    #[test]
+    fn counter_coverage_distinguishes_no_data_from_measured_zero() {
+        let none = [Err("unavailable"); COUNTER_KEYS.len()];
+        let zero = [Ok(0); COUNTER_KEYS.len()];
+        let empty = counter_deltas(Some(none), Some(none), true);
+        assert!(empty.contains(r#""counter_coverage":"none","comparable_counters":0"#));
+        assert!(!empty.contains(r#""value":"0""#));
+        let all = counter_deltas(Some(zero), Some(zero), true);
+        assert!(all.contains(r#""counter_coverage":"complete","comparable_counters":9"#));
+        assert!(all.contains(r#""rx_errors":{"status":"observed","value":"0"}"#));
     }
 
     #[test]
@@ -382,6 +407,11 @@ mod tests {
         fs::write(link.join("ifindex"), "3\n").unwrap();
         let second = sample_key(&index, &devices, &boot, "eth0").unwrap();
         assert_ne!(first, second);
+        // Keep the old inode alive while creating an alternate statistics directory.
+        fs::rename(link.join("statistics"), link.join("saved-statistics")).unwrap();
+        fs::create_dir(link.join("statistics")).unwrap();
+        let replaced_stats = sample_key(&index, &devices, &boot, "eth0").unwrap();
+        assert_ne!(second, replaced_stats);
         fs::write(&boot, "malformed\n").unwrap();
         assert!(sample_key(&index, &devices, &boot, "eth0").is_none());
         symlink(&link, index.join("eth1")).unwrap();

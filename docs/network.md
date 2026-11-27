@@ -16,8 +16,12 @@ and [operational states](https://docs.kernel.org/networking/operstates.html).
 
 Add `--sample-ms 1000` to take two passive snapshots (allowed: 1–60,000 ms).
 The report records the monotonic interval and whether the same boot and
-interface identity were observed. It reports per-counter differences only with
+interface identity were observed. The statistics directory must also stay the
+same across the samples. It reports per-counter differences only with
 comparable observations, and withholds all differences if a counter decreases.
+Consult `delta.counter_coverage` and `delta.comparable_counters` before interpreting
+the results: `none` means no readable counter pair, not measured zeros;
+`partial` and `complete` indicate how many of the nine pairs were readable.
 Unchanged endpoint carrier states may still hide transitions recorded by
 `carrier_changes`. Sysfs fields are read sequentially; the result is not a
 precise rate, loss percentage, or proof that no transient reset occurred.
