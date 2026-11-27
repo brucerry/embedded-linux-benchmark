@@ -479,6 +479,9 @@ fn capabilities() -> String {
             r#""offline_amdgpu_ras":{{"schema":1,"input":"literal_capture_text","max_bytes":{}}},"#,
             r#""passive_pcie_health":{{"schema":1,"max_sample_wait_ms":2000}},"#,
             r#""passive_edac_health":{{"schema":1,"flag":"--edac-controller","scope":"selected_snapshot"}},"#,
+            r#""offline_tegrastats":{{"schema":1,"input":"saved_single_line","max_input_line_bytes":{}}},"#,
+            r#""pcie_saved_snapshot":{{"schema":1,"flag":"--save-snapshot","continuity_metadata":"private_export"}},"#,
+            r#""network_peer_receipt":{{"schema":1,"flag":"--peer-receipt","traffic":"explicit_peer_only"}},"#,
             r#""passive_observation_timeline":{{"schema":1,"flag":"--include-timeline","execution":"sequential"}},"#,
             r#""passive_thermal_window":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--thermal-sample-ms"}},"#,
             r#""passive_network_health":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--network-health-sample-ms"}},"#,
@@ -492,6 +495,7 @@ fn capabilities() -> String {
         crate::nvme_health::SMART_PAGE_BYTES,
         crate::nvidia_capture::MAX_CAPTURE_BYTES,
         crate::ras_capture::LIMIT,
+        crate::tegrastats_capture::LIMIT,
         crate::pressure::MAX_SAMPLES,
         crate::pressure::MAX_INTERVAL_MS,
     )

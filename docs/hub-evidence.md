@@ -162,6 +162,14 @@ report or establish that the nominated report directory is fresh and private.
 The controller must verify those independently and confirm device/run/exit
 identity before accepting evidence.
 
+The selected EDAC option takes only a passive snapshot and is accepted
+only when an Engine advertises `passive_edac_health`. New independent
+contracts advertise saved PCIe snapshots, explicit peer receipts, and
+single-line offline Jetson decoding. They describe software support only.
+They do not imply a device exists, authorize workload execution, or make
+raw continuity identifiers suitable for logging or upload.
+
+
 ## Fixture-backed NVIDIA capture format
 
 `accelerator nvidia-health-decode --device BDF --capture-text TEXT` is an

@@ -2,7 +2,7 @@ use std::io::{self, Read};
 
 use crate::pcie_health::json_string;
 
-const LIMIT: usize = 4096;
+pub(crate) const LIMIT: usize = 4096;
 
 fn unsigned(text: &str, max: u32) -> Option<u32> {
     if text.is_empty() || !text.bytes().all(|b| b.is_ascii_digit()) {

@@ -1462,6 +1462,9 @@ fn capabilities_advertises_compiled_contracts_without_checking_hardware() {
     assert!(text.contains(r#""run_id":"hex32","max_evidence_bytes":1048576"#));
     assert!(text.contains(r#""input":"offline_page","input_bytes":512"#));
     assert!(text.contains(r#""storage_mmc_health":{"schema":1,"input":"named_mmc_card"}"#));
+    assert!(text.contains(r#""offline_tegrastats":{"schema":1,"input":"saved_single_line","max_input_line_bytes":4096}"#));
+    assert!(text.contains(r#""pcie_saved_snapshot":{"schema":1,"flag":"--save-snapshot","continuity_metadata":"private_export"}"#));
+    assert!(text.contains(r#""network_peer_receipt":{"schema":1,"flag":"--peer-receipt","traffic":"explicit_peer_only"}"#));
     let bad = invoke(&["capabilities", "--network-interface", "eth0"]);
     assert!(!bad.status.success() && bad.stdout.is_empty());
     assert!(scratch.names().is_empty());
