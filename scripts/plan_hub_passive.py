@@ -22,6 +22,13 @@ def supports_thermal_wait(contracts, wait):
             and wait <= row["max_sample_wait_ms"] <= 2000)
 
 
+def supports_pcie_health(contracts):
+    row = contracts.get("passive_pcie_health")
+    return (type(row) is dict and type(row.get("schema")) is int and row["schema"] == 1
+            and type(row.get("max_sample_wait_ms")) is int
+            and 1 <= row["max_sample_wait_ms"] <= 2000)
+
+
 def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_controller=None,
          network_interface=None, network_sample_ms=None, nvme_controller=None, mmc_card=None, thermal_sample_ms=None, pcie_health_device=None):
     check(type(run_id) is str and RUN_ID.fullmatch(run_id) and run_id != "0" * 32,
@@ -97,11 +104,7 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_co
     if pcie_health_device is not None:
         check(type(pcie_health_device) is str and PCI_BDF.fullmatch(pcie_health_device),
               "invalid requested PCIe health device")
-        contract = contracts.get("passive_pcie_health")
-        check(type(contract) is dict and type(contract.get("schema")) is int
-              and contract["schema"] == 1
-              and type(contract.get("max_sample_wait_ms")) is int
-              and 1 <= contract["max_sample_wait_ms"] <= 2000,
+        check(supports_pcie_health(contracts),
               "Engine does not advertise passive PCIe health schema 1")
         argv.extend(("--pcie-health-device", pcie_health_device))
     results = []

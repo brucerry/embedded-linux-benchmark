@@ -110,3 +110,25 @@ class BoardBringupTest(unittest.TestCase):
         for bad in (True, 0, 2001):
             with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "invalid requested thermal"):
                 make(bad)
+
+
+    def test_selected_pcie_health_does_not_claim_an_observation(self):
+        def make(device):
+            result = preview(self.cap, self.run_id, "/tmp/new-run/result.json",
+                             pcie_health_device=device)
+            step = next(r for r in result["steps"] if r["id"] == "selected_pcie_health")
+            return result, step
+
+        self.assertEqual(make(None)[1]["status"], "not_requested")
+        self.assertEqual(make("0000:01:00.0")[1]["status"], "unsupported")
+        self.cap["contracts"]["passive_pcie_health"] = {"schema": 1, "max_sample_wait_ms": 2000}
+        previewed, selected = make("0000:01:00.0")
+        self.assertEqual(previewed["execution"], "none")
+        self.assertEqual(previewed["hardware_availability"], "not_checked")
+        self.assertEqual(previewed["passive_plan"]["argv"][-2:],
+                         ["--pcie-health-device", "0000:01:00.0"])
+        self.assertEqual(selected, {"id": "selected_pcie_health", "status": "planned",
+                                   "device": "0000:01:00.0", "scope": "single_passive_snapshot",
+                                   "hardware_authenticity": "not_verified"})
+        with self.assertRaisesRegex(ValueError, "invalid requested PCIe health"):
+            make("pci0000:01")

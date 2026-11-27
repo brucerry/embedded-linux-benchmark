@@ -58,6 +58,8 @@ For trusted plan verification, the planner can select one explicit
 `--pcie-health-device BDF` and one snapshot only. The verifier binds the
 target and checks the bounded observer and AER scopes. It does not judge
 link performance or support planning a two-snapshot PCIe window yet.
+The bring-up preview supports the same device option. Its planned marker
+does not imply the device is present or confirm a physical observation.
 
 Pass `--plan` to the verifier with the trusted plan previously generated
 by `scripts/plan_hub_passive.py` for this run. The verifier checks run ID,
