@@ -88,6 +88,29 @@ class PcieSnapshotTest(unittest.TestCase):
         self.assertEqual(target["device_aer"][DEVICE_KEYS[1]]["reason"], "observation_state_changed")
         self.assertEqual(parent["device_aer"][DEVICE_KEYS[0]]["reason"], "category_set_changed")
 
+    def test_coverage_distinguishes_absent_telemetry_from_measured_zero(self):
+        before = fixture(1, 0)
+        after = fixture(5, 0)
+        observed = compare(encode(before), encode(after))
+        self.assertEqual(observed["status"], "compared")
+        self.assertEqual(observed["counter_coverage"]["status"], "partial")
+        self.assertEqual(observed["counter_coverage"]["fields"]["observed"], 3)
+        self.assertEqual(observed["by_observer"][1]["root_hierarchy_aer"][ROOT_KEYS[0]],
+                         {"status": "observed", "value": "0"})
+        for item in (before, after):
+            item["snapshot"]["root_hierarchy_aer"] = []
+            for row in item["snapshot"]["observations"]:
+                row["device_aer"] = {k: {"status": "unavailable"} for k in DEVICE_KEYS}
+        empty = compare(encode(before), encode(after))
+        self.assertEqual(empty["status"], "compared")
+        self.assertEqual(empty["counter_coverage"], {
+            "status": "unavailable", "fields": {"observed": 0, "unavailable": 12,
+                "inaccessible": 0, "invalid": 0, "not_comparable": 0}})
+        after["snapshot"]["observations"][0]["device_aer"][DEVICE_KEYS[0]] = {
+            "status": "inaccessible"}
+        self.assertEqual(compare(encode(before), encode(after))["counter_coverage"]["status"],
+                         "not_comparable")
+
     def test_cli_exit_and_rejection(self):
         with tempfile.TemporaryDirectory() as root:
             a, b = Path(root) / "a.json", Path(root) / "b.json"

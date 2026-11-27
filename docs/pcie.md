@@ -89,4 +89,14 @@ different boots, overlapping or reversed capture windows, changed observers,
 and changed or indeterminate driver bindings. A counter decrease or category
 change invalidates that field instead of creating a zero. Matching IDs are a
 necessary continuity check, not hardware authentication or proof that no reset
-or same-driver rebind happened between captures. Keep sampling intervals short.
+or same-driver rebind happened between captures. A different binding changes
+the observation conditions; it does not itself establish a counter reset.
+Keep sampling intervals short.
+
+A successful comparison can still have no usable counter evidence. Check
+`counter_coverage`: `unavailable` means all fields were unavailable,
+`not_comparable` means none were observed and at least one was inaccessible,
+invalid, or changed state, and `partial` or `available` require actual
+observations. An observed `"0"` is a measured zero increment. It is not
+interchangeable with an unavailable counter, and neither certifies link health.
+The field totals count observable fields, not error events.

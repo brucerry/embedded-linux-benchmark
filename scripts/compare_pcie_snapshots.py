@@ -171,7 +171,18 @@ def compare(before, after):
                             "root_hierarchy_aer": {k: delta(root0.get(k, missing),
                                                            root1.get(k, missing), False)
                                                    for k in ROOT_KEYS}})
-    return {**out, "status": "compared", "by_observer": by_observer}
+    totals = dict.fromkeys(("observed", *MISSING, "not_comparable"), 0)
+    for row in by_observer:
+        for group in (row["device_aer"], row["root_hierarchy_aer"]):
+            for field in group.values():
+                totals[field["status"]] += 1
+    if totals["observed"]:
+        telemetry = "available" if not any(totals[k] for k in (*MISSING, "not_comparable")) else "partial"
+    else:
+        telemetry = ("unavailable" if not any(totals[k] for k in
+                     ("inaccessible", "invalid", "not_comparable")) else "not_comparable")
+    return {**out, "status": "compared", "by_observer": by_observer,
+            "counter_coverage": {"status": telemetry, "fields": totals}}
 
 
 def main():
