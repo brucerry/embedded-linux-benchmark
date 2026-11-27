@@ -201,3 +201,20 @@ plan. A device check that was not requested remains distinct from an
 unsupported software feature. The preview excludes CPU/RAM load, writes,
 peer traffic, and hardware fixture actions. It does not check installed
 hardware, launch commands, or authenticate the source capability capture.
+
+### Offline comparison across selected boards
+
+Run `python3 scripts/summarize_board_pcie.py --manifest /private/batch/batch.json`
+on the controller. The v1 manifest is an object with `schema_version: 1` and a
+`boards` array of 1–16 records. Each record has an operator-chosen `board` label,
+`run_id`, observed `process_exit`, and `sha256` with separate `evidence`, `stdout`,
+and `plan` digests. Save the three raw files alongside the manifest as
+`<run_id>.evidence.json`, `<run_id>.stdout.json`, and `<run_id>.plan.json`.
+
+Supply a trusted manifest and private input directory. The script recomputes the
+digests and rechecks each raw evidence pair against its plan. It refuses repeated
+board labels, run IDs, and evidence digests within the batch. Each explicit PCIe
+requirement result stays on its own board; an invalid entry rejects the whole
+batch. This checks local consistency, not remote identity, a trusted timestamp,
+or replay across batches. It does not compute manufacturing yield or qualify
+any board.

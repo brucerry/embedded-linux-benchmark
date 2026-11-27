@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+"""Summarize a bounded batch of offline PCIe checks, one result per selected board."""
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+
+from check_hub_evidence import RUN_ID, check, parse, read_bounded
+from evaluate_pcie_requirements import evaluate
+
+LABEL = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}", re.ASCII)
+DIGEST = re.compile(r"[0-9a-f]{64}", re.ASCII)
+FILES = ("evidence", "stdout", "plan")
+
+
+def summarize(manifest_raw, directory):
+    manifest = parse(manifest_raw)
+    check(manifest.keys() == {"schema_version", "boards"}
+          and type(manifest["schema_version"]) is int and manifest["schema_version"] == 1,
+          "unsupported board manifest")
+    boards = manifest["boards"]
+    check(type(boards) is list and 1 <= len(boards) <= 16, "expected 1 to 16 boards")
+    labels, run_ids, evidence_hashes = set(), set(), set()
+    results = []
+    for row in boards:
+        check(type(row) is dict and row.keys() == {"board", "run_id", "process_exit", "sha256"},
+              "invalid board record")
+        board, run_id, digests = row["board"], row["run_id"], row["sha256"]
+        check(type(board) is str and LABEL.fullmatch(board) and board.casefold() not in labels,
+              "invalid or repeated board label")
+        check(type(run_id) is str and RUN_ID.fullmatch(run_id) and run_id not in run_ids,
+              "invalid or repeated run ID")
+        check(type(digests) is dict and digests.keys() == set(FILES)
+              and all(type(digest) is str and DIGEST.fullmatch(digest) for digest in digests.values()),
+              "invalid artifact digests")
+        check(digests["evidence"] not in evidence_hashes, "repeated evidence digest")
+        labels.add(board.casefold())
+        run_ids.add(run_id)
+        evidence_hashes.add(digests["evidence"])
+        artifacts = {}
+        for kind in FILES:
+            data = read_bounded(directory / f"{run_id}.{kind}.json")
+            check(hashlib.sha256(data).hexdigest() == digests[kind], f"{board}: {kind} digest mismatch")
+            artifacts[kind] = data
+        result = evaluate(artifacts["evidence"], artifacts["stdout"], run_id,
+                          artifacts["plan"], row["process_exit"])
+        results.append({"board": board, "result": result})
+    return {"schema_version": 1, "kind": "offline_board_pcie_summary",
+            "scope": "selected_board_runs_only",
+            "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
+            "boards": results, "hardware_authenticity": "not_verified",
+            "manufacturing_yield": "not_assessed"}
+
+
+def main():
+    cli = argparse.ArgumentParser(description=__doc__)
+    cli.add_argument("--manifest", type=Path, required=True,
+                     help="manifest in the same private directory as the raw artifacts")
+    args = cli.parse_args()
+    try:
+        print(json.dumps(summarize(read_bounded(args.manifest), args.manifest.parent), sort_keys=True))
+    except (OSError, ValueError, RecursionError) as exc:
+        cli.exit(1, f"Batch rejected: {exc}\n")
+
+
+if __name__ == "__main__":
+    main()
