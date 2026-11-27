@@ -474,8 +474,11 @@ SMART / Health Information log.
 `eld-engine storage mmc-health --card mmc0:0001` reads the named
 MMC card's cached kernel sysfs `pre_eol_info` and `life_time` when
 the MMC driver exposes them. The integers are raw device codes. They
-are not exact wear percentages, a health verdict, or estimated time
-to failure; zero is preserved, not interpreted as healthy. SD cards
+are not fresh readings, exact wear percentages, a health verdict, or
+estimated time to failure. Linux only populates those cached fields
+for supported Extended CSD revisions (revision 7 or later), so a zero
+can also be an unpopulated value on an older card. The tool preserves
+zero as a raw observation without interpreting it as healthy. SD cards
 are not supported by this command. No block device is opened, no MMC
 command is sent, and no serial number is collected. See the Linux
 [MMC attribute definitions](https://github.com/torvalds/linux/blob/master/drivers/mmc/core/mmc.c).

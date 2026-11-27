@@ -133,6 +133,18 @@ mod tests {
             r#""life_time_raw":{"status":"observed","value":{"type_a_raw":0,"type_b_raw":10}}"#
         ));
         assert!(!value.contains("must-not-leak"));
+        // A readable all-zero kernel cache (e.g. on an older MMC card)
+        // is raw data, not confirmation that wear reporting is supported.
+        fs::write(card.join("pre_eol_info"), "0x00\n").unwrap();
+        fs::write(card.join("life_time"), "0x00 0x00\n").unwrap();
+        let zero = report(&index, &devices, "mmc0:000a").unwrap();
+        assert!(zero.contains(r#""pre_eol_info_raw":{"status":"observed","value":0}"#));
+        assert!(zero.contains(
+            r#""life_time_raw":{"status":"observed","value":{"type_a_raw":0,"type_b_raw":0}}"#
+        ));
+        for verdict in ["healthy", "wear_percent", "passed", "qualified"] {
+            assert!(!zero.contains(verdict));
+        }
         fs::write(card.join("life_time"), "0x00 0xa\n").unwrap();
         fs::remove_file(card.join("pre_eol_info")).unwrap();
         let value = report(&index, &devices, "mmc0:000a").unwrap();
