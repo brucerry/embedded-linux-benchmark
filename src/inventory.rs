@@ -948,9 +948,9 @@ fn powercap(index: &Path, root: &Path) -> String {
             let m=fs::symlink_metadata(&observed).ok()?;
             (observed==target && m.is_dir()).then(||(m.dev(),m.ino()))
         };
-        let mut info=[Observation::Unavailable,Observation::Unavailable,Observation::Unavailable];
+        let mut info: [Observation; 5] = std::array::from_fn(|_| Observation::Unavailable);
         if let Some(first)=identify() {
-            info=["name","energy_uj","max_energy_range_uj"].map(|attr|match bounded(&target.join(attr)) {
+            info=["name","energy_uj","max_energy_range_uj","power_uw","max_power_range_uw"].map(|attr|match bounded(&target.join(attr)) {
                 Ok(v) if attr=="name"=>text_value(&v).map_or(Observation::Invalid,Observation::Available),
                 Ok(v)=>{
                     let v=v.trim();
@@ -962,8 +962,8 @@ fn powercap(index: &Path, root: &Path) -> String {
             });
             if identify()!=Some(first) {info=std::array::from_fn(|_|Observation::Unavailable);}
         }
-        format!(r#"{{"zone":{},"name":{},"energy_microjoules":{},"max_energy_range_microjoules":{}}}"#,
-            json_string(&name),info[0].json(),info[1].json(),info[2].json())
+        format!(r#"{{"zone":{},"name":{},"energy_microjoules":{},"max_energy_range_microjoules":{},"power_microwatts":{},"max_power_range_microwatts":{}}}"#,
+            json_string(&name),info[0].json(),info[1].json(),info[2].json(),info[3].json(),info[4].json())
     }).collect::<Vec<_>>().join(",");
     result(status, &rows)
 }
@@ -1188,7 +1188,17 @@ mod tests {
         fs::write(parent.join("energy_uj"), "14\n").unwrap();
         fs::write(child.join("energy_uj"), "7\n").unwrap();
         fs::write(child.join("max_energy_range_uj"), "4294967296\n").unwrap();
+        fs::write(parent.join("power_uw"), "0\n").unwrap();
+        fs::write(parent.join("max_power_range_uw"), "9007199254740993\n").unwrap();
+        fs::write(child.join("power_uw"), "-1\n").unwrap();
         let o = powercap(&index, &root);
+        assert!(o.contains(r#""power_microwatts":{"status":"observed","value":"0"}"#));
+        assert!(o.contains(
+            r#""max_power_range_microwatts":{"status":"observed","value":"9007199254740993"}"#
+        ));
+        assert!(o.contains(r#""power_microwatts":{"status":"invalid"}"#));
+        assert!(o.contains(r#""max_power_range_microwatts":{"status":"unavailable"}"#));
+
         assert!(o.contains(r#""energy_microjoules":{"status":"observed","value":"14"}"#));
         assert!(o.contains(r#""energy_microjoules":{"status":"observed","value":"7"}"#));
         assert!(o.contains(

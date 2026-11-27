@@ -110,3 +110,9 @@ reports the measured interval and matches differences by observed sensor
 identity. Missing, changed, or unsupported sensors do not imply zero change.
 No heating load is started, and the window is not synchronized with NIC or
 pressure observations.
+
+Where the Linux powercap driver exposes them, per-zone `power_microwatts`
+and `max_power_range_microwatts` are decimal strings, distinct from the
+energy counter and range. Some drivers expose only energy. An unavailable or
+inaccessible power attribute is not zero. Do not sum parent and child zones,
+interpret ranges as measurements, or treat one zone as whole-device power.
