@@ -18,8 +18,11 @@ class BoardPcieSummaryTest(unittest.TestCase):
         self.addCleanup(tmp.cleanup)
         self.path = Path(tmp.name)
 
-    def artifacts(self, board, token_char, status):
-        evidence, stdout, token, plan, process_exit = pair([{"bdf": FIRST, "status": status}])
+    def artifacts(self, board, token_char, status, identity=None):
+        observed = {"bdf": FIRST, "status": status}
+        if identity:
+            observed.update(expected=identity, observed=identity)
+        evidence, stdout, token, plan, process_exit = pair([observed])
         run_id = token_char * 32
         hashes = {}
         for kind, initial in {"evidence": evidence, "stdout": stdout, "plan": plan}.items():
@@ -36,6 +39,8 @@ class BoardPcieSummaryTest(unittest.TestCase):
         self.assertEqual([(r["board"], r["result"]["outcome"]) for r in result["boards"]],
                          [("fixture-a", "pass"), ("fixture-b", "fail"), ("fixture-c", "unavailable")])
         self.assertEqual(result["manufacturing_yield"], "not_assessed")
+        self.assertEqual(result["comparison"]["groups"], [])
+        self.assertEqual(result["comparison"]["unbound_boards"], ["fixture-a", "fixture-b", "fixture-c"])
 
     def test_repeated_board_run_and_raw_evidence(self):
         first = self.artifacts("fixture-a", "a", "present")
@@ -64,14 +69,15 @@ class BoardPcieSummaryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "run ID"):
             summarize(manifest([dict(row, run_id="../escape")]), self.path)
 
-    def with_context(self):
-        row = self.artifacts("fixture-a", "a", "present")
-        row["expected_engine_sha256"] = "e" * 64
+    def with_context(self, board="fixture-a", char="a", engine="e", device=None):
+        identity = dict(vendor="8086", device=device) if device else None
+        row = self.artifacts(board, char, "match" if device else "present", identity)
+        row["expected_engine_sha256"] = engine * 64
         self.context_record(row, "profile", {"schema_version": 1, "profile_id": "rev-a",
-                                             "require_pcie": FIRST})
+                                             "require_pcie": FIRST + ("=8086:" + device if device else "")})
         self.context_record(row, "capture", {"schema_version": 1, "board": row["board"],
                                              "run_id": row["run_id"], "process_exit": 0,
-                                             "engine_sha256": "e" * 64})
+                                             "engine_sha256": engine * 64})
         return row
 
     def context_record(self, row, kind, data):
@@ -79,8 +85,8 @@ class BoardPcieSummaryTest(unittest.TestCase):
         (self.path / f'{row["run_id"]}.{kind}.json').write_bytes(raw)
         row["sha256"][kind] = hashlib.sha256(raw).hexdigest()
 
-    def summarize_v2(self, row):
-        return summarize(json.dumps({"schema_version": 2, "boards": [row]}).encode(), self.path)
+    def summarize_v2(self, *rows):
+        return summarize(json.dumps({"schema_version": 2, "boards": list(rows)}).encode(), self.path)
 
     def test_v2_reports_distinct_profile_and_binary_identity(self):
         result = self.summarize_v2(self.with_context())
@@ -103,3 +109,23 @@ class BoardPcieSummaryTest(unittest.TestCase):
                                              "require_pcie": FIRST + "=8086:1234"})
         with self.assertRaisesRegex(ValueError, "differs from board profile"):
             self.summarize_v2(row)
+
+
+    def test_comparison_never_joins_same_label_with_different_required_device(self):
+        a = self.with_context(device="1234")
+        b = self.with_context(board="fixture-b", char="b", device="4321")
+        result = self.summarize_v2(a, b)
+        self.assertTrue(all(row["result"]["outcome"] == "pass" for row in result["boards"]))
+        groups = result["comparison"]["groups"]
+        self.assertEqual({group["profile_id"] for group in groups}, {"rev-a"})
+        self.assertEqual(len({group["profile_sha256"] for group in groups}), 2)
+        self.assertEqual({tuple(group["boards"]) for group in groups}, {("fixture-a",), ("fixture-b",)})
+
+    def test_exact_profile_reuse_groups_only_same_engine_digest(self):
+        a = self.with_context()
+        b = self.with_context(board="fixture-b", char="b")
+        c = self.with_context(board="fixture-c", char="c", engine="f")
+        groups = self.summarize_v2(a, b, c)["comparison"]["groups"]
+        self.assertEqual(len({group["profile_sha256"] for group in groups}), 1)
+        self.assertEqual({group["engine_sha256"]: group["boards"] for group in groups},
+                         {"e" * 64: ["fixture-a", "fixture-b"], "f" * 64: ["fixture-c"]})

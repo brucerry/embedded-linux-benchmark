@@ -235,3 +235,10 @@ Verify the artifact and launch identity on the controller before making a
 capture record. The offline summary checks consistency of that record, not
 bytes on the target, runtime attestation, or hardware identity. Existing v1
 batches have no binary or profile binding.
+
+The `comparison.groups` list groups board labels only if both their exact
+profile bytes and Engine asset digest match. The profile label is for humans;
+two revisions can have the same label. Use a byte-for-byte copy of the approved
+profile for intended peers rather than reserializing the JSON. The report lists
+v1 boards under `comparison.unbound_boards` instead of grouping them. A group
+does not combine outcomes, prove comparable hardware, or measure yield.

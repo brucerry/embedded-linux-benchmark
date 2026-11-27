@@ -58,7 +58,7 @@ def summarize(manifest_raw, directory):
     boards = manifest["boards"]
     check(type(boards) is list and 1 <= len(boards) <= 16, "expected 1 to 16 boards")
     labels, run_ids, evidence_hashes = set(), set(), set()
-    results = []
+    results, groups, unbound = [], {}, []
     for row in boards:
         check(type(row) is dict and row.keys() == fields,
               "invalid board record")
@@ -87,11 +87,24 @@ def summarize(manifest_raw, directory):
             check(valid_digest(expected_engine), "invalid expected Engine digest")
             entry["context"] = verify_context(artifacts, board, run_id, expected_engine,
                                               row["process_exit"])
+            context = entry["context"]
+            key = (context["profile_sha256"], context["engine_sha256"])
+            group = groups.setdefault(key, {
+                "profile_id": context["profile_id"], "profile_sha256": key[0],
+                "engine_sha256": key[1], "boards": [],
+            })
+            group["boards"].append(board)
+        else:
+            unbound.append(board)
         results.append(entry)
     return {"schema_version": version, "kind": "offline_board_pcie_summary",
             "scope": "selected_board_runs_only",
             "manifest_sha256": hashlib.sha256(manifest_raw).hexdigest(),
-            "boards": results, "hardware_authenticity": "not_verified",
+            "boards": results,
+            "comparison": {"scope": "exact_profile_bytes_and_engine_digest_only",
+                           "groups": [groups[key] for key in sorted(groups)],
+                           "unbound_boards": unbound},
+            "hardware_authenticity": "not_verified",
             "manufacturing_yield": "not_assessed"}
 
 
