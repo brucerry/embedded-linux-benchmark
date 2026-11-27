@@ -58,6 +58,19 @@ Display that state even when a deliberately approved manual smoke test is
 possible. Never flash firmware, replace a system executable, or launch stress
 as a side effect of checking or transferring an asset.
 
+For a local metadata comparison only, use the reported board facts:
+
+```sh
+python3 scripts/plan_engine_asset.py --manifest eld-engine-release-manifest.json \
+  --target-os linux --target-arch aarch64
+```
+
+An x86-64 comparison also requires the observed `--glibc`, `--loader`, and
+a repeated `--library` for each confirmed direct dependency. The preview
+does not discover the device or check the binary contents, release origin,
+or eligibility to deploy; even an unsigned preflight may yield
+`metadata_candidate`. Do not treat that result as authorization.
+
 See [passive evidence handoff](hub-evidence.md) for the run and report checks.
 
 ## Internal build preflight
