@@ -117,6 +117,28 @@ def verify_network_window(window, elapsed):
         check(delta.keys() == {"status"}, "invalid withheld network delta")
 
 
+def verify_timeline(observation, elapsed):
+    timeline = observation["observation_timeline"]
+    check(type(timeline) is dict and timeline.keys() == {
+        "schema_version", "clock", "execution", "phases"
+    } and type(timeline["schema_version"]) is int and timeline["schema_version"] == 1
+        and timeline["clock"] == "single_process_monotonic"
+        and timeline["execution"] == "sequential", "unsupported observation timeline")
+    order = ("network_health", "nvme_health", "pcie_health", "inventory", "system_health")
+    expected = [key for key in order if key in observation]
+    rows = timeline["phases"]
+    check(type(rows) is list and len(rows) == len(expected), "invalid observation phase count")
+    last = 0
+    for key, row in zip(expected, rows):
+        check(type(row) is dict and row.keys() == {
+            "phase", "started_monotonic_ms", "finished_monotonic_ms"
+        } and row["phase"] == key, "unexpected observation phase")
+        start, finish = row["started_monotonic_ms"], row["finished_monotonic_ms"]
+        check(type(start) is int and type(finish) is int and last <= start <= finish <= elapsed,
+              "invalid observation phase interval")
+        last = finish
+
+
 def verify(evidence, stdout, run_id):
     check(isinstance(run_id, str) and RUN_ID.fullmatch(run_id)
           and run_id != "0" * 32, "invalid expected run ID")
@@ -142,6 +164,8 @@ def verify(evidence, stdout, run_id):
     network = q.get("network_health")
     if type(network) is dict and "mode" in network:
         verify_network_window(network, saved["elapsed_monotonic_ms"])
+    if "observation_timeline" in q:
+        verify_timeline(q, saved["elapsed_monotonic_ms"])
     return {"status": "correlated", "run_id": run_id,
             "evidence_bytes": len(evidence), "sha256": hashlib.sha256(evidence).hexdigest(),
             "hardware_authenticity": "not_verified"}

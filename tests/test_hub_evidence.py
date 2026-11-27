@@ -119,6 +119,35 @@ class Evidence(unittest.TestCase):
                 finally:
                     obj[field] = old
 
+    def test_rejects_overlaps_and_unreported_observation_timeline_phases(self):
+        q = fixture()
+        timeline = {"schema_version": 1, "clock": "single_process_monotonic",
+                    "execution": "sequential",
+                    "phases": [
+                        {"phase": "pcie_health", "started_monotonic_ms": 0, "finished_monotonic_ms": 5},
+                        {"phase": "inventory", "started_monotonic_ms": 5, "finished_monotonic_ms": 10},
+                    ]}
+        q["observation_timeline"] = timeline
+
+        def run():
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+
+        self.assertEqual(run()["status"], "correlated")
+        for obj, field, value in (
+            (timeline, "phases", timeline["phases"][:-1]),
+            (timeline, "phases", list(reversed(timeline["phases"]))),
+            (timeline["phases"][1], "started_monotonic_ms", 4),
+            (timeline["phases"][1], "finished_monotonic_ms", 11),
+            (timeline["phases"][0], "phase", "nvme_health"),
+        ):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                old = obj[field]
+                try:
+                    obj[field] = value
+                    run()
+                finally:
+                    obj[field] = old
+
     def test_rejects_duplicate_truncated_and_nonfinite(self):
         for data in (b'{"a":1,"a":2}', b'{"a":', b'{"a":NaN}', b' ' * (m.MAX_BYTES + 1)):
             with self.subTest(data=data[:20]), self.assertRaises(ValueError):

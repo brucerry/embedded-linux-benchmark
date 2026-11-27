@@ -123,3 +123,8 @@ invoked phases in their actual sequential order, with start and finish offsets
 measured in milliseconds from one process-local monotonic clock. Equal offsets
 are possible for sub-millisecond reads. A phase's presence does not establish
 device availability or synchronize measurements across hosts.
+
+The v1 verifier checks that the phase list matches the report sections actually
+present. It rejects missing, duplicated, unexpected, overlapping or misordered
+phases and offsets beyond the enclosing evidence duration. A missing timeline
+remains valid for previous reports or runs that did not request the option.
