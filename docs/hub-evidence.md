@@ -276,3 +276,21 @@ selected controller only when the capture advertises the sysfs-only contract.
 The evidence verifier requires the same controller and `smart_sampled: false`.
 A withheld controller stays withheld; this check performs no raw I/O and
 cannot infer SMART status or drive health.
+
+## Offline NVMe SMART comparison
+
+Use two already-captured 512-byte SMART pages, the corresponding saved
+Engine decodes, and trusted digests. This command never acquires a page:
+
+```sh
+python3 scripts/compare_nvme_smart_evidence.py \
+  --before before.bin before.json BEFORE_SHA256 \
+  --after after.bin after.json AFTER_SHA256
+```
+
+Supply independently identified captures from the same controller and in
+the correct order. The checker verifies each page and decode, refuses two
+byte-identical pages as insufficient evidence of distinct captures, and
+reports exact decimal differences, possible resets, or unreported
+endpoints. It does not establish drive identity, chronology, or health.
+Do not use raw device paths or infer a physical fault from the comparison alone.
