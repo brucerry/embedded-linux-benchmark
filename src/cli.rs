@@ -143,8 +143,12 @@ const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[
     ("--evidence-json", Kind::Path),
     ("--run-id", Kind::Text),
 ];
-const QUALIFICATION_PLAN_OPTIONS: &[(&str, Kind)] =
-    &[("--profile", Kind::Text), ("--include-local-load", Flag)];
+const QUALIFICATION_PLAN_OPTIONS: &[(&str, Kind)] = &[
+    ("--profile", Kind::Text),
+    ("--include-local-load", Flag),
+    ("--local-test", Kind::Text),
+    ("--max-local-load-secs", Number(1, 14 * 24 * 3600)),
+];
 const STRESS_OPTIONS: &[(&str, Kind)] = &[
     ("--test", Kind::StressTest),
     ("--rounds", Number(1, stress::MAX_ROUNDS)),
@@ -298,6 +302,7 @@ fn help() {
   eld-engine qualify passive [--board-profile PATH] [--network-interface NAME] [--nvme-controller NAME]
                              [--evidence-json NEW_PATH] [--run-id HEX32]
   eld-engine qualify plan --profile bring-up|quick|manufacturing|overnight [--include-local-load]
+                           [--local-test cpu|ram] [--max-local-load-secs SECONDS]
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
   eld-engine storage nvme-health --controller nvme0
@@ -502,7 +507,9 @@ pub(crate) fn run() -> Result<(), String> {
                 "{}",
                 crate::qualification::render(
                     options.text("--profile")?,
-                    options.flag("--include-local-load")
+                    options.flag("--include-local-load"),
+                    options.text("--local-test").ok(),
+                    options.number("--max-local-load-secs"),
                 )?
             );
             return Ok(());

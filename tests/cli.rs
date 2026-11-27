@@ -1466,3 +1466,42 @@ fn capabilities_advertises_compiled_contracts_without_checking_hardware() {
     assert!(!bad.status.success() && bad.stdout.is_empty());
     assert!(scratch.names().is_empty());
 }
+
+#[test]
+fn qualification_preview_selects_local_workload_and_fails_closed_on_budget() {
+    let plan = successful_output(&[
+        "qualify",
+        "plan",
+        "--profile",
+        "overnight",
+        "--include-local-load",
+        "--local-test",
+        "ram",
+        "--max-local-load-secs",
+        "14400",
+    ]);
+    assert!(plan.contains(r#""execution":"none""#));
+    assert!(plan.contains(r#""local_load_target_seconds":14400,"local_load_budget_seconds":14400"#));
+    assert!(plan.contains(
+        r#""id":"cpu_load","status":"skipped","kind":"local_load","reason":"not_selected""#
+    ));
+    assert!(plan.contains(r#""argv":["stress","auto","--test","ram","--duration-secs","14400""#));
+    for args in [
+        vec!["--include-local-load", "--max-local-load-secs", "28799"],
+        vec![
+            "--include-local-load",
+            "--local-test",
+            "ram",
+            "--max-local-load-secs",
+            "14399",
+        ],
+        vec!["--local-test", "cpu"],
+        vec!["--max-local-load-secs", "14400"],
+        vec!["--include-local-load", "--local-test", "storage"],
+    ] {
+        let mut cmd = vec!["qualify", "plan", "--profile", "overnight"];
+        cmd.extend(args);
+        let out = run(&cmd);
+        assert!(!out.status.success() && out.stdout.is_empty(), "{cmd:?}");
+    }
+}

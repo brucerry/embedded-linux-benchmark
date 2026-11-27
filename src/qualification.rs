@@ -39,9 +39,32 @@ pub(crate) fn planned_load(
         .collect())
 }
 
-pub(crate) fn render(profile: &str, include_load: bool) -> Result<String, String> {
-    let load = planned_load(profile, include_load)?;
+pub(crate) fn render(
+    profile: &str,
+    include_load: bool,
+    local_test: Option<&str>,
+    budget_seconds: Option<u64>,
+) -> Result<String, String> {
+    if !include_load && (local_test.is_some() || budget_seconds.is_some()) {
+        return Err("local-test and max-local-load-secs require --include-local-load".into());
+    }
+    if !matches!(local_test, None | Some("cpu" | "ram")) {
+        return Err("local-test must be cpu or ram".into());
+    }
+    let mut load = planned_load(profile, include_load)?;
+    if let Some(selected) = local_test {
+        load.retain(|(name, _, _)| *name == selected);
+    }
     let total_seconds = load.iter().map(|(_, seconds, _)| seconds).sum::<u64>();
+    let budget = match budget_seconds {
+        Some(limit) if total_seconds > limit => {
+            return Err(format!(
+                "planned local load ({total_seconds}s) exceeds the supplied budget ({limit}s)"
+            ));
+        }
+        Some(limit) => format!(r#","local_load_budget_seconds":{limit}"#),
+        None => String::new(),
+    };
     let mut steps = vec![
         r#"{"id":"inventory","status":"planned","kind":"passive","argv":["inventory"]}"#.to_owned(),
         r#"{"id":"board_identity_and_required_pcie","status":"manual_input_required","kind":"passive","reason":"requires an exact board profile chosen by the operator"}"#.to_owned(),
@@ -59,6 +82,8 @@ pub(crate) fn render(profile: &str, include_load: bool) -> Result<String, String
         } else {
             let reason = if profile == "bring-up" {
                 "passive_profile"
+            } else if local_test.is_some() {
+                "not_selected"
             } else {
                 "requires_explicit_local_load_preview"
             };
@@ -90,7 +115,7 @@ pub(crate) fn render(profile: &str, include_load: bool) -> Result<String, String
         ));
     }
     Ok(format!(
-        r#"{{"plan_schema_version":1,"kind":"qualification_plan","profile":{},"execution":"none","hardware_availability":"not_checked","local_load_target_seconds":{},"steps":[{}]}}"#,
+        r#"{{"plan_schema_version":1,"kind":"qualification_plan","profile":{},"execution":"none","hardware_availability":"not_checked","local_load_target_seconds":{}{budget},"steps":[{}]}}"#,
         json_string(profile),
         total_seconds,
         steps.join(",")
@@ -184,18 +209,18 @@ mod tests {
     #[test]
     fn passive_preview_never_includes_load_commands() {
         for profile in ["bring-up", "quick", "manufacturing", "overnight"] {
-            let plan = render(profile, false).unwrap();
+            let plan = render(profile, false, None, None).unwrap();
             assert!(plan.contains(r#""local_load_target_seconds":0"#));
             assert!(plan.contains(r#""execution":"none""#));
             assert!(!plan.contains(r#""argv":["stress""#));
         }
-        assert!(render("bring-up", true).is_err());
-        assert!(render("../../invalid", true).is_err());
+        assert!(render("bring-up", true, None, None).is_err());
+        assert!(render("../../invalid", true, None, None).is_err());
     }
 
     #[test]
     fn longest_preview_has_a_fixed_budget_and_no_target_device_commands() {
-        let plan = render("overnight", true).unwrap();
+        let plan = render("overnight", true, None, None).unwrap();
         assert!(plan.contains(r#""local_load_target_seconds":28800"#));
         assert_eq!(
             plan.matches(r#""argv":["stress","auto","--test""#).count(),

@@ -498,6 +498,13 @@ and storage writes always require separately selected fixtures or budgets
 and are never planned for automatic execution.
 
 
+With `--include-local-load`, `--local-test cpu|ram` limits the preview
+to one workload; otherwise both are shown. Add `--max-local-load-secs`
+(1 to 1,209,600 seconds) to reject a plan whose proposed sequential load
+targets exceed that budget. The budget does not include setup/cleanup,
+does not change the planned workload durations, and does not start or
+enforce a running stress test.
+
 For bounded bring-up observations, use `eld-engine qualify passive` or
 `eld-engine qualify passive --board-profile board.profile`. This reads one
 inventory snapshot, with no timed sampling, stress, or external network.
