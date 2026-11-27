@@ -322,6 +322,7 @@ fn help() {
   eld-engine accelerator amdgpu-hwmon --device BDF
   eld-engine accelerator amdgpu-ras-decode --capture-text TEXT
   eld-engine accelerator nvidia-health-decode --device BDF --capture-text TEXT
+  eld-engine accelerator tegrastats-decode [--rail LABEL] < saved-tegrastats-line.txt
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
   eld-engine qualify passive [--board-profile PATH | --require-pcie BDF[=VVVV:DDDD][,...]] [--network-interface NAME [--network-health-sample-ms 1..2000]] [--nvme-controller NAME] [--thermal-sample-ms 1..2000] [--include-timeline]
@@ -546,6 +547,12 @@ pub(crate) fn run() -> Result<(), String> {
             match args {
                 [mode] if mode == "inventory" => crate::accelerator::run(),
                 [mode] if mode == "interfaces" => crate::accelerator_interfaces::run(),
+                [mode, rest @ ..] if mode == "tegrastats-decode" => {
+                    let options = Options::parse(
+                        "accelerator tegrastats-decode", rest, &[("--rail", Kind::Text)],
+                    )?;
+                    return crate::tegrastats_capture::run(options.text("--rail").ok());
+                }
                 [mode, rest @ ..] if mode == "nvidia-health-decode" => {
                     let options = Options::parse(
                         "accelerator nvidia-health-decode", rest,
@@ -567,7 +574,7 @@ pub(crate) fn run() -> Result<(), String> {
                 }
                 _ => {
                     return Err(
-                        "expected an accelerator subcommand: inventory, interfaces, amdgpu-hwmon, amdgpu-ras-decode, or nvidia-health-decode. See --help."
+                        "expected an accelerator subcommand: inventory, interfaces, amdgpu-hwmon, amdgpu-ras-decode, nvidia-health-decode, or tegrastats-decode. See --help."
                             .into(),
                     )
                 }

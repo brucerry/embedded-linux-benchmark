@@ -45,6 +45,7 @@ jobs:
           python3 -B tests/hub_passive_smoke.py ./target/release/eld-engine
           python3 -B tests/nvme_evidence_smoke.py ./target/release/eld-engine
           python3 -B tests/network_peer_evidence_smoke.py ./target/release/eld-engine
+          python3 -B tests/tegrastats_capture_smoke.py ./target/release/eld-engine
 
       - name: Check optional codec fixture logic
         run: python3 -B -m unittest discover -s codec

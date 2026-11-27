@@ -94,6 +94,24 @@ The optional `--engine` argument checks the linked synthetic helper output
 through the actual Engine decoder, including BDF refusal, exact ECC counts,
 and unavailable metrics. It still does not load the NVIDIA driver.
 
+## Offline Jetson GPU sample
+
+If an integrated Jetson GPU has no usable PCI address, decode one saved
+`tegrastats` line without NVML or a live device:
+
+```sh
+eld-engine accelerator tegrastats-decode --rail VDD_GPU_SOC < saved-tegrastats-line.txt
+```
+
+This adapter recognizes the documented `GR3D_FREQ` load and compact
+clock-list forms, an available GPU temperature token, and one optional
+explicit `VDD_` or `VIN_` rail. Use the label actually present in the sample.
+A rail retains its original scope: a GPU+SoC rail is not GPU-only power.
+A missing field is not zero. Values are observations from the provided
+text, not independently verified telemetry, ECC or a health verdict. The
+decoder does not start `tegrastats`, load a driver or modify device state.
+[Supported field formats in NVIDIA's guide](https://docs.nvidia.com/jetson/archives/r39.2.2/DeveloperGuide/AT/JetsonLinuxDevelopmentTools/TegrastatsUtility.html)
+
 ## PCI accelerator candidates
 
 `eld-engine accelerator inventory` lists PCI display-controller and

@@ -38,6 +38,7 @@ mod spi;
 mod storage;
 mod stress;
 mod sysfs;
+mod tegrastats_capture;
 mod uart;
 mod usb;
 
