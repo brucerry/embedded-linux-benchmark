@@ -1750,3 +1750,27 @@ fn qualification_thermal_window_is_opt_in_and_bounded() {
     assert!(successful_output(&["capabilities"])
         .contains(r#""passive_thermal_window":{"schema":1,"max_sample_wait_ms":2000"#));
 }
+
+#[test]
+fn passive_timeline_is_opt_in_and_records_only_executed_phases() {
+    let baseline = successful_output(&["qualify", "passive"]);
+    assert!(!baseline.contains(r#""observation_timeline":"#));
+    let inventory = successful_output(&["qualify", "passive", "--include-timeline"]);
+    assert!(inventory.contains(r#""observation_timeline":{"schema_version":1,"clock":"single_process_monotonic","execution":"sequential","phases":[{"phase":"inventory""#));
+    let output = successful_output(&[
+        "qualify",
+        "passive",
+        "--include-timeline",
+        "--network-interface",
+        "lo",
+        "--include-system-health",
+    ]);
+    let timeline = output.split_once(r#""observation_timeline":"#).unwrap().1;
+    let positions = ["network_health", "inventory", "system_health"]
+        .map(|name| timeline.find(&format!(r#""phase":"{name}""#)).unwrap());
+    assert!(positions[0] < positions[1] && positions[1] < positions[2]);
+    assert!(!timeline.contains(r#""phase":"pcie_health""#));
+    assert!(!timeline.contains(r#""phase":"nvme_health""#));
+    assert!(successful_output(&["capabilities"])
+        .contains(r#""passive_observation_timeline":{"schema":1"#));
+}

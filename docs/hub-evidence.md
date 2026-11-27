@@ -116,3 +116,10 @@ and `max_power_range_microwatts` are decimal strings, distinct from the
 energy counter and range. Some drivers expose only energy. An unavailable or
 inaccessible power attribute is not zero. Do not sum parent and child zones,
 interpret ranges as measurements, or treat one zone as whole-device power.
+
+Use `--include-timeline` to correlate the passive phases within a single
+qualification invocation. The optional `observation_timeline` includes only
+invoked phases in their actual sequential order, with start and finish offsets
+measured in milliseconds from one process-local monotonic clock. Equal offsets
+are possible for sub-millisecond reads. A phase's presence does not establish
+device availability or synchronize measurements across hosts.

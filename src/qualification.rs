@@ -137,6 +137,44 @@ pub(crate) enum SystemHealthScope {
 pub(crate) struct HealthOptions {
     pub system: SystemHealthScope,
     pub thermal_wait_ms: Option<u64>,
+    pub include_timeline: bool,
+}
+
+struct PassiveTimeline {
+    start: Option<std::time::Instant>,
+    rows: Vec<String>,
+}
+
+impl PassiveTimeline {
+    fn new(enabled: bool) -> Self {
+        Self {
+            start: enabled.then(std::time::Instant::now),
+            rows: Vec::new(),
+        }
+    }
+
+    fn observe<T>(&mut self, phase: &'static str, read: impl FnOnce() -> T) -> T {
+        let Some(origin) = self.start else {
+            return read();
+        };
+        let begin = origin.elapsed().as_millis();
+        let observation = read();
+        let end = origin.elapsed().as_millis();
+        self.rows.push(format!(
+            r#"{{"phase":"{phase}","started_monotonic_ms":{begin},"finished_monotonic_ms":{end}}}"#,
+        ));
+        observation
+    }
+
+    fn render(&self) -> String {
+        if self.start.is_none() {
+            return String::new();
+        }
+        format!(
+            r#","observation_timeline":{{"schema_version":1,"clock":"single_process_monotonic","execution":"sequential","phases":[{}]}}"#,
+            self.rows.join(",")
+        )
+    }
 }
 
 /// Read inventory and selected passive snapshots. No workload argv.
@@ -158,16 +196,25 @@ fn passive(
         }
         None => String::new(),
     };
+    let mut timeline = PassiveTimeline::new(health_options.include_timeline);
     let network = network_interface
-        .map(|(name, interval)| crate::network_health::render(name, interval))
+        .map(|(name, interval)| {
+            timeline.observe("network_health", || {
+                crate::network_health::render(name, interval)
+            })
+        })
         .transpose()?
         .map_or_else(String::new, |value| format!(r#","network_health":{value}"#));
     let nvme = nvme_controller
-        .map(crate::nvme_health::snapshot)
+        .map(|name| timeline.observe("nvme_health", || crate::nvme_health::snapshot(name)))
         .transpose()?
         .map_or_else(String::new, |value| format!(r#","nvme_health":{value}"#));
     let pcie = pcie
-        .map(|(device, ms)| crate::pcie_health::render_snapshot(device, ms, Default::default()))
+        .map(|(device, ms)| {
+            timeline.observe("pcie_health", || {
+                crate::pcie_health::render_snapshot(device, ms, Default::default())
+            })
+        })
         .transpose()?
         .map_or_else(String::new, |value| format!(r#","pcie_health":{value}"#));
     let (required, profile, board_check) = match board {
@@ -175,10 +222,12 @@ fn passive(
         BoardScope::Profile(path) => (None, Some(path), "see_inventory"),
         BoardScope::RequiredPcie(expected) => (Some(expected), None, "see_required_pcie"),
     };
-    let inventory = crate::inventory::snapshot(required, profile, health_options.thermal_wait_ms)?;
+    let inventory = timeline.observe("inventory", || {
+        crate::inventory::snapshot(required, profile, health_options.thermal_wait_ms)
+    })?;
     let health = match health_options.system {
         SystemHealthScope::None => String::new(),
-        _ => {
+        _ => timeline.observe("system_health", || -> Result<String, String> {
             let numa = crate::numa::snapshot();
             let pressure = crate::pressure::snapshot();
             let series = if let SystemHealthScope::WithPressureSeries { count, gap_ms } =
@@ -191,13 +240,14 @@ fn passive(
             } else {
                 String::new()
             };
-            format!(
+            Ok(format!(
                 r#","system_health":{{"schema_version":1,"numa":{numa},"pressure":{pressure}{series}}}"#,
-            )
-        }
+            ))
+        })?,
     };
+    let timeline = timeline.render();
     Ok(format!(
-        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{pcie}{run}}}"#
+        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{pcie}{run}{timeline}}}"#
     ))
 }
 

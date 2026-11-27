@@ -144,6 +144,7 @@ const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[
     ("--thermal-sample-ms", Kind::Number(1, 2000)),
     ("--nvme-controller", Kind::Text),
     ("--include-system-health", Flag),
+    ("--include-timeline", Flag),
     (
         "--pressure-series-samples",
         Number(2, crate::pressure::MAX_SAMPLES),
@@ -320,7 +321,7 @@ fn help() {
   eld-engine accelerator amdgpu-ras-decode --capture-text TEXT
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
-  eld-engine qualify passive [--board-profile PATH | --require-pcie BDF[=VVVV:DDDD][,...]] [--network-interface NAME [--network-health-sample-ms 1..2000]] [--nvme-controller NAME] [--thermal-sample-ms 1..2000]
+  eld-engine qualify passive [--board-profile PATH | --require-pcie BDF[=VVVV:DDDD][,...]] [--network-interface NAME [--network-health-sample-ms 1..2000]] [--nvme-controller NAME] [--thermal-sample-ms 1..2000] [--include-timeline]
                              [--include-system-health [--pressure-series-samples N --pressure-series-gap-ms MS]]
                              [--pcie-health-device BDF [--pcie-health-sample-ms MS]]
                              [--evidence-json NEW_PATH] [--run-id HEX32]
@@ -470,6 +471,7 @@ fn capabilities() -> String {
             r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}},"#,
             r#""offline_amdgpu_ras":{{"schema":1,"input":"literal_capture_text","max_bytes":{}}},"#,
             r#""passive_pcie_health":{{"schema":1,"max_sample_wait_ms":2000}},"#,
+            r#""passive_observation_timeline":{{"schema":1,"flag":"--include-timeline","execution":"sequential"}},"#,
             r#""passive_thermal_window":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--thermal-sample-ms"}},"#,
             r#""passive_network_health":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--network-health-sample-ms"}},"#,
             r#""passive_pcie_expectation":{{"schema":1,"flag":"--require-pcie"}},"#,
@@ -632,6 +634,7 @@ pub(crate) fn run() -> Result<(), String> {
                 options.text("--run-id").ok(),
                 crate::qualification::HealthOptions {
                     system: health,
+                    include_timeline: options.flag("--include-timeline"),
                     thermal_wait_ms: options.number("--thermal-sample-ms"),
                 },
                 device.map(|bdf| (bdf, sample)),
