@@ -192,16 +192,28 @@ fn payload() -> [u8; CHUNK] {
     data
 }
 
-pub(crate) fn server(config: &Config, deadline: Deadline) -> Result<(), String> {
+fn emit_receipt(config: &Config, role: &str, port: u16, bytes: u64) {
+    // Session is validated ASCII hex on ingress. This label matches two logs;
+    // it does not authenticate the peer or assert a physical network path.
+    let session = std::str::from_utf8(&config.session).expect("validated session label");
+    println!(
+        concat!(
+            "Peer receipt: {{\"schema_version\":1,\"kind\":\"tcp_peer_result\",",
+            "\"role\":\"{}\",\"session\":\"{}\",\"bind\":\"{}\",\"peer\":\"{}\",",
+            "\"port\":{},\"verified_bytes\":{},\"probes\":{}}}"
+        ),
+        role, session, config.bind, config.peer, port, bytes, config.pings
+    );
+}
+
+pub(crate) fn server(config: &Config, deadline: Deadline, receipt: bool) -> Result<(), String> {
     let listener = TcpListener::bind(SocketAddrV4::new(config.bind, config.port))
         .map_err(|error| format!("cannot listen on {}:{}: {error}", config.bind, config.port))?;
     listener
         .set_nonblocking(true)
         .map_err(|error| error.to_string())?;
-    println!(
-        "Peer listener: {}",
-        listener.local_addr().map_err(|error| error.to_string())?
-    );
+    let local = listener.local_addr().map_err(|error| error.to_string())?;
+    println!("Peer listener: {local}");
     let mut wire = Wire::new(accept(&listener, config.peer, deadline)?, deadline)?;
     drop(listener);
     let mut header = [0; 56];
@@ -242,10 +254,13 @@ pub(crate) fn server(config: &Config, deadline: Deadline) -> Result<(), String> 
         "Throughput: {:.2} MiB/s",
         config.mib as f64 / elapsed.as_secs_f64()
     );
+    if receipt {
+        emit_receipt(config, "receiver", local.port(), bytes);
+    }
     Ok(())
 }
 
-pub(crate) fn client(config: &Config, deadline: Deadline) -> Result<(), String> {
+pub(crate) fn client(config: &Config, deadline: Deadline, receipt: bool) -> Result<(), String> {
     let mut wire = Wire::new(dial(config, deadline)?, deadline)?;
     wire.write(&config.header())?;
     let mut ready = [0; 4];
@@ -309,5 +324,8 @@ pub(crate) fn client(config: &Config, deadline: Deadline) -> Result<(), String> 
         "Throughput: {:.2} MiB/s",
         config.mib as f64 / elapsed.as_secs_f64()
     );
+    if receipt {
+        emit_receipt(config, "sender", config.port, bytes);
+    }
     Ok(())
 }

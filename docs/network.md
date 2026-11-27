@@ -68,3 +68,22 @@ sender, save ingress/egress health on both sides, and retain the two
 process results. A preview does not prove routing, permission, or a
 physical measurement. Treat unsolicited traffic and a missing or mismatched
 peer as invalid runs, not as performance results.
+
+### Correlate sender and receiver results
+
+Add `--peer-receipt` to both peer commands and separately save each stdout
+and exit status. The additional success record binds the session label,
+mirrored addresses, listener port, verified byte count and probe count. It
+does not replace the process exit status or the normal human output.
+
+```sh
+python3 scripts/check_network_peer_evidence.py \
+  --sender-output sender.txt --receiver-output receiver.txt \
+  --sender-ip 192.168.5.11 --receiver-ip 192.168.5.10 --port 5555 \
+  --session "$SESSION" --size-mib 8 --probes 20 \
+  --sender-exit "$SENDER_STATUS" --receiver-exit "$RECEIVER_STATUS"
+```
+
+Supply the expected parameters and exit statuses from trusted executions,
+not inferred from the evidence files. Correlation does not authenticate a
+remote endpoint, establish a physical path, or certify link health.

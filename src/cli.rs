@@ -55,6 +55,7 @@ const PEER_OPTIONS: &[(&str, Kind)] = &[
     ("--port", Number(0, u16::MAX as u64)),
     ("--size-mib", Number(1, network_peer::MAX_MIB)),
     ("--pings", Number(1, network_peer::MAX_PINGS)),
+    ("--peer-receipt", Flag),
     ("--timeout-ms", Number(1, network_peer::MAX_TIMEOUT_MS)),
 ];
 const CAN_OPTIONS: &[(&str, Kind)] = &[
@@ -338,7 +339,7 @@ fn help() {
   eld-engine network health --interface IFACE [--sample-ms MS]
   eld-engine network [--size-mib MIB] [--timeout-ms MS]
   eld-engine network peer-server|peer-client --bind IP --peer IP --port N
-    --session HEX [--size-mib MIB] [--pings N] [--timeout-ms MS]
+    --session HEX [--size-mib MIB] [--pings N] [--timeout-ms MS] [--peer-receipt]
   eld-engine uart --device PATH --loopback [--bytes N] [--timeout-ms MS]
   eld-engine i2c --adapter PATH --address ADDR --fixture
     [--read-bytes N] [--samples N] [--timeout-ms MS]
@@ -981,10 +982,10 @@ fn run_peer(server: bool, args: &[String]) -> Result<(), String> {
     let deadline = Deadline::after(options.timeout(network_peer::MAX_TIMEOUT_MS));
     if server {
         identify(Subject::NetworkPeerServer);
-        network_peer::server(&config, deadline)
+        network_peer::server(&config, deadline, options.flag("--peer-receipt"))
     } else {
         identify(Subject::NetworkPeerClient);
-        network_peer::client(&config, deadline)
+        network_peer::client(&config, deadline, options.flag("--peer-receipt"))
     }
 }
 
