@@ -300,6 +300,7 @@ fn help() {
   eld-engine cpu [--duration-ms MS]
   eld-engine ram [--duration-ms MS] [--buffer-kib KIB]
   eld-engine storage nvme-health --controller nvme0
+  eld-engine storage mmc-health --card mmc0:0001
   eld-engine storage nvme-smart-decode < captured-smart-log.bin
   eld-engine storage --dir DIR --size-mib MIB [--sync] [--timeout-ms MS]
   eld-engine network health --interface IFACE [--sample-ms MS]
@@ -508,6 +509,11 @@ pub(crate) fn run() -> Result<(), String> {
         {
             Options::parse("storage nvme-smart-decode", &args[1..], &[])?;
             return crate::nvme_health::decode_stdin();
+        }
+        "storage" if args.first().map_or(false, |role| role == "mmc-health") => {
+            let options =
+                Options::parse("storage mmc-health", &args[1..], &[("--card", Kind::Text)])?;
+            return crate::mmc_health::run(options.text("--card")?);
         }
         "storage" => (STORAGE_OPTIONS, Subject::Storage),
         "network" => match args.split_first() {

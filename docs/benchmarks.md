@@ -469,6 +469,17 @@ the capture; the raw page does not authenticate them. See the
 [NVM Express Base Specification 2.0e](https://nvmexpress.org/wp-content/uploads/NVM-Express-Base-Specification-2.0e-2024.07.29-Ratified.pdf),
 SMART / Health Information log.
 
+### Passive MMC wear observations
+
+`eld-engine storage mmc-health --card mmc0:0001` reads the named
+MMC card's cached kernel sysfs `pre_eol_info` and `life_time` when
+the MMC driver exposes them. The integers are raw device codes. They
+are not exact wear percentages, a health verdict, or estimated time
+to failure; zero is preserved, not interpreted as healthy. SD cards
+are not supported by this command. No block device is opened, no MMC
+command is sent, and no serial number is collected. See the Linux
+[MMC attribute definitions](https://github.com/torvalds/linux/blob/master/drivers/mmc/core/mmc.c).
+
 ### Preview a qualification profile
 
 ```sh

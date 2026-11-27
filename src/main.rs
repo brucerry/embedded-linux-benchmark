@@ -19,6 +19,7 @@ mod ina3221;
 mod inventory;
 mod linux_poll;
 mod linux_socket;
+mod mmc_health;
 mod network;
 mod network_health;
 mod network_peer;
