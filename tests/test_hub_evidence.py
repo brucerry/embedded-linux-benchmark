@@ -139,6 +139,30 @@ class Evidence(unittest.TestCase):
                     with self.subTest(link=link), self.assertRaisesRegex(ValueError, "invalid PCIe link"):
                         validate(link)
 
+    def test_edac_preserves_observed_zero_u64_and_missing_state(self):
+        q = fixture()
+        report = {"schema_version": 1, "kind": "linux_edac_memory", "controller": "mc0",
+                  "source": "linux_sysfs", "result": {
+                      "status": "observed", "seconds_since_reset": {"status": "unavailable"},
+                      "counters": {"ce_count": {"status": "observed", "value": str(2**64 - 1)},
+                                   "ue_count": {"status": "observed", "value": "0"}},
+                  }}
+        q["edac_health"] = report
+
+        def validate():
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+
+        self.assertEqual(validate()["status"], "correlated")
+        for value in (0, "00", str(2**64)):
+            report["result"]["counters"]["ue_count"]["value"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "EDAC observation value"):
+                validate()
+        report["result"] = {"status": "unavailable"}
+        self.assertEqual(validate()["status"], "correlated")
+        report["result"]["counters"] = {"ue_count": {"status": "observed", "value": "0"}}
+        with self.assertRaisesRegex(ValueError, "invalid withheld EDAC result"):
+            validate()
+
     def test_cpu_frequency_does_not_replace_hardware_value_with_scaling_estimate(self):
         q = fixture()
         row = {"policy": "policy0", "scaling_reported_khz": {"status": "observed", "value": "1200000"},

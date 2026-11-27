@@ -106,12 +106,16 @@ def smoke_standalone_mmc(binary, directory, card, expected_snapshot):
 def smoke(binary, pcie_health_device=None):
     with tempfile.TemporaryDirectory(prefix="eld-hub-passive-") as directory:
         cap = parse(invoke(binary, "capabilities"))
+        absent_edac = "mc9999999"
+        edac_path = Path("/sys/devices/system/edac/mc") / absent_edac
+        if edac_path.exists() or edac_path.is_symlink():
+            raise ValueError("test EDAC controller unexpectedly exists")
         profiles = (
             ([], None, None),
             (["system-health", "timeline"], None, None),
             # With no dependence on what is actually installed in the runner.
             (["timeline"], "0000:00:00.0=0000:0000", None),
-            (["timeline"], None, "mc9999999"),
+            (["timeline"], None, absent_edac),
         )
         for i, (options, required_pcie, edac_controller) in enumerate(profiles):
             token = secrets.token_hex(16)
@@ -127,13 +131,19 @@ def smoke(binary, pcie_health_device=None):
                 raise ValueError("unexpected EDAC section by default")
             if edac_controller is not None:
                 edac = actual.get("edac_health", {})
-                if edac.get("controller") != edac_controller:
-                    raise ValueError("EDAC controller was not bound to the request")
+                expected = {"schema_version": 1, "kind": "linux_edac_memory",
+                            "controller": edac_controller, "source": "linux_sysfs",
+                            "result": {"status": "unavailable"}}
+                if edac != expected:
+                    raise ValueError("missing EDAC controller was not explicitly unavailable")
+                if parse(invoke(binary, "ram", "edac", "--controller", absent_edac)) != expected:
+                    raise ValueError("standalone and qualification EDAC observations differ")
                 preview["argv"][preview["argv"].index("--edac-controller") + 1] = "mc0"
                 try:
                     verify(read_bounded(output), stdout, token, preview)
-                except ValueError:
-                    pass
+                except ValueError as exc:
+                    if "EDAC controller differs from plan" not in str(exc):
+                        raise
                 else:
                     raise ValueError("EDAC evidence matched the wrong controller")
 
