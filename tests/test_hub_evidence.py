@@ -189,6 +189,41 @@ class Evidence(unittest.TestCase):
                 finally:
                     obj[field] = old
 
+    def test_binds_optional_observations_to_saved_passive_plan(self):
+        q = fixture()
+        del q["pcie_health"]
+        q["system_health"] = {"available": False}
+        plan = {
+            "plan_schema_version": 1, "execution": "none", "max_evidence_bytes": m.MAX_BYTES,
+            "argv": ["qualify", "passive", "--run-id", TOKEN, "--evidence-json",
+                     "/tmp/report.json", "--include-system-health"],
+            "optional": [{"feature": "system-health", "status": "planned"},
+                         {"feature": "timeline", "status": "unsupported"}],
+        }
+        def run(observation, saved_plan):
+            return m.verify(pack(observation), json.dumps(observation).encode(), TOKEN, saved_plan)
+        self.assertEqual(run(q, plan)["status"], "correlated")
+        for key, value in (
+            ("max_evidence_bytes", 64), ("plan_schema_version", True),
+            ("argv", [*plan["argv"], "--include-timeline"]), ("argv", plan["argv"][:-1]),
+            ("optional", [plan["optional"][0]] * 2),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                run(q, {**plan, key: value})
+        for observation in (
+            {k: v for k, v in q.items() if k != "system_health"},
+            {**q, "system_health": None},
+            {**q, "pcie_health": {}},
+        ):
+            with self.assertRaisesRegex(ValueError, "disagree with plan"):
+                run(observation, plan)
+        with self.assertRaisesRegex(ValueError, "unplanned thermal"):
+            run({**q, "inventory": {"thermal_window": {
+                "requested_wait_ms": 1, "sample_start_interval_ms": 1,
+                "before": {"status": "unavailable", "zones": []},
+                "after": {"status": "unavailable", "zones": []}, "differences": [],
+            }, "thermal": {"status": "unavailable", "zones": []}}}, plan)
+
     def test_rejects_duplicate_truncated_and_nonfinite(self):
         for data in (b'{"a":1,"a":2}', b'{"a":', b'{"a":NaN}', b' ' * (m.MAX_BYTES + 1)):
             with self.subTest(data=data[:20]), self.assertRaises(ValueError):

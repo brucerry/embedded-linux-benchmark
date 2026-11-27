@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import os
+from pathlib import PurePosixPath
 from decimal import Decimal
 import re
 import stat
@@ -11,11 +12,26 @@ import sys
 
 MAX_BYTES = 1024 * 1024
 RUN_ID = re.compile("[0-9a-f]{32}")
+OPTIONAL_PASSIVE = {
+    "system-health": ("passive_system_health", "--include-system-health", "system_health"),
+    "timeline": ("passive_observation_timeline", "--include-timeline", "observation_timeline"),
+}
+
 
 
 def check(condition, reason):
     if not condition:
         raise ValueError(reason)
+
+
+def check_evidence_path(path):
+    check(type(path) is str and 0 < len(path) <= 240 and path.isascii()
+          and all(c.isalnum() or c in "/_.-" for c in path),
+          "expected a normalized safe absolute evidence path")
+    p = PurePosixPath(path)
+    check(p.is_absolute() and len(p.parts) >= 3 and ".." not in p.parts
+          and str(p) == path and not path.startswith("//"),
+          "expected a normalized safe absolute evidence path")
 
 
 def read_bounded(path):
@@ -208,7 +224,47 @@ def verify_timeline(observation, elapsed):
         last = finish
 
 
-def verify(evidence, stdout, run_id):
+def verify_plan(plan, observation, run_id, evidence_bytes):
+    check(type(plan) is dict and plan.keys() == {
+        "plan_schema_version", "argv", "execution", "max_evidence_bytes", "optional"
+    } and type(plan["plan_schema_version"]) is int and plan["plan_schema_version"] == 1
+        and plan["execution"] == "none", "invalid passive plan")
+    expected = ["qualify", "passive", "--run-id", run_id, "--evidence-json"]
+    argv = plan["argv"]
+    check(type(argv) is list and len(argv) >= 6 and argv[:5] == expected,
+          "plan request does not match run identity")
+    check_evidence_path(argv[5])
+    expected.append(argv[5])
+    cap = plan["max_evidence_bytes"]
+    check(type(cap) is int and 0 < evidence_bytes <= cap <= MAX_BYTES,
+          "evidence exceeds plan byte limit")
+    rows = plan["optional"]
+    check(type(rows) is list and len(rows) <= len(OPTIONAL_PASSIVE), "invalid planned options")
+    planned = set()
+    seen = set()
+    for row in rows:
+        check(type(row) is dict and row.keys() == {"feature", "status"}
+              and type(row["feature"]) is str and row["feature"] in OPTIONAL_PASSIVE
+              and row["feature"] not in seen and row["status"] in ("planned", "unsupported"),
+              "invalid planned option")
+        name = row["feature"]
+        seen.add(name)
+        if row["status"] == "planned":
+            _, flag, field = OPTIONAL_PASSIVE[name]
+            expected.append(flag)
+            planned.add(field)
+    check(argv == expected, "argv disagrees with planned options")
+    observed = set(observation) - {
+        "qualification_schema_version", "kind", "scope", "workload_execution",
+        "run_id", "inventory", "board_check",
+    }
+    check(observed == planned and all(type(observation[k]) is dict for k in planned),
+          "observation features disagree with plan")
+    check("thermal_window" not in observation["inventory"],
+          "unplanned thermal sample")
+
+
+def verify(evidence, stdout, run_id, plan=None):
     check(isinstance(run_id, str) and RUN_ID.fullmatch(run_id)
           and run_id != "0" * 32, "invalid expected run ID")
     saved = parse(evidence)
@@ -237,6 +293,8 @@ def verify(evidence, stdout, run_id):
         verify_thermal_window(q["inventory"], saved["elapsed_monotonic_ms"])
     if "observation_timeline" in q:
         verify_timeline(q, saved["elapsed_monotonic_ms"])
+    if plan is not None:
+        verify_plan(plan, q, run_id, len(evidence))
     return {"status": "correlated", "run_id": run_id,
             "evidence_bytes": len(evidence), "sha256": hashlib.sha256(evidence).hexdigest(),
             "hardware_authenticity": "not_verified"}
@@ -247,9 +305,11 @@ def main():
     p.add_argument("--evidence", required=True)
     p.add_argument("--stdout", required=True)
     p.add_argument("--run-id", required=True)
+    p.add_argument("--plan", help="previously generated trusted passive plan; never executed")
     a = p.parse_args()
     try:
-        receipt = verify(read_bounded(a.evidence), read_bounded(a.stdout), a.run_id)
+        plan = parse(read_bounded(a.plan)) if a.plan else None
+        receipt = verify(read_bounded(a.evidence), read_bounded(a.stdout), a.run_id, plan)
     except (OSError, ValueError, RecursionError) as exc:
         p.exit(1, f"Evidence rejected: {exc}\n")
     print(json.dumps(receipt, sort_keys=True))

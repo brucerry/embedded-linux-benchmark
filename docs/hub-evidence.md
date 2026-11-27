@@ -54,6 +54,13 @@ windows across a boot/device change. A missing requested BDF is a command
 error; use the board profile checks if the expectation is that a device
 must exist. This does not measure PCIe throughput.
 
+Pass `--plan` to the verifier with the trusted plan previously generated
+by `scripts/plan_hub_passive.py` for this run. The verifier checks run ID,
+evidence size, and the exact planned set of optional observations; a skipped
+feature is not counted as present. This reference mode covers only the
+planner's basic passive invocation. It does not run the plan, verify the
+remote output path, or authenticate the plan or device.
+
 For local contract testing, `scripts/check_hub_evidence.py` correlates
 already retrieved, bounded stdout and evidence files with a supplied run ID.
 It does not establish trusted transfer, device identity, or command exit
