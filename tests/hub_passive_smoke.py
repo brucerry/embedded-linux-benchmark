@@ -19,10 +19,16 @@ def invoke(binary, *args):
 def smoke(binary):
     with tempfile.TemporaryDirectory(prefix="eld-hub-passive-") as directory:
         cap = parse(invoke(binary, "capabilities"))
-        for i, options in enumerate(([], ["system-health", "timeline"])):
+        profiles = (
+            ([], None),
+            (["system-health", "timeline"], None),
+            # With no dependence on what is actually installed in the runner.
+            (["timeline"], "0000:00:00.0=0000:0000"),
+        )
+        for i, (options, required_pcie) in enumerate(profiles):
             token = secrets.token_hex(16)
             output = Path(directory) / f"evidence-{i}.json"
-            preview = plan(cap, token, str(output), options)
+            preview = plan(cap, token, str(output), options, required_pcie)
             if any(row["status"] != "planned" for row in preview["optional"]):
                 raise ValueError("local build did not advertise expected passive options")
             # Use only the deterministic argv from the local capability planner.
@@ -50,7 +56,7 @@ def smoke(binary):
         receipt = verify(read_bounded(output), stdout, token)
         if receipt["status"] != "correlated" or receipt["hardware_authenticity"] != "not_verified":
             raise ValueError("unexpected window validation result")
-    print("Engine passive evidence smoke passed (baseline, negotiated options, and read windows)")
+    print("Engine passive evidence smoke passed (baseline, negotiated options, PCIe plan, and read windows)")
 
 
 if __name__ == "__main__":
