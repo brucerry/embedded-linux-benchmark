@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preview a bounded Engine IPQ/Jetson-style direct-link test; never launch it."""
+"""Preview a bounded Engine direct-link test; never launch it."""
 import argparse
 from ipaddress import IPv4Interface, IPv4Network
 import json
