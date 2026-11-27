@@ -109,6 +109,7 @@ const INVENTORY_OPTIONS: &[(&str, Kind)] = &[
 const PCIE_LINK_OPTIONS: &[(&str, Kind)] = &[("--device", Kind::Text)];
 const PCIE_HEALTH_OPTIONS: &[(&str, Kind)] = &[
     ("--device", Kind::Text),
+    ("--save-snapshot", Flag),
     ("--sample-ms", Number(1, pcie_health::MAX_SAMPLE_MS)),
     ("--min-width", Number(1, 32)),
     ("--min-speed-gtps", Kind::Text),
@@ -347,7 +348,7 @@ fn help() {
     [--samples N] [--timeout-ms MS]
   eld-engine camera --device PATH [--frames N] [--timeout-ms MS]
   eld-engine pcie link --device BDF
-  eld-engine pcie health --device BDF [--sample-ms MS]
+  eld-engine pcie health --device BDF [--sample-ms MS | --save-snapshot]
                         [--min-width LANES] [--min-speed-gtps GT_PER_SECOND]
   eld-engine pcie throughput --device BDF --fixture
   eld-engine iio --device NAME --channel INPUT [--samples N] [--timeout-ms MS]
@@ -864,6 +865,7 @@ fn run_pcie(args: &[String]) -> Result<(), String> {
                 options.text("--device")?,
                 options.number("--sample-ms"),
                 expectation,
+                options.flag("--save-snapshot"),
             )
         }
         "throughput" => {

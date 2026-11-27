@@ -662,18 +662,92 @@ pub(crate) fn render_snapshot(
     }
 }
 
+fn uptime_cs(text: &str) -> Option<u64> {
+    let (seconds, centiseconds) = text.split_ascii_whitespace().next()?.split_once('.')?;
+    if centiseconds.len() != 2 {
+        return None;
+    }
+    counter(seconds)?
+        .checked_mul(100)?
+        .checked_add(counter(centiseconds)?)
+}
+
+fn uptime() -> Observed<u64> {
+    read(Path::new("/proc/uptime"), uptime_cs)
+}
+
+fn saved_snapshot(device: &str, expectation: LinkExpectation) -> Result<String, String> {
+    let requested = pcie::bdf(device)?;
+    let boot = read_boot();
+    let started = uptime();
+    let devices = observe(&requested)?;
+    let finished = uptime();
+    let boot_after = read_boot();
+    let (Observed::Value(boot), Observed::Value(boot_after)) = (boot, boot_after) else {
+        return Err("boot identity unavailable for saved snapshot".into());
+    };
+    if boot != boot_after {
+        return Err("boot identity changed during saved snapshot".into());
+    }
+    let (Observed::Value(started), Observed::Value(finished)) = (started, finished) else {
+        return Err("uptime unavailable for saved snapshot".into());
+    };
+    if finished < started {
+        return Err("uptime changed during saved snapshot".into());
+    }
+    let observers = devices
+        .iter()
+        .map(|device| {
+            format!(
+                r#"{{"bdf":"{}","sysfs_dev":"{}","sysfs_inode":"{}"}}"#,
+                device.device.bdf, device.identity.fs_device, device.identity.inode
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let snapshot = render(&devices, expectation);
+    Ok(format!(
+        r#"{{"schema_version":1,"kind":"pcie_saved_snapshot","boot_id":"{boot}","started_uptime_cs":"{started}","finished_uptime_cs":"{finished}","observer_identity":[{observers}],"snapshot":{snapshot}}}"#
+    ))
+}
+
 pub(crate) fn run(
     device: &str,
     sample_ms: Option<u64>,
     expectation: LinkExpectation,
+    save: bool,
 ) -> Result<(), String> {
-    println!("{}", render_snapshot(device, sample_ms, expectation)?);
+    if save && sample_ms.is_some() {
+        return Err("--save-snapshot and --sample-ms cannot be combined".into());
+    }
+    let output = if save {
+        saved_snapshot(device, expectation)?
+    } else {
+        render_snapshot(device, sample_ms, expectation)?
+    };
+    println!("{output}");
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_uptime_without_floating_point_or_overflow() {
+        assert_eq!(uptime_cs("123.04 42.30"), Some(12304));
+        for invalid in [
+            "",
+            "123",
+            "1.2",
+            "-1.00",
+            "1.001",
+            "1.e2",
+            "18446744073709551615.00",
+        ] {
+            assert_eq!(uptime_cs(invalid), None);
+        }
+    }
 
     #[test]
     fn message_totals_are_not_computed_from_categories() {

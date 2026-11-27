@@ -66,3 +66,27 @@ negotiated values. It reports `below_minimum`, `meets_minimum`, or an observatio
 state such as `unavailable`. Device maximum capabilities are not used as expected
 board wiring. A shortfall is evidence for investigation, and does not on its own
 change the command's exit status.
+
+### Compare two saved observations offline
+
+Use the same trusted host and device for both captures. Create a private
+directory and allow at least one uptime clock tick between captures.
+
+```sh
+umask 077
+eld-engine pcie health --device 0000:01:00.0 --save-snapshot > before.json
+sleep 1
+eld-engine pcie health --device 0000:01:00.0 --save-snapshot > after.json
+python3 scripts/compare_pcie_snapshots.py before.json after.json
+```
+
+Run the examples inside a private directory; do not post the raw snapshots.
+Only the opt-in format includes the kernel boot ID and sysfs device/inode
+numbers. The comparison omits them and does not access hardware. It exits 0
+when records can be compared (individual fields may still be unavailable),
+2 for incompatible continuity evidence, and 1 for invalid input. It rejects
+different boots, overlapping or reversed capture windows, changed observers,
+and changed or indeterminate driver bindings. A counter decrease or category
+change invalidates that field instead of creating a zero. Matching IDs are a
+necessary continuity check, not hardware authentication or proof that no reset
+or same-driver rebind happened between captures. Keep sampling intervals short.
