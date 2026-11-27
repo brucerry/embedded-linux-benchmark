@@ -26,3 +26,22 @@ both, for example `plan_board_bringup.py --network-interface eth0
 --network-sample-ms 1000 --nvme-controller nvme0` with the usual capability,
 run ID, and evidence path arguments. Nothing is run by the preview. Unsupported
 is distinct from not requested; neither probe is part of the frozen baseline.
+
+### Optional PCIe plan/evidence smoke
+
+For a separate development run, pass a known, approved local PCIe BDF and an
+absolute path to a trusted Engine build. Replace the sample BDF with the one
+identified for your test fixture:
+
+```sh
+python3 -B tests/hub_passive_smoke.py /absolute/path/to/eld-engine \
+  --pcie-health-device 0000:00:00.0
+```
+
+This adds a 5 ms, two-read passive PCIe check to the standard smoke suite.
+It checks that the saved evidence matches the planned device and that an
+otherwise identical plan with a different interval is rejected. Without the
+flag the suite does not select a PCIe device. Passing this check does not prove
+that AER counters are exposed, that no errors occurred, or that PCIe throughput
+was measured. Do not substitute this development test for the frozen OpenWrt
+baseline.
