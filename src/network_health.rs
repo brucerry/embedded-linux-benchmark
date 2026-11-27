@@ -276,7 +276,7 @@ pub(crate) fn snapshot(name: &str) -> Result<String, String> {
     report(Path::new("/sys/class/net"), Path::new("/sys/devices"), name)
 }
 
-pub(crate) fn run(name: &str, sample_ms: Option<u64>) -> Result<(), String> {
+pub(crate) fn render(name: &str, sample_ms: Option<u64>) -> Result<String, String> {
     if !interface_name(name) {
         return Err("expected a Linux interface name of 1 to 15 safe characters".into());
     }
@@ -286,8 +286,7 @@ pub(crate) fn run(name: &str, sample_ms: Option<u64>) -> Result<(), String> {
         Path::new("/proc/sys/kernel/random/boot_id"),
     );
     let Some(wait) = sample_ms else {
-        println!("{}", snapshot(name)?);
-        return Ok(());
+        return snapshot(name);
     };
     if !(1..=MAX_SAMPLE_MS).contains(&wait) {
         return Err("sample-ms must be between 1 and 60000".into());
@@ -303,9 +302,13 @@ pub(crate) fn run(name: &str, sample_ms: Option<u64>) -> Result<(), String> {
         _ => "unknown",
     };
     let delta = counter_deltas(ca, cb, continuity == "same_identity_observed");
-    println!(
+    Ok(format!(
         r#"{{"schema_version":1,"mode":"two_passive_snapshots","requested_wait_ms":{wait},"sample_start_interval_ms":{elapsed},"continuity":"{continuity}","before":{a},"after":{b},"delta":{delta}}}"#
-    );
+    ))
+}
+
+pub(crate) fn run(name: &str, sample_ms: Option<u64>) -> Result<(), String> {
+    println!("{}", render(name, sample_ms)?);
     Ok(())
 }
 

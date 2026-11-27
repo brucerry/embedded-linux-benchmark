@@ -1696,3 +1696,43 @@ fn passive_pressure_series_requires_explicit_paired_bounds() {
         .trim_end()
         .ends_with(&format!(r#","qualification":{}}}"#, output.trim_end())));
 }
+
+#[test]
+fn qualification_network_health_window_is_opt_in_and_bounded() {
+    let iface = format!("eldx-{:08x}", std::process::id());
+    for args in [
+        vec!["qualify", "passive", "--network-health-sample-ms", "1"],
+        vec![
+            "qualify",
+            "passive",
+            "--network-interface",
+            &iface,
+            "--network-health-sample-ms",
+            "0",
+        ],
+        vec![
+            "qualify",
+            "passive",
+            "--network-interface",
+            &iface,
+            "--network-health-sample-ms",
+            "2001",
+        ],
+    ] {
+        let got = run(&args);
+        assert!(!got.status.success());
+        assert!(got.stdout.is_empty());
+    }
+    let output = successful_output(&[
+        "qualify",
+        "passive",
+        "--network-interface",
+        &iface,
+        "--network-health-sample-ms",
+        "1",
+    ]);
+    assert!(output.contains(r#""network_health":{"schema_version":1,"mode":"two_passive_snapshots","requested_wait_ms":1"#));
+    assert!(output.contains(r#""continuity":"unknown""#));
+    assert!(successful_output(&["capabilities"])
+        .contains(r#""passive_network_health":{"schema":1,"max_sample_wait_ms":2000"#));
+}

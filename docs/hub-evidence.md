@@ -91,3 +91,10 @@ The offline verifier also checks that optional series metadata, sample count,
 sequence and monotonic intervals agree with the evidence envelope. Matching
 stdout alone cannot make malformed timing valid; these checks still do not
 authenticate the host or attest that a process exited successfully.
+
+To report two passive observations of one named interface, use
+`--network-interface NAME --network-health-sample-ms MS` (1–2000 ms).
+The existing single observation remains the default. Reported deltas require
+matching interface and boot identity and usable counters; missing identity or
+counter resets do not mean zero change. This option does not generate traffic
+or measure throughput.

@@ -137,7 +137,7 @@ pub(crate) enum SystemHealthScope {
 /// Read inventory and selected passive snapshots. No workload argv.
 fn passive(
     board: BoardScope<'_>,
-    network_interface: Option<&str>,
+    network_interface: Option<(&str, Option<u64>)>,
     nvme_controller: Option<&str>,
     run_id: Option<&str>,
     health_scope: SystemHealthScope,
@@ -154,7 +154,7 @@ fn passive(
         None => String::new(),
     };
     let network = network_interface
-        .map(crate::network_health::snapshot)
+        .map(|(name, interval)| crate::network_health::render(name, interval))
         .transpose()?
         .map_or_else(String::new, |value| format!(r#","network_health":{value}"#));
     let nvme = nvme_controller
@@ -207,7 +207,7 @@ pub(crate) const MAX_EVIDENCE_BYTES: usize = 1024 * 1024;
 
 pub(crate) fn run_passive(
     board: BoardScope<'_>,
-    network_interface: Option<&str>,
+    network_interface: Option<(&str, Option<u64>)>,
     nvme_controller: Option<&str>,
     evidence_path: Option<&std::path::Path>,
     run_id: Option<&str>,
