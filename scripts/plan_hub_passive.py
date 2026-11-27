@@ -6,11 +6,12 @@ import argparse
 import json
 
 from check_hub_evidence import (
-    EDAC_CONTROLLER, MAX_BYTES, OPTIONAL_PASSIVE, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded,
+    EDAC_CONTROLLER, MAX_BYTES, OPTIONAL_PASSIVE, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded, valid_nic_interface,
 )
 
 
-def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_controller=None):
+def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_controller=None,
+         network_interface=None, network_sample_ms=None):
     check(type(run_id) is str and RUN_ID.fullmatch(run_id) and run_id != "0" * 32,
           "invalid run ID")
     check_evidence_path(output_path)
@@ -46,6 +47,18 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_co
               and advertised.get("scope") == "selected_snapshot",
               "Engine does not advertise selected EDAC snapshots")
         argv.extend(("--edac-controller", edac_controller))
+    if network_interface is not None or network_sample_ms is not None:
+        check(valid_nic_interface(network_interface) and type(network_sample_ms) is int
+              and 1 <= network_sample_ms <= 2000, "provide one interface and a bounded NIC window")
+        advertised = contracts.get("passive_network_health")
+        check(type(advertised) is dict and type(advertised.get("schema")) is int
+              and advertised["schema"] == 1
+              and advertised.get("qualification_flag") == "--network-health-sample-ms"
+              and type(advertised.get("max_sample_wait_ms")) is int
+              and network_sample_ms <= advertised["max_sample_wait_ms"] <= 2000,
+              "Engine does not advertise the requested NIC window")
+        argv.extend(("--network-interface", network_interface,
+                     "--network-health-sample-ms", str(network_sample_ms)))
     results = []
     for feature in options:
         name, flag, _field = OPTIONAL_PASSIVE[feature]
@@ -67,9 +80,11 @@ def main():
     args.add_argument("--feature", action="append", choices=tuple(OPTIONAL_PASSIVE), default=[])
     args.add_argument("--require-pcie", help="explicit canonical BDF[=vvvv:dddd] list")
     args.add_argument("--edac-controller", help="one explicit EDAC controller")
+    args.add_argument("--network-interface", help="one explicitly selected NIC interface")
+    args.add_argument("--network-sample-ms", type=int, help="passive NIC window in milliseconds")
     a = args.parse_args()
     try:
-        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller)
+        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms)
     except (OSError, ValueError) as exc:
         args.exit(1, f"invalid: {exc}\n")
     print(json.dumps(result, sort_keys=True))

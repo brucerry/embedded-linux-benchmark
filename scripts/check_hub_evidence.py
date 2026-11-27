@@ -14,6 +14,13 @@ MAX_BYTES = 1024 * 1024
 RUN_ID = re.compile("[0-9a-f]{32}")
 PCI_BDF = re.compile(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-1][0-9a-f]\.[0-7]")
 PCI_ID = re.compile(r"[0-9a-f]{4}")
+NIC_INTERFACE = re.compile(r"[A-Za-z0-9_.-]{1,15}", re.ASCII)
+
+
+def valid_nic_interface(name):
+    return type(name) is str and name not in (".", "..") and NIC_INTERFACE.fullmatch(name) is not None
+
+
 EDAC_CONTROLLER = re.compile(r"mc(?:0|[1-9][0-9]{0,6})")
 PCI_NAMES = ("present", "match", "missing", "mismatch", "inaccessible",
              "invalid", "unavailable", "changed")
@@ -318,6 +325,15 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
               and EDAC_CONTROLLER.fullmatch(argv[pos+1]), "invalid planned EDAC controller")
         edac = argv[pos+1]
         expected.extend(argv[pos:pos+2])
+    nic = None
+    pos = len(expected)
+    if argv[pos:pos+1] == ["--network-interface"]:
+        check(len(argv) >= pos + 4 and valid_nic_interface(argv[pos+1])
+              and argv[pos+2] == "--network-health-sample-ms"
+              and type(argv[pos+3]) is str and re.fullmatch(r"[1-9][0-9]{0,3}", argv[pos+3])
+              and int(argv[pos+3]) <= 2000, "invalid planned NIC window")
+        nic = (argv[pos+1], int(argv[pos+3]))
+        expected.extend(argv[pos:pos+4])
     cap = plan["max_evidence_bytes"]
     check(type(cap) is int and 0 < evidence_bytes <= cap <= MAX_BYTES,
           "evidence exceeds plan byte limit")
@@ -328,6 +344,14 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
         actual_edac = observation.get("edac_health")
         check(type(actual_edac) is dict and actual_edac.get("controller") == edac,
               "EDAC controller differs from plan")
+    if nic is not None:
+        network = observation.get("network_health")
+        check(type(network) is dict and type(network.get("before")) is dict
+              and type(network.get("after")) is dict
+              and network["before"].get("interface") == network["after"].get("interface") == nic[0]
+              and type(network.get("requested_wait_ms")) is int
+              and network["requested_wait_ms"] == nic[1], "NIC window differs from trusted plan")
+        planned.add("network_health")
     seen = set()
     for row in rows:
         check(type(row) is dict and row.keys() == {"feature", "status"}

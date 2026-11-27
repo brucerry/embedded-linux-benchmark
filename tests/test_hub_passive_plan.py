@@ -48,3 +48,20 @@ class PassivePlan(unittest.TestCase):
         for value in ("0000:01:00.0,0000:01:00.0", "0000:01:00.0=abcd", "0000:01:20.0"):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 plan(c, TOKEN, PATH, [], value)
+
+    def test_nic_requires_explicit_interface_duration_and_capability(self):
+        c = self.capabilities()
+        with self.assertRaisesRegex(ValueError, "does not advertise"):
+            plan(c, TOKEN, PATH, [], network_interface="eth0", network_sample_ms=100)
+        c["contracts"]["passive_network_health"] = {
+            "schema": 1, "max_sample_wait_ms": 200,
+            "qualification_flag": "--network-health-sample-ms",
+        }
+        for nic, wait in (("eth0", 201), ("../eth0", 100), ("eth0", None), (None, 100)):
+            with self.subTest(nic=nic, wait=wait), self.assertRaises(ValueError):
+                plan(c, TOKEN, PATH, [], network_interface=nic, network_sample_ms=wait)
+        result = plan(c, TOKEN, PATH, ["system-health"], network_interface="eth0", network_sample_ms=100)
+        self.assertEqual(result["argv"][-5:], ["--network-interface", "eth0",
+                                             "--network-health-sample-ms", "100",
+                                             "--include-system-health"])
+        self.assertEqual(result["execution"], "none")

@@ -242,3 +242,11 @@ two revisions can have the same label. Use a byte-for-byte copy of the approved
 profile for intended peers rather than reserializing the JSON. The report lists
 v1 boards under `comparison.unbound_boards` instead of grouping them. A group
 does not combine outcomes, prove comparable hardware, or measure yield.
+
+To preview a passive NIC window, specify both `--network-interface eth0` and
+`--network-sample-ms 1000` to `plan_hub_passive.py`. The selected capture must
+advertise the window and its interval bound. The generated plan never runs
+anything and does not assume a default interface. When this plan is supplied
+to the evidence verifier, the interface and interval must match both saved
+snapshots and the window as appropriate; the verifier checks counter
+arithmetic separately.
