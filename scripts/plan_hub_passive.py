@@ -6,11 +6,11 @@ import argparse
 import json
 
 from check_hub_evidence import (
-    MAX_BYTES, OPTIONAL_PASSIVE, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded,
+    EDAC_CONTROLLER, MAX_BYTES, OPTIONAL_PASSIVE, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded,
 )
 
 
-def plan(capabilities, run_id, output_path, options, required_pcie=None):
+def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_controller=None):
     check(type(run_id) is str and RUN_ID.fullmatch(run_id) and run_id != "0" * 32,
           "invalid run ID")
     check_evidence_path(output_path)
@@ -37,6 +37,15 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None):
               and advertised["schema"] == 1 and advertised.get("flag") == "--require-pcie",
               "Engine does not advertise the requested PCIe expectation")
         argv.extend(("--require-pcie", required_pcie))
+    if edac_controller is not None:
+        advertised = contracts.get("passive_edac_health")
+        check(type(edac_controller) is str and EDAC_CONTROLLER.fullmatch(edac_controller),
+              "invalid requested EDAC controller")
+        check(type(advertised) is dict and type(advertised.get("schema")) is int
+              and advertised["schema"] == 1 and advertised.get("flag") == "--edac-controller"
+              and advertised.get("scope") == "selected_snapshot",
+              "Engine does not advertise selected EDAC snapshots")
+        argv.extend(("--edac-controller", edac_controller))
     results = []
     for feature in options:
         name, flag, _field = OPTIONAL_PASSIVE[feature]
@@ -57,9 +66,10 @@ def main():
     args.add_argument("--evidence-path", required=True)
     args.add_argument("--feature", action="append", choices=tuple(OPTIONAL_PASSIVE), default=[])
     args.add_argument("--require-pcie", help="explicit canonical BDF[=vvvv:dddd] list")
+    args.add_argument("--edac-controller", help="one explicit EDAC controller")
     a = args.parse_args()
     try:
-        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie)
+        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller)
     except (OSError, ValueError) as exc:
         args.exit(1, f"invalid: {exc}\n")
     print(json.dumps(result, sort_keys=True))

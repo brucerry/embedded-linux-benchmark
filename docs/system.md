@@ -94,3 +94,11 @@ healthy. An observed zero is not the same as missing EDAC data. Engine
 neither loads a driver nor accesses the write-only reset control. The
 broader `inventory` already lists visible EDAC controllers and DIMMs.
 [Linux EDAC ABI](https://docs.kernel.org/6.18/admin-guide/abi-testing-files.html#abi-file-testing-sysfs-devices-edac)
+
+
+For a selected controller in saved passive qualification, add
+`eld-engine qualify passive --edac-controller mc0` or preview that option
+with the host-side passive planner. This option takes a single snapshot
+and adds no sleep. Omit it for the default report. Evidence correlation
+matches the named controller to the requested one but does not
+authenticate the hardware.

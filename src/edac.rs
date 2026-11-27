@@ -134,7 +134,7 @@ fn deltas(a: &Snapshot, b: &Snapshot, whole_window: Duration) -> Result<[Value; 
     }))
 }
 
-pub(crate) fn run(name: &str, wait_ms: Option<u64>) -> Result<(), String> {
+pub(crate) fn report(name: &str, wait_ms: Option<u64>) -> Result<String, String> {
     if !controller(name) {
         return Err("expected an EDAC controller such as mc0".into());
     }
@@ -165,9 +165,13 @@ pub(crate) fn run(name: &str, wait_ms: Option<u64>) -> Result<(), String> {
     } else {
         render(&first)
     };
-    println!(
+    Ok(format!(
         r#"{{"schema_version":1,"kind":"linux_edac_memory","controller":"{name}","source":"linux_sysfs","result":{result}}}"#
-    );
+    ))
+}
+
+pub(crate) fn run(name: &str, wait_ms: Option<u64>) -> Result<(), String> {
+    println!("{}", report(name, wait_ms)?);
     Ok(())
 }
 

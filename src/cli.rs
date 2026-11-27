@@ -145,6 +145,7 @@ const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[
     ("--network-health-sample-ms", Kind::Number(1, 2000)),
     ("--thermal-sample-ms", Kind::Number(1, 2000)),
     ("--nvme-controller", Kind::Text),
+    ("--edac-controller", Kind::Text),
     ("--include-system-health", Flag),
     ("--include-timeline", Flag),
     (
@@ -325,7 +326,7 @@ fn help() {
   eld-engine accelerator tegrastats-decode [--rail LABEL] < saved-tegrastats-line.txt
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
-  eld-engine qualify passive [--board-profile PATH | --require-pcie BDF[=VVVV:DDDD][,...]] [--network-interface NAME [--network-health-sample-ms 1..2000]] [--nvme-controller NAME] [--thermal-sample-ms 1..2000] [--include-timeline]
+  eld-engine qualify passive [--board-profile PATH | --require-pcie BDF[=VVVV:DDDD][,...]] [--network-interface NAME [--network-health-sample-ms 1..2000]] [--nvme-controller NAME] [--edac-controller NAME] [--thermal-sample-ms 1..2000] [--include-timeline]
                              [--include-system-health [--pressure-series-samples N --pressure-series-gap-ms MS]]
                              [--pcie-health-device BDF [--pcie-health-sample-ms MS]]
                              [--evidence-json NEW_PATH] [--run-id HEX32]
@@ -477,6 +478,7 @@ fn capabilities() -> String {
             r#""offline_nvidia_health":{{"schema":1,"input":"normalized_nvml_v1_literal","max_bytes":{}}},"#,
             r#""offline_amdgpu_ras":{{"schema":1,"input":"literal_capture_text","max_bytes":{}}},"#,
             r#""passive_pcie_health":{{"schema":1,"max_sample_wait_ms":2000}},"#,
+            r#""passive_edac_health":{{"schema":1,"flag":"--edac-controller","scope":"selected_snapshot"}},"#,
             r#""passive_observation_timeline":{{"schema":1,"flag":"--include-timeline","execution":"sequential"}},"#,
             r#""passive_thermal_window":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--thermal-sample-ms"}},"#,
             r#""passive_network_health":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--network-health-sample-ms"}},"#,
@@ -653,6 +655,7 @@ pub(crate) fn run() -> Result<(), String> {
                 options.path("--evidence-json"),
                 options.text("--run-id").ok(),
                 crate::qualification::HealthOptions {
+                    edac_controller: options.text("--edac-controller").ok(),
                     system: health,
                     include_timeline: options.flag("--include-timeline"),
                     thermal_wait_ms: options.number("--thermal-sample-ms"),

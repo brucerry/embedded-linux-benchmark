@@ -14,6 +14,7 @@ MAX_BYTES = 1024 * 1024
 RUN_ID = re.compile("[0-9a-f]{32}")
 PCI_BDF = re.compile(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-1][0-9a-f]\.[0-7]")
 PCI_ID = re.compile(r"[0-9a-f]{4}")
+EDAC_CONTROLLER = re.compile(r"mc(?:0|[1-9][0-9]{0,6})")
 PCI_NAMES = ("present", "match", "missing", "mismatch", "inaccessible",
              "invalid", "unavailable", "changed")
 OPTIONAL_PASSIVE = {
@@ -213,7 +214,7 @@ def verify_timeline(observation, elapsed):
     } and type(timeline["schema_version"]) is int and timeline["schema_version"] == 1
         and timeline["clock"] == "single_process_monotonic"
         and timeline["execution"] == "sequential", "unsupported observation timeline")
-    order = ("network_health", "nvme_health", "pcie_health", "inventory", "system_health")
+    order = ("network_health", "nvme_health", "pcie_health", "edac_health", "inventory", "system_health")
     expected = [key for key in order if key in observation]
     rows = timeline["phases"]
     check(type(rows) is list and len(rows) == len(expected), "invalid observation phase count")
@@ -275,6 +276,36 @@ def verify_required_pcie(rows):
             check(observed is None, "unexpected observed IDs in unavailable PCIe row")
 
 
+def verify_edac_health(value):
+    check(type(value) is dict and value.keys() == {
+        "schema_version", "kind", "controller", "source", "result"
+    } and type(value["schema_version"]) is int and value["schema_version"] == 1
+        and value["kind"] == "linux_edac_memory" and value["source"] == "linux_sysfs"
+        and type(value["controller"]) is str and EDAC_CONTROLLER.fullmatch(value["controller"]),
+        "invalid EDAC selected observation")
+    reading = value["result"]
+    check(type(reading) is dict, "invalid EDAC result")
+    status = reading.get("status")
+    if status != "observed":
+        check(reading.keys() == {"status"} and status in (
+            "unavailable", "inaccessible", "invalid", "controller_changed",
+            "reset_age_decreased", "observation_state_changed"), "invalid withheld EDAC result")
+        return
+    check(reading.keys() == {"status", "seconds_since_reset", "counters"}
+          and type(reading["counters"]) is dict
+          and reading["counters"].keys() == {"ce_count", "ue_count"}, "invalid EDAC fields")
+    for field in (reading["seconds_since_reset"], *reading["counters"].values()):
+        check(type(field) is dict, "invalid EDAC field")
+        if field.get("status") == "observed":
+            raw = field.get("value")
+            check(field.keys() == {"status", "value"} and type(raw) is str
+                  and re.fullmatch(r"0|[1-9][0-9]{0,19}", raw) and int(raw) < 2**64,
+                  "invalid EDAC observation value")
+        else:
+            check(field.keys() == {"status"} and field["status"] in
+                  ("unavailable", "inaccessible", "invalid"), "invalid EDAC field status")
+
+
 def verify_plan(plan, observation, run_id, evidence_bytes):
     check(type(plan) is dict and plan.keys() == {
         "plan_schema_version", "argv", "execution", "max_evidence_bytes", "optional"
@@ -291,12 +322,23 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
         check(len(argv) >= 8, "expected an explicit PCIe request")
         required = pcie_expectations(argv[7])
         expected.extend(argv[6:8])
+    edac = None
+    pos = len(expected)
+    if argv[pos:pos+1] == ["--edac-controller"]:
+        check(len(argv) > pos + 1 and type(argv[pos+1]) is str
+              and EDAC_CONTROLLER.fullmatch(argv[pos+1]), "invalid planned EDAC controller")
+        edac = argv[pos+1]
+        expected.extend(argv[pos:pos+2])
     cap = plan["max_evidence_bytes"]
     check(type(cap) is int and 0 < evidence_bytes <= cap <= MAX_BYTES,
           "evidence exceeds plan byte limit")
     rows = plan["optional"]
     check(type(rows) is list and len(rows) <= len(OPTIONAL_PASSIVE), "invalid planned options")
-    planned = set()
+    planned = {"edac_health"} if edac is not None else set()
+    if edac is not None:
+        actual_edac = observation.get("edac_health")
+        check(type(actual_edac) is dict and actual_edac.get("controller") == edac,
+              "EDAC controller differs from plan")
     seen = set()
     for row in rows:
         check(type(row) is dict and row.keys() == {"feature", "status"}
@@ -357,6 +399,8 @@ def verify(evidence, stdout, run_id, plan=None):
     network = q.get("network_health")
     if type(network) is dict and "mode" in network:
         verify_network_window(network, saved["elapsed_monotonic_ms"])
+    if "edac_health" in q:
+        verify_edac_health(q["edac_health"])
     if "required_pcie" in q["inventory"]:
         verify_required_pcie(q["inventory"]["required_pcie"])
     if q.get("board_check") == "see_required_pcie":

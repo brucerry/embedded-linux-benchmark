@@ -134,7 +134,8 @@ pub(crate) enum SystemHealthScope {
     WithPressureSeries { count: u64, gap_ms: u64 },
 }
 
-pub(crate) struct HealthOptions {
+pub(crate) struct HealthOptions<'a> {
+    pub edac_controller: Option<&'a str>,
     pub system: SystemHealthScope,
     pub thermal_wait_ms: Option<u64>,
     pub include_timeline: bool,
@@ -183,7 +184,7 @@ fn passive(
     network_interface: Option<(&str, Option<u64>)>,
     nvme_controller: Option<&str>,
     run_id: Option<&str>,
-    health_options: HealthOptions,
+    health_options: HealthOptions<'_>,
     pcie: Option<(&str, Option<u64>)>,
 ) -> Result<String, String> {
     let run = match run_id {
@@ -217,6 +218,11 @@ fn passive(
         })
         .transpose()?
         .map_or_else(String::new, |value| format!(r#","pcie_health":{value}"#));
+    let edac = health_options
+        .edac_controller
+        .map(|name| timeline.observe("edac_health", || crate::edac::report(name, None)))
+        .transpose()?
+        .map_or_else(String::new, |value| format!(r#","edac_health":{value}"#));
     let (required, profile, board_check) = match board {
         BoardScope::None => (None, None, "not_configured"),
         BoardScope::Profile(path) => (None, Some(path), "see_inventory"),
@@ -247,7 +253,7 @@ fn passive(
     };
     let timeline = timeline.render();
     Ok(format!(
-        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{pcie}{run}{timeline}}}"#
+        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{pcie}{edac}{run}{timeline}}}"#
     ))
 }
 
@@ -267,7 +273,7 @@ pub(crate) fn run_passive(
     nvme_controller: Option<&str>,
     evidence_path: Option<&std::path::Path>,
     run_id: Option<&str>,
-    health_options: HealthOptions,
+    health_options: HealthOptions<'_>,
     pcie: Option<(&str, Option<u64>)>,
 ) -> Result<(), String> {
     use crate::common::{unix_ms, write_new_evidence};
