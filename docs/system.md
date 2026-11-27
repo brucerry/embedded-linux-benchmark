@@ -76,3 +76,21 @@ separate from observed zero. System CPU `full` is not applicable even if
 the kernel exposes its backward-compatibility zero. This is system-level
 pressure, not a per-process measurement or a benchmark result.
 See [Linux Pressure Stall Information](https://docs.kernel.org/accounting/psi.html).
+
+## Selected memory-controller error trends
+
+```sh
+eld-engine ram edac --controller mc0
+eld-engine ram edac --controller mc0 --sample-ms 1000
+```
+
+The first command reads only the selected controller's Linux EDAC counter
+attributes. The second waits 1–2000 ms and takes another observation in
+the same process. It withholds differences on a changed controller,
+decreasing counter, missing reset age, or reset age too short to establish
+continuity across the measured window. The reset-age clock has one-second
+resolution. This is not atomic kernel telemetry or proof that the memory is
+healthy. An observed zero is not the same as missing EDAC data. Engine
+neither loads a driver nor accesses the write-only reset control. The
+broader `inventory` already lists visible EDAC controllers and DIMMs.
+[Linux EDAC ABI](https://docs.kernel.org/6.18/admin-guide/abi-testing-files.html#abi-file-testing-sysfs-devices-edac)
