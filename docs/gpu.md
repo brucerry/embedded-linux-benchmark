@@ -86,8 +86,13 @@ responses only. Physical NVIDIA and Jetson runtime behavior and telemetry
 have not been verified. Run the fixture without a driver or GPU:
 
 ```sh
-python3 tests/nvml_health_fixture.py --include-dir "$NVML_INCLUDE_DIR"
+python3 tests/nvml_health_fixture.py --include-dir "$NVML_INCLUDE_DIR" \
+  --engine ./target/release/eld-engine
 ```
+
+The optional `--engine` argument checks the linked synthetic helper output
+through the actual Engine decoder, including BDF refusal, exact ECC counts,
+and unavailable metrics. It still does not load the NVIDIA driver.
 
 ## PCI accelerator candidates
 
