@@ -53,7 +53,31 @@ def smoke_missing(invoke_local, directory, cap):
     return result
 
 
-def smoke(binary):
+def smoke_selected_pcie(binary, directory, cap, device):
+    token = secrets.token_hex(16)
+    output = Path(directory) / "planned-pcie-window.json"
+    planned = plan(cap, token, str(output), ["timeline"], pcie_health_device=device,
+                   pcie_health_sample_ms=5)
+    stdout = invoke(binary, *planned["argv"])
+    saved = read_bounded(output)
+    result = verify(saved, stdout, token, planned)
+    record = parse(stdout)
+    if (result["status"] != "correlated" or result["hardware_authenticity"] != "not_verified"
+            or record["pcie_health"]["device"] != device):
+        raise ValueError("unexpected PCIe comparison scope")
+    other = deepcopy(planned)
+    other["argv"][other["argv"].index("--pcie-health-sample-ms") + 1] = "6"
+    try:
+        verify(saved, stdout, token, other)
+    except ValueError as exc:
+        if "window differs from trusted plan" not in str(exc):
+            raise
+    else:
+        raise ValueError("PCIe report was accepted for another sampling interval")
+    print("Selected passive PCIe window and mismatched-plan refusal passed")
+
+
+def smoke(binary, pcie_health_device=None):
     with tempfile.TemporaryDirectory(prefix="eld-hub-passive-") as directory:
         cap = parse(invoke(binary, "capabilities"))
         profiles = (
@@ -154,10 +178,14 @@ def smoke(binary):
         receipt = verify(read_bounded(output), stdout, token)
         if receipt["status"] != "correlated" or receipt["hardware_authenticity"] != "not_verified":
             raise ValueError("unexpected window validation result")
+        if pcie_health_device is not None:
+            smoke_selected_pcie(binary, directory, cap, pcie_health_device)
     print("Engine passive evidence smoke passed (baseline, negotiated options, PCIe/EDAC plan, missing NIC/NVMe, and read windows)")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("engine", type=Path, help="trusted locally built Engine executable")
-    smoke(parser.parse_args().engine.resolve(strict=True))
+    parser.add_argument("--pcie-health-device", help="opt in to one known local BDF; no auto-pick")
+    parsed = parser.parse_args()
+    smoke(parsed.engine.resolve(strict=True), parsed.pcie_health_device)

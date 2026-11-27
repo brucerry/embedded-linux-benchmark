@@ -64,6 +64,11 @@ The bring-up preview supports either mode. It does not silently fall
 back to a single snapshot when a requested interval is unsupported. A
 planned marker does not imply device presence or physical verification.
 
+On an authorized Linux test host with an explicitly identified PCIe device,
+add `--pcie-health-device BDF` to `tests/hub_passive_smoke.py` to exercise
+a passive window and a changed-plan refusal. The smoke does not select a
+PCIe device on its own or apply throughput load.
+
 Pass `--plan` to the verifier with the trusted plan previously generated
 by `scripts/plan_hub_passive.py` for this run. The verifier checks run ID,
 evidence size, and the exact planned set of optional observations; a skipped
