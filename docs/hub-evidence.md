@@ -148,6 +148,15 @@ identity. Missing, changed, or unsupported sensors do not imply zero change.
 No heating load is started, and the window is not synchronized with NIC or
 pressure observations.
 
+Display temperatures and differences as **kernel-reported thermal zone
+values**, not verified physical sensor readings. With thermal emulation
+enabled, Linux can return an emulated value through the usual `temp`
+attribute, and the generic `emul_temp` control is write-only. The Engine
+does not change emulation or establish which source produced a value.
+A correlated report or a valid difference is not sensor attestation.
+See the [Linux temperature getter](https://github.com/torvalds/linux/blob/v6.12/drivers/thermal/thermal_helpers.c#L88-L115)
+and [sysfs interface](https://github.com/torvalds/linux/blob/v6.12/drivers/thermal/thermal_sysfs.c#L234-L260).
+
 The passive planner accepts `--thermal-sample-ms MS` only when the selected
 Engine advertises the requested duration. For archived evidence, the
 verifier's `--plan` check binds that exact request; a different or missing

@@ -1315,6 +1315,7 @@ mod tests {
     fn thermal_reads_signed_millicelsius_and_fixed_paths_only() {
         use std::os::unix::fs::symlink;
         assert_eq!(thermal_value("-2000\n"), Some("-2000".into()));
+        assert_eq!(thermal_value("-274000\n"), None); // Linux THERMAL_TEMP_INVALID.
         assert_eq!(thermal_value("0"), Some("0".into()));
         assert_eq!(thermal_value("310000"), None);
         assert_eq!(thermal_value("17 C"), None);
