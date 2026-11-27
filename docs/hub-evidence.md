@@ -103,3 +103,10 @@ For this read window, the offline verifier requires the same named interface
 in both snapshots, a measured interval within the enclosing run, and delta
 availability consistent with the reported continuity. It does not validate
 every counter's arithmetic or establish that the claimed link identity is real.
+
+To include two passive Linux thermal observations in run-bound evidence,
+select `--thermal-sample-ms MS` (1–2000 ms). The inventory's `thermal_window`
+reports the measured interval and matches differences by observed sensor
+identity. Missing, changed, or unsupported sensors do not imply zero change.
+No heating load is started, and the window is not synchronized with NIC or
+pressure observations.

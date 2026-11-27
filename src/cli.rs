@@ -141,6 +141,7 @@ const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[
     ("--require-pcie", Kind::Text),
     ("--network-interface", Kind::Text),
     ("--network-health-sample-ms", Kind::Number(1, 2000)),
+    ("--thermal-sample-ms", Kind::Number(1, 2000)),
     ("--nvme-controller", Kind::Text),
     ("--include-system-health", Flag),
     (
@@ -319,7 +320,7 @@ fn help() {
   eld-engine accelerator amdgpu-ras-decode --capture-text TEXT
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
-  eld-engine qualify passive [--board-profile PATH | --require-pcie BDF[=VVVV:DDDD][,...]] [--network-interface NAME [--network-health-sample-ms 1..2000]] [--nvme-controller NAME]
+  eld-engine qualify passive [--board-profile PATH | --require-pcie BDF[=VVVV:DDDD][,...]] [--network-interface NAME [--network-health-sample-ms 1..2000]] [--nvme-controller NAME] [--thermal-sample-ms 1..2000]
                              [--include-system-health [--pressure-series-samples N --pressure-series-gap-ms MS]]
                              [--pcie-health-device BDF [--pcie-health-sample-ms MS]]
                              [--evidence-json NEW_PATH] [--run-id HEX32]
@@ -469,6 +470,7 @@ fn capabilities() -> String {
             r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}},"#,
             r#""offline_amdgpu_ras":{{"schema":1,"input":"literal_capture_text","max_bytes":{}}},"#,
             r#""passive_pcie_health":{{"schema":1,"max_sample_wait_ms":2000}},"#,
+            r#""passive_thermal_window":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--thermal-sample-ms"}},"#,
             r#""passive_network_health":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--network-health-sample-ms"}},"#,
             r#""passive_pcie_expectation":{{"schema":1,"flag":"--require-pcie"}},"#,
             r#""pressure_series":{{"schema":1,"max_samples":{},"max_gap_ms":{},"qualification_flag":"--pressure-series-samples"}}}}}}"#,
@@ -628,7 +630,10 @@ pub(crate) fn run() -> Result<(), String> {
                 options.text("--nvme-controller").ok(),
                 options.path("--evidence-json"),
                 options.text("--run-id").ok(),
-                health,
+                crate::qualification::HealthOptions {
+                    system: health,
+                    thermal_wait_ms: options.number("--thermal-sample-ms"),
+                },
                 device.map(|bdf| (bdf, sample)),
             )?;
             return Ok(());

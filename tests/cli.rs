@@ -1736,3 +1736,17 @@ fn qualification_network_health_window_is_opt_in_and_bounded() {
     assert!(successful_output(&["capabilities"])
         .contains(r#""passive_network_health":{"schema":1,"max_sample_wait_ms":2000"#));
 }
+
+#[test]
+fn qualification_thermal_window_is_opt_in_and_bounded() {
+    assert!(!successful_output(&["qualify", "passive"]).contains(r#""thermal_window":"#));
+    for bound in ["0", "2001"] {
+        let output = run(&["qualify", "passive", "--thermal-sample-ms", bound]);
+        assert!(!output.status.success() && output.stdout.is_empty());
+    }
+    let measured = successful_output(&["qualify", "passive", "--thermal-sample-ms", "1"]);
+    assert!(measured.contains(r#""workload_execution":"none""#));
+    assert!(measured.contains(r#""thermal_window":{"requested_wait_ms":1"#));
+    assert!(successful_output(&["capabilities"])
+        .contains(r#""passive_thermal_window":{"schema":1,"max_sample_wait_ms":2000"#));
+}
