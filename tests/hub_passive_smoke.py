@@ -1,6 +1,7 @@
 """Exercise plan and evidence correlation with a trusted, locally built Engine."""
 import argparse
 from copy import deepcopy
+import hashlib
 from pathlib import Path
 import secrets
 import subprocess
@@ -77,6 +78,31 @@ def smoke_selected_pcie(binary, directory, cap, device):
     print("Selected passive PCIe window and mismatched-plan refusal passed")
 
 
+def smoke_standalone_mmc(binary, directory, card, expected_snapshot):
+    snapshot = invoke(binary, "storage", "mmc-health", "--card", card)
+    if parse(snapshot) != expected_snapshot:
+        raise ValueError("standalone and qualification MMC observations differ")
+    report = Path(directory) / "mmc-standalone.json"
+    report.write_bytes(snapshot)
+    digest = hashlib.sha256(snapshot).hexdigest()
+    checker = Path(__file__).resolve().parents[1] / "scripts" / "check_mmc_health_evidence.py"
+    argv = [sys.executable, "-B", str(checker), "--report", str(report), "--card", card,
+            "--expected-sha256", digest]
+    result = parse(subprocess.run(argv, check=True, capture_output=True, timeout=15).stdout)
+    expected = {
+        "schema_version": 1, "kind": "offline_mmc_report_check", "card": card,
+        "card_observation": "unavailable", "raw_field_states": {}, "report_sha256": digest,
+        "digest_selection": "matched", "hardware_authenticity": "not_verified",
+        "wear_assessment": "not_assessed", "device_sampled": False,
+    }
+    if result != expected:
+        raise ValueError("standalone MMC report invented readings or provenance")
+    report.write_bytes(snapshot + b" ")
+    reject = subprocess.run(argv, capture_output=True, timeout=15)
+    if reject.returncode != 1 or reject.stdout or b"differs from expected SHA-256" not in reject.stderr:
+        raise ValueError("offline MMC checker did not reject changed report bytes")
+
+
 def smoke(binary, pcie_health_device=None):
     with tempfile.TemporaryDirectory(prefix="eld-hub-passive-") as directory:
         cap = parse(invoke(binary, "capabilities"))
@@ -127,6 +153,7 @@ def smoke(binary, pcie_health_device=None):
         observation = parse(stdout)
         if observation["mmc_health"] != {"schema_version": 1, "card": card, "status": "unavailable"}:
             raise ValueError("absent MMC was not reported as unavailable")
+        smoke_standalone_mmc(binary, directory, card, observation["mmc_health"])
         phases = [phase["phase"] for phase in observation["observation_timeline"]["phases"]]
         if phases != ["mmc_health", "inventory"]:
             raise ValueError("unexpected MMC observation phase order")
