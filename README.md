@@ -36,34 +36,34 @@ These commands do not generate test traffic or write to the selected device.
 | --- | --- | --- |
 | [GPU or accelerator](docs/gpu.md) | `eld-engine accelerator inventory`<br>`eld-engine accelerator interfaces`<br>`eld-engine pcie health --device 0000:65:00.0 --sample-ms 1000` | Enumerated device, driver, registered interfaces, PCIe link, and available error counters; not a compute test |
 | [AMD GPU sensors](docs/gpu.md#amd-gpu-sensors) | `eld-engine accelerator amdgpu-hwmon --device 0000:65:00.0` | Temperature and supported power channels on the selected AMDGPU-bound device |
-| [Jetson power rails](docs/benchmarks.md#selected-ina3221-power-rail-readings) | `eld-engine power ina3221 --node 1-0040` | Voltage and current on the selected rail monitor, not necessarily GPU-only |
-| [Board, CPU, memory, thermal](docs/benchmarks.md#read-host-resource-inventory) | `eld-engine inventory` | Board and kernel metadata, resources, and available thermal and error counters |
-| [CPU, memory, I/O pressure](docs/benchmarks.md#passive-linux-pressure-snapshot) | `eld-engine pressure` | Linux PSI where available |
-| [Expected PCIe device](docs/benchmarks.md#check-expected-pci-devices) | `eld-engine inventory --require-pcie 0000:01:00.0=14c3:7990` | Whether the expected vendor/device is at that PCI address |
-| [Ethernet or Wi-Fi interface](docs/benchmarks.md#passive-network-link-health) | `eld-engine network health --interface eth0 --sample-ms 1000` | Link state and comparable error/drop counter changes, not throughput |
-| [NVMe controller](docs/benchmarks.md#passive-nvme-controller-status) | `eld-engine storage nvme-health --controller nvme0` | Controller state, transport, model, and firmware; not a live SMART read |
-| [eMMC](docs/benchmarks.md#passive-mmc-wear-observations) | `eld-engine storage mmc-health --card mmc0:0001` | Cached wear indicators when the driver exposes them; not SD card support |
-| [HDMI output](docs/benchmarks.md#hdmi-connector-observations-and-capture-delivery) | `eld-engine hdmi status --connector card0-HDMI-A-1` | Connection and advertised modes, not active signal timing |
+| [Jetson power rails](docs/power.md#selected-ina3221-power-rail-readings) | `eld-engine power ina3221 --node 1-0040` | Voltage and current on the selected rail monitor, not necessarily GPU-only |
+| [Board, CPU, memory, thermal](docs/system.md#read-host-resource-inventory) | `eld-engine inventory` | Board and kernel metadata, resources, and available thermal and error counters |
+| [CPU, memory, I/O pressure](docs/system.md#passive-linux-pressure-snapshot) | `eld-engine pressure` | Linux PSI where available |
+| [Expected PCIe device](docs/pcie.md#check-expected-pci-devices) | `eld-engine inventory --require-pcie 0000:01:00.0=14c3:7990` | Whether the expected vendor/device is at that PCI address |
+| [Ethernet or Wi-Fi interface](docs/network.md#passive-network-link-health) | `eld-engine network health --interface eth0 --sample-ms 1000` | Link state and comparable error/drop counter changes, not throughput |
+| [NVMe controller](docs/storage.md#passive-nvme-controller-status) | `eld-engine storage nvme-health --controller nvme0` | Controller state, transport, model, and firmware; not a live SMART read |
+| [eMMC](docs/storage.md#passive-mmc-wear-observations) | `eld-engine storage mmc-health --card mmc0:0001` | Cached wear indicators when the driver exposes them; not SD card support |
+| [HDMI output](docs/display.md#hdmi-connector-observations-and-capture-delivery) | `eld-engine hdmi status --connector card0-HDMI-A-1` | Connection and advertised modes, not active signal timing |
 
 ### Active tests on a lab board
 
-Use dedicated fixtures for bus tests. Don't run them against an in-use device, console, or production link. See the [benchmark guide](docs/benchmarks.md#peripherals) for wiring, prerequisites, and limits.
+Use dedicated fixtures for bus tests. Don't run them against an in-use device, console, or production link. See the [peripheral fixture guide](docs/peripherals.md) for wiring, prerequisites, and limits.
 
 | Component | Built-in command | Prerequisite |
 | --- | --- | --- |
-| [CPU / RAM](docs/benchmarks.md#cpu-and-ram) | `eld-engine cpu --duration-ms 500` / `eld-engine ram --duration-ms 500 --buffer-kib 1024` | Brief local load |
-| [Storage](docs/benchmarks.md#storage) | `eld-engine storage --dir /tmp --size-mib 4` | Writable scratch space with 4 MiB free; use a mounted test volume to measure storage rather than RAM-backed `/tmp` |
-| [TCP](docs/benchmarks.md#tcp-loopback) | `eld-engine network --size-mib 4` | Local loopback only; [peer mode](docs/benchmarks.md#tcp-peer-throughput-and-round-trip-latency) for a separate lab link |
-| [UART](docs/benchmarks.md#uart-loopback) | `eld-engine uart --device /dev/ttyUSB0 --loopback` | Dedicated serial loopback, not a console |
-| [I²C](docs/benchmarks.md#i2c-fixture-read-latency) | `eld-engine i2c --adapter /dev/i2c-1 --address 0x48 --fixture --read-bytes 2` | Isolated fixture that supports those reads |
-| [SPI](docs/benchmarks.md#spi-fixture-throughput) | `eld-engine spi --device /dev/spidev0.0 --loopback` | Dedicated MOSI↔MISO loopback |
-| [GPIO input](docs/benchmarks.md#gpio-input-read-latency-chardev-v2) | `eld-engine gpio --chip /dev/gpiochip0 --offset 7 --input-fixture` | Spare input using the GPIO v2 ABI |
-| [IIO input](docs/benchmarks.md#iio-raw-input-cadence) | `eld-engine iio --device iio:device0 --channel in_voltage0 --samples 100` | Known sensor channel safe for repeated reads |
-| [USB](docs/benchmarks.md#usb-bulk-loopback) | `eld-engine usb --device /dev/bus/usb/001/011 --interface 0 --out-endpoint 0x01 --in-endpoint 0x81 --loopback` | Dedicated bulk echo fixture with matching endpoints |
-| [CAN / CAN FD](docs/benchmarks.md#classic-can-and-can-fd-peer-fixture) | `eld-engine can receive --interface can0 --tx-id 0x124 --rx-id 0x123 --session 1234abcd --fixture` | Isolated two-node bus; start the receiver, then use the [matching sender](docs/benchmarks.md#classic-can-and-can-fd-peer-fixture) |
-| [Camera](docs/benchmarks.md#camera-delivery-rate) | `eld-engine camera --device /dev/video0 --frames 60` | Selected V4L2 capture device |
-| [HDMI input capture](docs/benchmarks.md#hdmi-connector-observations-and-capture-delivery) | `eld-engine hdmi capture --device /dev/video0 --fixture --frames 60` | Dedicated HDMI capture source on V4L2 |
-| [Stress](docs/benchmarks.md#automatic-stress) | `eld-engine stress auto --test cpu --duration 5s` | Short CPU-only load; the default suite also runs RAM and TCP loopback |
+| [CPU / RAM](docs/system.md#cpu-and-ram) | `eld-engine cpu --duration-ms 500` / `eld-engine ram --duration-ms 500 --buffer-kib 1024` | Brief local load |
+| [Storage](docs/storage.md#storage) | `eld-engine storage --dir /tmp --size-mib 4` | Writable scratch space with 4 MiB free; use a mounted test volume to measure storage rather than RAM-backed `/tmp` |
+| [TCP](docs/network.md#tcp-loopback) | `eld-engine network --size-mib 4` | Local loopback only; [peer mode](docs/network.md#tcp-peer-throughput-and-round-trip-latency) for a separate lab link |
+| [UART](docs/peripherals.md#uart-loopback) | `eld-engine uart --device /dev/ttyUSB0 --loopback` | Dedicated serial loopback, not a console |
+| [I²C](docs/peripherals.md#i2c-fixture-read-latency) | `eld-engine i2c --adapter /dev/i2c-1 --address 0x48 --fixture --read-bytes 2` | Isolated fixture that supports those reads |
+| [SPI](docs/peripherals.md#spi-fixture-throughput) | `eld-engine spi --device /dev/spidev0.0 --loopback` | Dedicated MOSI↔MISO loopback |
+| [GPIO input](docs/peripherals.md#gpio-input-read-latency-chardev-v2) | `eld-engine gpio --chip /dev/gpiochip0 --offset 7 --input-fixture` | Spare input using the GPIO v2 ABI |
+| [IIO input](docs/peripherals.md#iio-raw-input-cadence) | `eld-engine iio --device iio:device0 --channel in_voltage0 --samples 100` | Known sensor channel safe for repeated reads |
+| [USB](docs/peripherals.md#usb-bulk-loopback) | `eld-engine usb --device /dev/bus/usb/001/011 --interface 0 --out-endpoint 0x01 --in-endpoint 0x81 --loopback` | Dedicated bulk echo fixture with matching endpoints |
+| [CAN / CAN FD](docs/peripherals.md#classic-can-and-can-fd-peer-fixture) | `eld-engine can receive --interface can0 --tx-id 0x124 --rx-id 0x123 --session 1234abcd --fixture` | Isolated two-node bus; start the receiver, then use the [matching sender](docs/peripherals.md#classic-can-and-can-fd-peer-fixture) |
+| [Camera](docs/display.md#camera-delivery-rate) | `eld-engine camera --device /dev/video0 --frames 60` | Selected V4L2 capture device |
+| [HDMI input capture](docs/display.md#hdmi-connector-observations-and-capture-delivery) | `eld-engine hdmi capture --device /dev/video0 --fixture --frames 60` | Dedicated HDMI capture source on V4L2 |
+| [Stress](docs/stress.md#automatic-stress) | `eld-engine stress auto --test cpu --duration 5s` | Short CPU-only load; the default suite also runs RAM and TCP loopback |
 
 ---
 
@@ -83,7 +83,8 @@ Platform coverage varies by benchmark. Physical-board performance requires a run
 
 ## Guides
 
-- [Benchmarks and fixtures](docs/benchmarks.md) covers CPU, RAM, storage, networking, stress, and peripheral tests.
+- [Diagnostic guides by component](docs/benchmarks.md) indexes all topic guides.
+- [Validation and hardware coverage](docs/validation.md) records what was tested and where.
 - [OpenWrt AArch64](docs/openwrt-compatibility.md) and [other OpenWrt architectures](docs/openwrt-platforms.md) cover SDK selection, packages, and guest checks.
 - [Jetson Linux](docs/jetson-linux.md) covers NVIDIA SDK cross-builds and ABI checks.
 - [Optional CUDA helper](docs/cuda.md) covers separate NVIDIA Toolkit builds and compute and transfer modes.
