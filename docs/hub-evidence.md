@@ -161,6 +161,9 @@ The passive planner accepts `--thermal-sample-ms MS` only when the selected
 Engine advertises the requested duration. For archived evidence, the
 verifier's `--plan` check binds that exact request; a different or missing
 interval is refused even when the saved output and stdout agree.
+The bring-up preview's same option records planned, unsupported or not
+requested without executing a run. A planned thermal row explicitly labels
+the values as kernel-reported and physical sensor provenance as unverified.
 
 Where the Linux powercap driver exposes them, per-zone `power_microwatts`
 and `max_power_range_microwatts` are decimal strings, distinct from the

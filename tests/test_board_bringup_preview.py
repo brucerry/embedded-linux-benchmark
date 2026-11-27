@@ -86,3 +86,27 @@ class BoardBringupTest(unittest.TestCase):
         self.assertEqual(result["passive_plan"]["argv"][-2:], ["--mmc-card", "mmc0:000a"])
         with self.assertRaisesRegex(ValueError, "invalid requested MMC"):
             make(mmc_card="mmcblk0")
+
+
+    def test_thermal_preview_states_and_kernel_value_scope(self):
+        def make(wait):
+            result = preview(self.cap, self.run_id, "/tmp/new-run/result.json",
+                             thermal_sample_ms=wait)
+            row = next(r for r in result["steps"] if r["id"] == "selected_thermal_window")
+            return result, row
+
+        self.assertEqual(make(None)[1]["status"], "not_requested")
+        self.assertEqual(make(5)[1]["status"], "unsupported")
+        self.cap["contracts"]["passive_thermal_window"] = {
+            "schema": 1, "qualification_flag": "--thermal-sample-ms", "max_sample_wait_ms": 10,
+        }
+        self.assertEqual(make(11)[1]["status"], "unsupported")
+        result, selected = make(5)
+        self.assertEqual(result["execution"], "none")
+        self.assertEqual(result["passive_plan"]["argv"][-2:], ["--thermal-sample-ms", "5"])
+        self.assertEqual(selected, {"id": "selected_thermal_window", "status": "planned",
+                                   "requested_ms": 5, "reading_scope": "kernel_reported",
+                                   "sensor_provenance": "not_verified"})
+        for bad in (True, 0, 2001):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "invalid requested thermal"):
+                make(bad)
