@@ -19,8 +19,10 @@ def entry(host, digit, rows=None):
 
 class Summary(unittest.TestCase):
     def test_keeps_same_bdf_separate_by_host(self):
-        a = {"bdf": "0000:01:00.0", "status": "mismatch"}
-        b = dict(a, status="unavailable")
+        a = {"bdf": "0000:01:00.0", "status": "mismatch",
+             "expected": {"vendor": "1234", "device": "5678"},
+             "observed": {"vendor": "1234", "device": "0000"}}
+        b = dict(a, status="unavailable", observed=None)
         result = summarize([entry("host-a", "1", [a]), entry("host-b", "2", [b]),
                             entry("host-c", "3")])
         self.assertEqual(result["source_identity"], "not_verified")

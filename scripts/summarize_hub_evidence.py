@@ -4,13 +4,10 @@ import argparse
 import json
 import re
 
-from check_hub_evidence import check, parse, read_bounded, verify
+from check_hub_evidence import PCI_NAMES, check, parse, read_bounded, verify
 
 MAX_RUNS = 8
 LABEL = re.compile("[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}")
-BDF = re.compile("[0-9a-f]{4}:[0-9a-f]{2}:[0-1][0-9a-f]\\.[0-7]")
-STATES = ("present", "match", "missing", "mismatch", "inaccessible",
-          "invalid", "unavailable", "changed")
 
 
 def summarize(entries):
@@ -27,16 +24,9 @@ def summarize(entries):
         seen_digests.add(digest)
         inventory = parse(stdout)["inventory"]
         rows = inventory.get("required_pcie", [])
-        check(type(rows) is list and len(rows) <= 16, "invalid PCIe expectation rows")
-        counts = dict.fromkeys(STATES, 0)
-        devices = set()
+        counts = dict.fromkeys(PCI_NAMES, 0)
         for row in rows:
-            check(type(row) is dict, "invalid PCIe expectation row")
-            bdf, state = row.get("bdf"), row.get("status")
-            check(type(bdf) is str and BDF.fullmatch(bdf) and bdf not in devices
-                  and type(state) is str and state in STATES, "invalid or duplicate PCIe row")
-            devices.add(bdf)
-            counts[state] += 1
+            counts[row["status"]] += 1
         out.append({
             "host_label": host, "run_id": token, "sha256": digest,
             "status": "summarized" if rows else "no_expectation_rows",

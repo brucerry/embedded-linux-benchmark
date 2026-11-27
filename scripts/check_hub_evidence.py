@@ -12,6 +12,10 @@ import sys
 
 MAX_BYTES = 1024 * 1024
 RUN_ID = re.compile("[0-9a-f]{32}")
+PCI_BDF = re.compile(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-1][0-9a-f]\.[0-7]")
+PCI_ID = re.compile(r"[0-9a-f]{4}")
+PCI_NAMES = ("present", "match", "missing", "mismatch", "inaccessible",
+             "invalid", "unavailable", "changed")
 OPTIONAL_PASSIVE = {
     "system-health": ("passive_system_health", "--include-system-health", "system_health"),
     "timeline": ("passive_observation_timeline", "--include-timeline", "observation_timeline"),
@@ -224,6 +228,34 @@ def verify_timeline(observation, elapsed):
         last = finish
 
 
+def verify_required_pcie(rows):
+    check(type(rows) is list and 1 <= len(rows) <= 16, "invalid PCIe row count")
+    addresses = set()
+
+    def ids(obj):
+        return (type(obj) is dict and obj.keys() == {"vendor", "device"}
+                and all(type(v) is str and PCI_ID.fullmatch(v) for v in obj.values()))
+
+    for row in rows:
+        check(type(row) is dict and row.keys() in (
+            {"bdf", "status"}, {"bdf", "status", "expected", "observed"}
+        ), "invalid PCIe row format")
+        bdf, status = row["bdf"], row["status"]
+        check(type(bdf) is str and PCI_BDF.fullmatch(bdf) and bdf not in addresses
+              and status in PCI_NAMES, "invalid or duplicate PCIe row")
+        addresses.add(bdf)
+        if "expected" not in row:
+            check(status not in ("match", "mismatch"), "PCIe row missing expected IDs")
+            continue
+        expected, observed = row["expected"], row["observed"]
+        check(ids(expected) and status != "present", "invalid PCIe row expectation")
+        if status in ("match", "mismatch"):
+            check(ids(observed) and (observed == expected) == (status == "match"),
+                  "PCIe row status disagrees with IDs")
+        else:
+            check(observed is None, "unexpected observed IDs in unavailable PCIe row")
+
+
 def verify_plan(plan, observation, run_id, evidence_bytes):
     check(type(plan) is dict and plan.keys() == {
         "plan_schema_version", "argv", "execution", "max_evidence_bytes", "optional"
@@ -262,6 +294,9 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
           "observation features disagree with plan")
     check("thermal_window" not in observation["inventory"],
           "unplanned thermal sample")
+    check(not {"required_pcie", "board_profile"}.intersection(observation["inventory"])
+          and observation.get("board_check", "not_configured") == "not_configured",
+          "unplanned board expectation")
 
 
 def verify(evidence, stdout, run_id, plan=None):
@@ -289,6 +324,10 @@ def verify(evidence, stdout, run_id, plan=None):
     network = q.get("network_health")
     if type(network) is dict and "mode" in network:
         verify_network_window(network, saved["elapsed_monotonic_ms"])
+    if "required_pcie" in q["inventory"]:
+        verify_required_pcie(q["inventory"]["required_pcie"])
+    if q.get("board_check") == "see_required_pcie":
+        check("required_pcie" in q["inventory"], "requested PCIe rows were omitted")
     if "thermal_window" in q["inventory"]:
         verify_thermal_window(q["inventory"], saved["elapsed_monotonic_ms"])
     if "observation_timeline" in q:

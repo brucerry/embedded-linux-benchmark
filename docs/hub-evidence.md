@@ -80,6 +80,11 @@ hardware fault. For a demonstration, use a deliberately wrong expectation
 on a known present device without changing the device. The observation is
 reported with a successful command exit; Hub must inspect the row status.
 
+The offline verifier checks unique device addresses and consistency between
+the state and reported expected/observed IDs. A matching pair does not prove
+that the capture came from that device. The basic `--plan` verifier mode
+does not request PCIe expectations and rejects unexpected board checks.
+
 For a small offline interoperability demo, `scripts/summarize_hub_evidence.py`
 groups up to eight previously retrieved, correlated report pairs by
 caller-selected host labels. It does not discover devices or authenticate

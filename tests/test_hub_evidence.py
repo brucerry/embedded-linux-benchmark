@@ -249,6 +249,23 @@ class Evidence(unittest.TestCase):
             self.assertEqual(json.loads(receipt.stdout)["plan_sha256"],
                              hashlib.sha256(plan_data).hexdigest())
 
+    def test_required_pcie_ids_must_agree_with_reported_status(self):
+        q = fixture()
+        q["board_check"] = "see_required_pcie"
+        ids = {"vendor": "1234", "device": "abcd"}
+        match = {"bdf": "0000:01:00.0", "status": "match", "expected": ids, "observed": ids}
+        def verify_rows(rows):
+            q["inventory"]["required_pcie"] = rows
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+        self.assertEqual(verify_rows([match])["status"], "correlated")
+        self.assertEqual(verify_rows([{**match, "status": "missing", "observed": None}])
+                         ["status"], "correlated")
+        for rows in ([], [match, match], [{**match, "status": "mismatch"}],
+                     [{**match, "status": "missing"}],
+                     [{"bdf": match["bdf"], "status": "match"}]):
+            with self.subTest(rows=rows), self.assertRaises(ValueError):
+                verify_rows(rows)
+
     def test_rejects_duplicate_truncated_and_nonfinite(self):
         for data in (b'{"a":1,"a":2}', b'{"a":', b'{"a":NaN}', b' ' * (m.MAX_BYTES + 1)):
             with self.subTest(data=data[:20]), self.assertRaises(ValueError):
