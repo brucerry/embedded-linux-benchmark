@@ -128,3 +128,13 @@ The v1 verifier checks that the phase list matches the report sections actually
 present. It rejects missing, duplicated, unexpected, overlapping or misordered
 phases and offsets beyond the enclosing evidence duration. A missing timeline
 remains valid for previous reports or runs that did not request the option.
+
+## Offline command preview
+
+`scripts/plan_hub_passive.py` turns a bounded, previously captured capability
+report into a fixed argument array. It refuses missing required v1 contracts
+and marks unadvertised optional `system-health` or `timeline` as unsupported;
+it never executes a command. A preview does not authenticate the captured
+report or establish that the nominated report directory is fresh and private.
+The controller must verify those independently and confirm device/run/exit
+identity before accepting evidence.
