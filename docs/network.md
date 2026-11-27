@@ -107,3 +107,12 @@ or proof that a cable was used. A veth result is virtual, not physical.
 For hardware qualification retain trusted endpoint identities, interface
 and negotiated-link evidence, and observations made during the same isolated
 run. Do not use the management SSH tunnel as the measured link.
+
+To check a saved window from a build that reports counter coverage, run
+`python3 scripts/check_network_health_window.py --evidence nic.json --interface eth0 --sample-ms 1000`
+on the controller, using the same independently chosen interface and interval
+as the original run. It checks the exact counter arithmetic, coverage, and
+reset/withhold behavior against the two snapshots and returns their evidence
+hash. It does not run a command on the target or prove the report came from
+the claimed device, that a reset did not occur between samples, or that the
+interface identity claim is authentic.
