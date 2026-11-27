@@ -218,3 +218,20 @@ requirement result stays on its own board; an invalid entry rejects the whole
 batch. This checks local consistency, not remote identity, a trusted timestamp,
 or replay across batches. It does not compute manufacturing yield or qualify
 any board.
+
+For new batches use `schema_version: 2`. Every manifest row additionally has
+`expected_engine_sha256` from the asset chosen by the controller and two additional
+digests under `sha256`: `profile` and `capture`. In the same private directory save:
+
+- `<run_id>.profile.json`: `schema_version: 1`, a `profile_id` label, and
+  `require_pcie` in the same syntax as the CLI flag. The requirements must
+  match the run plan, including expected vendor/device IDs when specified.
+- `<run_id>.capture.json`: `schema_version: 1`, `board`, `run_id`, `process_exit`,
+  and `engine_sha256` measured and recorded by the trusted controller. The
+  measured digest must match the expected asset, and the rest must match the
+  selected run.
+
+Verify the artifact and launch identity on the controller before making a
+capture record. The offline summary checks consistency of that record, not
+bytes on the target, runtime attestation, or hardware identity. Existing v1
+batches have no binary or profile binding.

@@ -63,3 +63,43 @@ class BoardPcieSummaryTest(unittest.TestCase):
         row = self.artifacts("fixture-a", "a", "present")
         with self.assertRaisesRegex(ValueError, "run ID"):
             summarize(manifest([dict(row, run_id="../escape")]), self.path)
+
+    def with_context(self):
+        row = self.artifacts("fixture-a", "a", "present")
+        row["expected_engine_sha256"] = "e" * 64
+        self.context_record(row, "profile", {"schema_version": 1, "profile_id": "rev-a",
+                                             "require_pcie": FIRST})
+        self.context_record(row, "capture", {"schema_version": 1, "board": row["board"],
+                                             "run_id": row["run_id"], "process_exit": 0,
+                                             "engine_sha256": "e" * 64})
+        return row
+
+    def context_record(self, row, kind, data):
+        raw = json.dumps(data).encode()
+        (self.path / f'{row["run_id"]}.{kind}.json').write_bytes(raw)
+        row["sha256"][kind] = hashlib.sha256(raw).hexdigest()
+
+    def summarize_v2(self, row):
+        return summarize(json.dumps({"schema_version": 2, "boards": [row]}).encode(), self.path)
+
+    def test_v2_reports_distinct_profile_and_binary_identity(self):
+        result = self.summarize_v2(self.with_context())
+        context = result["boards"][0]["context"]
+        self.assertEqual(result["schema_version"], 2)
+        self.assertEqual(context["profile_id"], "rev-a")
+        self.assertEqual(context["engine_sha256"], "e" * 64)
+        self.assertEqual(context["runtime_attestation"], "not_verified")
+
+    def test_v2_rejects_wrong_expected_binary_or_stale_context(self):
+        row = self.with_context()
+        with self.assertRaisesRegex(ValueError, "expected asset"):
+            self.summarize_v2(dict(row, expected_engine_sha256="f" * 64))
+        with self.assertRaisesRegex(ValueError, "capture context"):
+            self.summarize_v2(dict(row, board="fixture-b"))
+
+    def test_v2_rejects_matching_digest_for_wrong_profile(self):
+        row = self.with_context()
+        self.context_record(row, "profile", {"schema_version": 1, "profile_id": "rev-a",
+                                             "require_pcie": FIRST + "=8086:1234"})
+        with self.assertRaisesRegex(ValueError, "differs from board profile"):
+            self.summarize_v2(row)
