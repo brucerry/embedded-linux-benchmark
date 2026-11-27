@@ -513,6 +513,13 @@ command exits successfully and the entire JSON validates; interrupted writes
 may leave an incomplete file. The timestamps describe the collection host,
 not a trusted external clock or a qualification verdict.
 
+For correlation across machines, `--run-id HEX32` echoes an explicitly
+chosen 32-character lowercase hexadecimal token in the observation, including
+the observation embedded in the file. Create a fresh random token for each
+invocation if you need to distinguish reruns. The identifier is not a path,
+and does not by itself authenticate the sender, device, or observed data.
+It is omitted if not supplied.
+
 
 ### PCI accelerator candidates
 

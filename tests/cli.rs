@@ -1396,3 +1396,45 @@ fn passive_qualification_evidence_is_private_and_non_clobbering() {
     assert_eq!(fs::read_link(&link).unwrap(), absent);
     assert!(!absent.exists());
 }
+
+#[test]
+fn passive_qualification_run_id_is_bounded_and_correlates_stdout_and_evidence() {
+    let scratch = ScratchDirectory::create();
+    let file = scratch.0.join("run.json");
+    let path = file.to_str().unwrap();
+    let run_id = "0123456789abcdeffedcba9876543210";
+    for bad in [
+        "0123456789abcdeffedcba987654321",
+        "0123456789Abcdeffedcba9876543210",
+        "00000000000000000000000000000000",
+        "../../eth0",
+    ] {
+        let result = run(&[
+            "qualify",
+            "passive",
+            "--run-id",
+            bad,
+            "--evidence-json",
+            path,
+        ]);
+        assert!(!result.status.success(), "{result:?}");
+        assert!(result.stdout.is_empty() && !file.exists());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("run-id must be exactly"));
+    }
+    let stdout = successful_output(&[
+        "qualify",
+        "passive",
+        "--run-id",
+        run_id,
+        "--evidence-json",
+        path,
+    ]);
+    assert!(stdout
+        .trim_end()
+        .ends_with(&format!(r#","run_id":"{run_id}"}}"#)));
+    let file = std::fs::read_to_string(file).unwrap();
+    assert!(file
+        .trim_end()
+        .ends_with(&format!(r#","qualification":{}}}"#, stdout.trim_end())));
+    assert!(!successful_output(&["qualify", "passive"]).contains(r#""run_id":"#));
+}

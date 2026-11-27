@@ -98,11 +98,22 @@ pub(crate) fn render(profile: &str, include_load: bool) -> Result<String, String
 }
 
 /// Read inventory and selected passive snapshots. No workload argv.
-pub(crate) fn passive(
+fn passive(
     board_profile: Option<&std::path::Path>,
     network_interface: Option<&str>,
     nvme_controller: Option<&str>,
+    run_id: Option<&str>,
 ) -> Result<String, String> {
+    let run = match run_id {
+        Some(id) if valid_run_id(id) => format!(r#","run_id":{}"#, json_string(id)),
+        Some(_) => {
+            return Err(
+                "run-id must be exactly 32 lowercase hexadecimal characters and not all zero"
+                    .into(),
+            )
+        }
+        None => String::new(),
+    };
     let network = network_interface
         .map(crate::network_health::snapshot)
         .transpose()?
@@ -118,8 +129,16 @@ pub(crate) fn passive(
         "not_configured"
     };
     Ok(format!(
-        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}}}"#
+        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{run}}}"#
     ))
+}
+
+fn valid_run_id(value: &str) -> bool {
+    value.len() == 32
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
+        && value.bytes().any(|b| b != b'0')
 }
 
 pub(crate) fn run_passive(
@@ -127,11 +146,12 @@ pub(crate) fn run_passive(
     network_interface: Option<&str>,
     nvme_controller: Option<&str>,
     evidence_path: Option<&std::path::Path>,
+    run_id: Option<&str>,
 ) -> Result<(), String> {
     use crate::common::{unix_ms, write_new_evidence};
     use std::time::{Instant, SystemTime};
     let clock = evidence_path.map(|_| (SystemTime::now(), Instant::now()));
-    let observation = passive(board_profile, network_interface, nvme_controller)?;
+    let observation = passive(board_profile, network_interface, nvme_controller, run_id)?;
     if let Some((path, (started, timer))) = evidence_path.zip(clock) {
         let elapsed = timer.elapsed().as_millis();
         let finished = unix_ms(SystemTime::now());
