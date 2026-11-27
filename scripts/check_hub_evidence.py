@@ -89,6 +89,34 @@ def verify_pressure_series(series, elapsed):
         previous = finish
 
 
+def verify_network_window(window, elapsed):
+    check(window.keys() == {"schema_version", "mode", "requested_wait_ms",
+                            "sample_start_interval_ms", "continuity", "before", "after", "delta"}
+          and type(window["schema_version"]) is int and window["schema_version"] == 1
+          and window["mode"] == "two_passive_snapshots", "unsupported network window")
+    wait, interval = window["requested_wait_ms"], window["sample_start_interval_ms"]
+    check(type(wait) is int and type(interval) is int and 1 <= wait <= 2000
+          and wait <= interval <= elapsed, "invalid network sample timing")
+    a, b, delta = (window[k] for k in ("before", "after", "delta"))
+    check(all(type(row) is dict for row in (a, b, delta))
+          and type(a.get("interface")) is str and a.get("interface") == b.get("interface"),
+          "network snapshot interface mismatch")
+    continuity = window["continuity"]
+    check(continuity in ("same_identity_observed", "identity_changed", "unknown"),
+          "invalid network continuity")
+    status = delta.get("status")
+    if continuity == "same_identity_observed":
+        check(a.get("status") == b.get("status") == "observed"
+              and status in ("observed_differences", "counter_decreased_or_reset"),
+              "invalid network delta for matched identity")
+    else:
+        check(delta == {"status": "not_comparable"}, "network delta without continuity")
+    if status == "observed_differences":
+        check(type(delta.get("counters")) is dict, "missing network counters")
+    else:
+        check(delta.keys() == {"status"}, "invalid withheld network delta")
+
+
 def verify(evidence, stdout, run_id):
     check(isinstance(run_id, str) and RUN_ID.fullmatch(run_id)
           and run_id != "0" * 32, "invalid expected run ID")
@@ -111,6 +139,9 @@ def verify(evidence, stdout, run_id):
     health = q.get("system_health")
     if type(health) is dict and "pressure_series" in health:
         verify_pressure_series(health["pressure_series"], saved["elapsed_monotonic_ms"])
+    network = q.get("network_health")
+    if type(network) is dict and "mode" in network:
+        verify_network_window(network, saved["elapsed_monotonic_ms"])
     return {"status": "correlated", "run_id": run_id,
             "evidence_bytes": len(evidence), "sha256": hashlib.sha256(evidence).hexdigest(),
             "hardware_authenticity": "not_verified"}

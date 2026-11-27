@@ -92,6 +92,33 @@ class Evidence(unittest.TestCase):
                 finally:
                     obj[field] = old
 
+    def test_rejects_matching_network_windows_with_conflicting_metadata(self):
+        q = fixture()
+        window = {"schema_version": 1, "mode": "two_passive_snapshots", "requested_wait_ms": 5,
+                  "sample_start_interval_ms": 5, "continuity": "unknown",
+                  "before": {"interface": "lo"}, "after": {"interface": "lo"},
+                  "delta": {"status": "not_comparable"}}
+        q["network_health"] = window
+
+        def run():
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+
+        self.assertEqual(run()["status"], "correlated")
+        for obj, field, value in (
+            (window, "sample_start_interval_ms", 4),
+            (window, "sample_start_interval_ms", 11),
+            (window, "requested_wait_ms", True),
+            (window["after"], "interface", "eth0"),
+            (window["delta"], "status", "observed_differences"),
+        ):
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                old = obj[field]
+                try:
+                    obj[field] = value
+                    run()
+                finally:
+                    obj[field] = old
+
     def test_rejects_duplicate_truncated_and_nonfinite(self):
         for data in (b'{"a":1,"a":2}', b'{"a":', b'{"a":NaN}', b' ' * (m.MAX_BYTES + 1)):
             with self.subTest(data=data[:20]), self.assertRaises(ValueError):

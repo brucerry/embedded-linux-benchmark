@@ -98,3 +98,8 @@ The existing single observation remains the default. Reported deltas require
 matching interface and boot identity and usable counters; missing identity or
 counter resets do not mean zero change. This option does not generate traffic
 or measure throughput.
+
+For this read window, the offline verifier requires the same named interface
+in both snapshots, a measured interval within the enclosing run, and delta
+availability consistent with the reported continuity. It does not validate
+every counter's arithmetic or establish that the claimed link identity is real.
