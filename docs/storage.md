@@ -50,3 +50,18 @@ zero as a raw observation without interpreting it as healthy. SD cards
 are not supported by this command. No block device is opened, no MMC
 command is sent, and no serial number is collected. See the Linux
 [MMC attribute definitions](https://github.com/torvalds/linux/blob/master/drivers/mmc/core/mmc.c).
+
+### Verify a saved SMART decode
+
+After decoding a saved regular file to JSON, verify the copy against the digest
+recorded at capture and verify the decoded values against the raw bytes:
+
+```sh
+python3 scripts/check_nvme_smart_evidence.py \
+  --page captured-smart-log.bin --report decoded-smart.json \
+  --expected-sha256 "$CAPTURE_SHA256"
+```
+
+The receipt binds the raw page and decoded report by hash. It does not certify
+the original capture, controller identity, or drive health. The verifier
+does not open device nodes or start I/O against the controller.
