@@ -27,6 +27,7 @@ mod nvme_health;
 mod pcie;
 mod pcie_health;
 mod peripheral;
+mod pressure;
 mod qualification;
 mod ram;
 mod report;

@@ -295,6 +295,7 @@ fn help() {
     println!(
         "Usage:
   eld-engine capabilities
+  eld-engine pressure
   eld-engine accelerator inventory|interfaces
   eld-engine accelerator amdgpu-hwmon --device BDF
   eld-engine power ina3221 --node BUS-ADDRESS
@@ -467,6 +468,11 @@ pub(crate) fn run() -> Result<(), String> {
         "capabilities" => {
             Options::parse("capabilities", args, &[])?;
             println!("{}", capabilities());
+            return Ok(());
+        }
+        "pressure" => {
+            Options::parse("pressure", args, &[])?;
+            crate::pressure::run();
             return Ok(());
         }
         "accelerator" => {

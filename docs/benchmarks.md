@@ -469,6 +469,17 @@ the capture; the raw page does not authenticate them. See the
 [NVM Express Base Specification 2.0e](https://nvmexpress.org/wp-content/uploads/NVM-Express-Base-Specification-2.0e-2024.07.29-Ratified.pdf),
 SMART / Health Information log.
 
+### Passive Linux pressure snapshot
+
+`eld-engine pressure` reads the CPU, memory and I/O files under
+`/proc/pressure` once, without starting a workload or registering a kernel
+trigger. The JSON preserves the three percentage windows as decimal strings
+and exact cumulative stall time in microseconds. Missing resources are
+separate from observed zero. System CPU `full` is not applicable even if
+the kernel exposes its backward-compatibility zero. This is system-level
+pressure, not a per-process measurement or a benchmark result.
+See [Linux Pressure Stall Information](https://docs.kernel.org/accounting/psi.html).
+
 ### Passive MMC wear observations
 
 `eld-engine storage mmc-health --card mmc0:0001` reads the named
