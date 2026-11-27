@@ -42,6 +42,34 @@ def fixture():
 
 
 class Evidence(unittest.TestCase):
+    def test_powercap_keeps_units_and_legacy_reports_distinct(self):
+        q = fixture()
+        row = {"zone": "intel-rapl:0:1", "name": {"status": "observed", "value": "CPU core"},
+               "energy_microjoules": {"status": "observed", "value": "18446744073709551615"},
+               "max_energy_range_microjoules": {"status": "unavailable"}}
+        cap = {"status": "observed", "zones": [row]}
+        q["inventory"]["powercap"] = cap
+
+        def check_report():
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+
+        self.assertEqual(check_report()["status"], "correlated")
+        row.update(power_microwatts={"status": "observed", "value": "0"},
+                   max_power_range_microwatts={"status": "inaccessible"})
+        self.assertEqual(check_report()["hardware_authenticity"], "not_verified")
+        for changed in ({"status": "observed", "value": True},
+                        {"status": "observed", "value": "18446744073709551616"},
+                        {"status": "unavailable", "value": "0"}):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                cap["zones"] = [dict(row, power_microwatts=changed)]
+                check_report()
+        for bad in (dict(cap, status="no_zones", zones=[row]),
+                    dict(cap, zones=[row, row]),
+                    dict(cap, zones=[dict(row, zone="../intel-rapl:0")])):
+            with self.assertRaises(ValueError):
+                q["inventory"]["powercap"] = bad
+                check_report()
+
     def test_optional_mmc_preserves_unavailable_and_checks_raw_shape(self):
         q = fixture()
         q["mmc_health"] = {"schema_version": 1, "card": "mmc0:0001",

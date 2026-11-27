@@ -170,6 +170,10 @@ and `max_power_range_microwatts` are decimal strings, distinct from the
 energy counter and range. Some drivers expose only energy. An unavailable or
 inaccessible power attribute is not zero. Do not sum parent and child zones,
 interpret ranges as measurements, or treat one zone as whole-device power.
+The offline verifier validates both released energy-only rows and newer
+power-capable rows. It rejects numbers encoded as JSON numeric values,
+out-of-range counters, duplicate zones and values attached to unavailable
+fields. A valid observation is not a power or energy attestation.
 
 The reference verifier checks the requested interval, inventory baseline,
 ordered zone set and signed difference arithmetic. It preserves

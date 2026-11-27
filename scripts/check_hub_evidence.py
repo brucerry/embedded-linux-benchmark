@@ -164,6 +164,50 @@ def verify_network_window(window, elapsed):
     recompute(window, a["interface"], wait, allow_legacy=True)
 
 
+def verify_powercap(report):
+    states = ("observed", "unavailable", "inaccessible", "invalid")
+    check(type(report) is dict and report.keys() == {"status", "zones"}
+          and report["status"] in (*states, "truncated", "no_zones")
+          and type(report["zones"]) is list and len(report["zones"]) <= 32,
+          "invalid powercap observation")
+    zones = report["zones"]
+    status = report["status"]
+    check((status == "observed" and bool(zones))
+          or (status == "truncated" and len(zones) in (0, 32))
+          or (status not in ("observed", "truncated") and not zones),
+          "inconsistent powercap zone coverage")
+    energy = {"energy_microjoules", "max_energy_range_microjoules"}
+    extra = {"power_microwatts", "max_power_range_microwatts"}
+    legacy = {"zone", "name", *energy}
+    previous = ""
+    for zone in zones:
+        check(type(zone) is dict and (zone.keys() == legacy or zone.keys() == legacy | extra),
+              "invalid powercap zone fields")
+        name = zone["zone"]
+        check(type(name) is str and len(name) <= 96 and name > previous
+              and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*(?::(?:0|[1-9][0-9]{0,6})){1,4}", name),
+              "invalid, duplicate, or unordered powercap zone name")
+        previous = name
+        for name, row in zone.items():
+            if name == "zone":
+                continue
+            check(type(row) is dict and row.get("status") in states,
+                  "invalid powercap field observation")
+            if row["status"] != "observed":
+                check(row.keys() == {"status"}, "unobserved powercap field carries a value")
+                continue
+            value = row.get("value")
+            check(row.keys() == {"status", "value"} and type(value) is str,
+                  "powercap observed value must be text")
+            if name == "name":
+                check(0 < len(value.encode("utf-8")) <= 256 and value == value.strip()
+                      and all(not (ord(c) < 32 or 127 <= ord(c) <= 159) for c in value),
+                      "invalid powercap label")
+            else:
+                check(re.fullmatch(r"0|[1-9][0-9]{0,19}", value) and int(value) < 2**64,
+                      "invalid unsigned powercap observation")
+
+
 def verify_thermal_window(inventory, elapsed):
     window = inventory["thermal_window"]
     check(type(window) is dict and window.keys() == {
@@ -498,6 +542,8 @@ def verify(evidence, stdout, run_id, plan=None):
         verify_required_pcie(q["inventory"]["required_pcie"])
     if q.get("board_check") == "see_required_pcie":
         check("required_pcie" in q["inventory"], "requested PCIe rows were omitted")
+    if "powercap" in q["inventory"]:
+        verify_powercap(q["inventory"]["powercap"])
     if "thermal_window" in q["inventory"]:
         verify_thermal_window(q["inventory"], saved["elapsed_monotonic_ms"])
     if "observation_timeline" in q:
