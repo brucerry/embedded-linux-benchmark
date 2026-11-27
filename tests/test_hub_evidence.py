@@ -42,6 +42,15 @@ def fixture():
 
 
 class Evidence(unittest.TestCase):
+    def test_optional_mmc_preserves_unavailable_and_checks_raw_shape(self):
+        q = fixture()
+        q["mmc_health"] = {"schema_version": 1, "card": "mmc0:0001",
+                           "status": "unavailable"}
+        self.assertEqual(m.verify(pack(q), json.dumps(q).encode(), TOKEN)["status"], "correlated")
+        q["mmc_health"]["life_time_raw"] = {"status": "observed", "value": 0}
+        with self.assertRaisesRegex(ValueError, "invalid withheld MMC"):
+            m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+
     def test_released_single_network_snapshot_is_validated_not_just_correlated(self):
         from check_network_health_window import KEYS
 

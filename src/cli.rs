@@ -145,6 +145,7 @@ const QUALIFICATION_PASSIVE_OPTIONS: &[(&str, Kind)] = &[
     ("--network-health-sample-ms", Kind::Number(1, 2000)),
     ("--thermal-sample-ms", Kind::Number(1, 2000)),
     ("--nvme-controller", Kind::Text),
+    ("--mmc-card", Kind::Text),
     ("--edac-controller", Kind::Text),
     ("--include-system-health", Flag),
     ("--include-timeline", Flag),
@@ -326,7 +327,7 @@ fn help() {
   eld-engine accelerator tegrastats-decode [--rail LABEL] < saved-tegrastats-line.txt
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
-  eld-engine qualify passive [--board-profile PATH | --require-pcie BDF[=VVVV:DDDD][,...]] [--network-interface NAME [--network-health-sample-ms 1..2000]] [--nvme-controller NAME] [--edac-controller NAME] [--thermal-sample-ms 1..2000] [--include-timeline]
+  eld-engine qualify passive [--board-profile PATH | --require-pcie BDF[=VVVV:DDDD][,...]] [--network-interface NAME [--network-health-sample-ms 1..2000]] [--nvme-controller NAME] [--mmc-card ID] [--edac-controller NAME] [--thermal-sample-ms 1..2000] [--include-timeline]
                              [--include-system-health [--pressure-series-samples N --pressure-series-gap-ms MS]]
                              [--pcie-health-device BDF [--pcie-health-sample-ms MS]]
                              [--evidence-json NEW_PATH] [--run-id HEX32]
@@ -474,6 +475,7 @@ fn capabilities() -> String {
             r#""qualification_plan":{{"schema":1,"execution":"preview_only"}},"#,
             r#""storage_nvme_smart_decode":{{"schema":1,"input":"offline_page","input_bytes":{}}},"#,
             r#""passive_nvme_controller":{{"schema":1,"flag":"--nvme-controller","scope":"selected_sysfs_attributes_only"}},"#,
+            r#""passive_mmc_health":{{"schema":1,"flag":"--mmc-card","scope":"cached_sysfs_only"}},"#,
             r#""storage_mmc_health":{{"schema":1,"input":"named_mmc_card"}},"#,
             r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}},"#,
             r#""offline_nvidia_health":{{"schema":1,"input":"normalized_nvml_v1_literal","max_bytes":{}}},"#,
@@ -660,6 +662,7 @@ pub(crate) fn run() -> Result<(), String> {
                 options.path("--evidence-json"),
                 options.text("--run-id").ok(),
                 crate::qualification::HealthOptions {
+                    mmc_card: options.text("--mmc-card").ok(),
                     edac_controller: options.text("--edac-controller").ok(),
                     system: health,
                     include_timeline: options.flag("--include-timeline"),

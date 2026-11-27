@@ -34,14 +34,9 @@ def life(value):
             and all(byte(code) for code in value.values()))
 
 
-def verify(raw, expected_card, expected_sha256=None):
+def validate_snapshot(result, expected_card):
     check(type(expected_card) is str and CARD.fullmatch(expected_card), "invalid expected MMC card")
-    sha = hashlib.sha256(raw).hexdigest()
-    if expected_sha256 is not None:
-        check(type(expected_sha256) is str and HASH.fullmatch(expected_sha256),
-              "expected a lowercase SHA-256 digest")
-        check(sha == expected_sha256, "report differs from expected SHA-256")
-    result = parse(raw)
+    check(type(result) is dict, "invalid MMC report object")
     base = {"schema_version", "card", "status"}
     check(base <= result.keys() and type(result["schema_version"]) is int
           and result["schema_version"] == 1 and result["card"] == expected_card,
@@ -56,6 +51,16 @@ def verify(raw, expected_card, expected_sha256=None):
     else:
         check(result.keys() == base and status in (*WITHHELD_FIELD, "changed", "unsupported_card_type"),
               "invalid withheld MMC report")
+    return status, fields
+
+
+def verify(raw, expected_card, expected_sha256=None):
+    sha = hashlib.sha256(raw).hexdigest()
+    if expected_sha256 is not None:
+        check(type(expected_sha256) is str and HASH.fullmatch(expected_sha256),
+              "expected a lowercase SHA-256 digest")
+        check(sha == expected_sha256, "report differs from expected SHA-256")
+    status, fields = validate_snapshot(parse(raw), expected_card)
     return {
         "schema_version": 1, "kind": "offline_mmc_report_check", "card": expected_card,
         "card_observation": status, "raw_field_states": fields, "report_sha256": sha,

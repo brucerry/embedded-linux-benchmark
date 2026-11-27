@@ -135,6 +135,7 @@ pub(crate) enum SystemHealthScope {
 }
 
 pub(crate) struct HealthOptions<'a> {
+    pub(crate) mmc_card: Option<&'a str>,
     pub edac_controller: Option<&'a str>,
     pub system: SystemHealthScope,
     pub thermal_wait_ms: Option<u64>,
@@ -210,6 +211,11 @@ fn passive(
         .map(|name| timeline.observe("nvme_health", || crate::nvme_health::snapshot(name)))
         .transpose()?
         .map_or_else(String::new, |value| format!(r#","nvme_health":{value}"#));
+    let mmc = health_options
+        .mmc_card
+        .map(|name| timeline.observe("mmc_health", || crate::mmc_health::snapshot(name)))
+        .transpose()?
+        .map_or_else(String::new, |value| format!(r#","mmc_health":{value}"#));
     let pcie = pcie
         .map(|(device, ms)| {
             timeline.observe("pcie_health", || {
@@ -253,7 +259,7 @@ fn passive(
     };
     let timeline = timeline.render();
     Ok(format!(
-        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{pcie}{edac}{run}{timeline}}}"#
+        r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{mmc}{health}{pcie}{edac}{run}{timeline}}}"#
     ))
 }
 

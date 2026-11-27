@@ -97,15 +97,16 @@ fn report(index: &Path, devices: &Path, name: &str) -> Result<String, String> {
     Ok(result)
 }
 
+pub(crate) fn snapshot(name: &str) -> Result<String, String> {
+    report(
+        Path::new("/sys/bus/mmc/devices"),
+        Path::new("/sys/devices"),
+        name,
+    )
+}
+
 pub(crate) fn run(name: &str) -> Result<(), String> {
-    println!(
-        "{}",
-        report(
-            Path::new("/sys/bus/mmc/devices"),
-            Path::new("/sys/devices"),
-            name
-        )?
-    );
+    println!("{}", snapshot(name)?);
     Ok(())
 }
 

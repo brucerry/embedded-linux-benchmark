@@ -90,6 +90,24 @@ def smoke(binary):
             if result["status"] != "correlated" or result["hardware_authenticity"] != "not_verified":
                 raise ValueError("unexpected offline validation result")
         smoke_missing(lambda *args: invoke(binary, *args), directory, cap)
+        card = "mmc9999999:abcd"
+        card_sysfs = Path("/sys/bus/mmc/devices") / card
+        if card_sysfs.exists() or card_sysfs.is_symlink():
+            raise ValueError("test card unexpectedly exists")
+        if cap["contracts"]["passive_mmc_health"]["scope"] != "cached_sysfs_only":
+            raise ValueError("wrong optional MMC capability")
+        token = secrets.token_hex(16)
+        output = Path(directory) / "evidence-mmc.json"
+        stdout = invoke(binary, "qualify", "passive", "--mmc-card", card,
+                        "--include-timeline", "--run-id", token, "--evidence-json", str(output))
+        observation = parse(stdout)
+        if observation["mmc_health"] != {"schema_version": 1, "card": card, "status": "unavailable"}:
+            raise ValueError("absent MMC was not reported as unavailable")
+        phases = [phase["phase"] for phase in observation["observation_timeline"]["phases"]]
+        if phases != ["mmc_health", "inventory"]:
+            raise ValueError("unexpected MMC observation phase order")
+        if verify(read_bounded(output), stdout, token)["status"] != "correlated":
+            raise ValueError("MMC report did not correlate")
         token = secrets.token_hex(16)
         output = Path(directory) / "evidence-windows.json"
         stdout = invoke(

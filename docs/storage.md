@@ -76,3 +76,11 @@ Pass `--expected-sha256` if the controller already has a trusted file digest.
 The checker binds the report to the selected card identifier and preserves
 raw field availability. It does not confirm the source device or infer wear
 from raw codes, including zero.
+
+
+When capabilities advertises `passive_mmc_health` schema 1, the same
+cached observation can be included in a qualification report with
+`eld-engine qualify passive --mmc-card mmc0:0001`. The selection is opt-in
+and can appear in the observation timeline. The offline verifier can
+correlate the saved evidence and stdout. Capability planner support for
+binding a trusted expected card to that invocation is separate.

@@ -239,7 +239,7 @@ def verify_timeline(observation, elapsed):
     } and type(timeline["schema_version"]) is int and timeline["schema_version"] == 1
         and timeline["clock"] == "single_process_monotonic"
         and timeline["execution"] == "sequential", "unsupported observation timeline")
-    order = ("network_health", "nvme_health", "pcie_health", "edac_health", "inventory", "system_health")
+    order = ("network_health", "nvme_health", "mmc_health", "pcie_health", "edac_health", "inventory", "system_health")
     expected = [key for key in order if key in observation]
     rows = timeline["phases"]
     check(type(rows) is list and len(rows) == len(expected), "invalid observation phase count")
@@ -462,6 +462,11 @@ def verify(evidence, stdout, run_id, plan=None):
             snapshot(network, interface)
     if "nvme_health" in q:
         verify_nvme_controller(q["nvme_health"])
+    if "mmc_health" in q:
+        from check_mmc_health_evidence import validate_snapshot
+        mmc = q["mmc_health"]
+        check(type(mmc) is dict, "invalid MMC report object")
+        validate_snapshot(mmc, mmc.get("card"))
     if "edac_health" in q:
         verify_edac_health(q["edac_health"])
     if "required_pcie" in q["inventory"]:
