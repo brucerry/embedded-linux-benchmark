@@ -19,3 +19,10 @@ qualification.
 
 [PCIe](pcie.md) · [GPU](gpu.md) · [Networking](network.md) ·
 [Storage](storage.md) · [Evidence handoff](hub-evidence.md)
+
+For a separate development run, the board bring-up preview can include one
+explicit NIC window and one explicit NVMe controller if the Engine advertises
+both, for example `plan_board_bringup.py --network-interface eth0
+--network-sample-ms 1000 --nvme-controller nvme0` with the usual capability,
+run ID, and evidence path arguments. Nothing is run by the preview. Unsupported
+is distinct from not requested; neither probe is part of the frozen baseline.

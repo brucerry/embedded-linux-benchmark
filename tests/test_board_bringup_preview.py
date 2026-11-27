@@ -39,3 +39,30 @@ class BoardBringupTest(unittest.TestCase):
         self.assertEqual(self.check()["steps"][3]["status"], "not_requested")
         with self.assertRaises(ValueError):
             self.check("0000:01:00.0", "../mc3")
+
+    def test_explicit_nic_and_nvme_are_only_in_plan_with_capability(self):
+        def bringup(**kwargs):
+            return preview(self.cap, self.run_id, "/tmp/new-run/result.json", **kwargs)
+
+        opts = dict(network_interface="eth0", network_sample_ms=100, nvme_controller="nvme0")
+        unavailable = bringup(**opts)
+        statuses = {r["id"]: r["status"] for r in unavailable["steps"]}
+        self.assertEqual((statuses["selected_nic"], statuses["selected_nvme"]), ("unsupported", "unsupported"))
+        self.assertEqual(len(unavailable["passive_plan"]["argv"]), 6)
+        self.cap["contracts"].update(
+            passive_nvme_controller={"schema": 1, "flag": "--nvme-controller",
+                                     "scope": "selected_sysfs_attributes_only"},
+            passive_network_health={"schema": 1, "qualification_flag": "--network-health-sample-ms",
+                                    "max_sample_wait_ms": 2000},
+        )
+        advertised = bringup(**opts)
+        self.assertEqual(advertised["passive_plan"]["argv"][-6:],
+                         ["--network-interface", "eth0", "--network-health-sample-ms", "100",
+                          "--nvme-controller", "nvme0"])
+        unrequested = {r["id"]: r["status"] for r in bringup()["steps"]}
+        self.assertEqual((unrequested["selected_nic"], unrequested["selected_nvme"]),
+                         ("not_requested", "not_requested"))
+        with self.assertRaises(ValueError):
+            bringup(network_sample_ms=100)
+        with self.assertRaises(ValueError):
+            bringup(nvme_controller="nvme0n1")
