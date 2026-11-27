@@ -191,3 +191,13 @@ from it alone, even if the later total is higher. See
 [optional NVIDIA health capture](gpu.md#optional-nvidia-health-capture).
 
 [NVIDIA NVML device queries](https://docs.nvidia.com/deploy/nvml-api/latest/api/group__nvmlDeviceQueries.html)
+
+### Passive board bring-up preview
+
+Use `scripts/plan_board_bringup.py --help` for a capability-based bring-up
+preview. It groups the normal inventory, supported system-health and timeline
+checks, and explicitly requested PCIe/EDAC observations into one passive
+plan. A device check that was not requested remains distinct from an
+unsupported software feature. The preview excludes CPU/RAM load, writes,
+peer traffic, and hardware fixture actions. It does not check installed
+hardware, launch commands, or authenticate the source capability capture.
