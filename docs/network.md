@@ -87,3 +87,19 @@ python3 scripts/check_network_peer_evidence.py \
 Supply the expected parameters and exit statuses from trusted executions,
 not inferred from the evidence files. Correlation does not authenticate a
 remote endpoint, establish a physical path, or certify link health.
+
+### Check route lookups separately from TCP receipts
+
+On each trusted endpoint, save the IPv4 route lookup for the intended source
+and peer, for example `ip -j -4 route get "$PEER_IP" from "$LOCAL_IP"`.
+Compare both files with `scripts/check_peer_route_evidence.py --help`.
+A local route (including one that names the expected interface), a gateway,
+or an unexpected interface cannot qualify a direct-link test. Exit 0 means
+the lookups match, 2 means the lookups describe a local or different path,
+and 1 means the evidence could not be read or validated.
+
+A lookup is a point-in-time kernel decision, not a trace of the test socket
+or proof that a cable was used. A veth result is virtual, not physical.
+For hardware qualification retain trusted endpoint identities, interface
+and negotiated-link evidence, and observations made during the same isolated
+run. Do not use the management SSH tunnel as the measured link.
