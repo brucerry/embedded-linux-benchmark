@@ -53,3 +53,12 @@ sum those scopes, attribute a partner's errors to the endpoint, or compare
 windows across a boot/device change. A missing requested BDF is a command
 error; use the board profile checks if the expectation is that a device
 must exist. This does not measure PCIe throughput.
+
+For local contract testing, `scripts/check_hub_evidence.py` correlates
+already retrieved, bounded stdout and evidence files with a supplied run ID.
+It does not establish trusted transfer, device identity, or command exit
+status. Those are required separately in Hub. Keep the original evidence.
+An AER category-set change can be a previously omitted kernel category
+becoming nonzero; preserve both snapshots and the not-comparable reason.
+Never substitute zero or assign the new error to the endpoint from that
+interval alone.
