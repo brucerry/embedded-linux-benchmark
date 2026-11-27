@@ -81,6 +81,8 @@ from raw codes, including zero.
 When capabilities advertises `passive_mmc_health` schema 1, the same
 cached observation can be included in a qualification report with
 `eld-engine qualify passive --mmc-card mmc0:0001`. The selection is opt-in
-and can appear in the observation timeline. The offline verifier can
-correlate the saved evidence and stdout. Capability planner support for
-binding a trusted expected card to that invocation is separate.
+and can appear in the observation timeline. Use
+`scripts/plan_hub_passive.py --mmc-card ID` with verified capabilities to
+produce fixed arguments without running them. The offline evidence checker's
+`--plan` option requires the resulting MMC observation to match that exact
+card. It does not authenticate the device or establish wear.

@@ -98,16 +98,26 @@ def smoke(binary):
             raise ValueError("wrong optional MMC capability")
         token = secrets.token_hex(16)
         output = Path(directory) / "evidence-mmc.json"
-        stdout = invoke(binary, "qualify", "passive", "--mmc-card", card,
-                        "--include-timeline", "--run-id", token, "--evidence-json", str(output))
+        planned = plan(cap, token, str(output), ["timeline"], mmc_card=card)
+        stdout = invoke(binary, *planned["argv"])
         observation = parse(stdout)
         if observation["mmc_health"] != {"schema_version": 1, "card": card, "status": "unavailable"}:
             raise ValueError("absent MMC was not reported as unavailable")
         phases = [phase["phase"] for phase in observation["observation_timeline"]["phases"]]
         if phases != ["mmc_health", "inventory"]:
             raise ValueError("unexpected MMC observation phase order")
-        if verify(read_bounded(output), stdout, token)["status"] != "correlated":
+        saved = read_bounded(output)
+        if verify(saved, stdout, token, planned)["status"] != "correlated":
             raise ValueError("MMC report did not correlate")
+        other = deepcopy(planned)
+        other["argv"][other["argv"].index("--mmc-card") + 1] = "mmc9999998:abcd"
+        try:
+            verify(saved, stdout, token, other)
+        except ValueError as exc:
+            if "selected card mismatch" not in str(exc):
+                raise
+        else:
+            raise ValueError("MMC report was accepted for the wrong card")
         token = secrets.token_hex(16)
         output = Path(directory) / "evidence-windows.json"
         stdout = invoke(

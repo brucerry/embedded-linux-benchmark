@@ -14,6 +14,7 @@ MAX_BYTES = 1024 * 1024
 RUN_ID = re.compile("[0-9a-f]{32}")
 PCI_BDF = re.compile(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-1][0-9a-f]\.[0-7]")
 PCI_ID = re.compile(r"[0-9a-f]{4}")
+MMC_CARD = re.compile(r"mmc(?:0|[1-9][0-9]{0,6}):[a-f0-9]{4}", re.ASCII)
 NVME_CONTROLLER = re.compile(r"nvme(?:0|[1-9][0-9]{0,6})", re.ASCII)
 NIC_INTERFACE = re.compile(r"[A-Za-z0-9_.-]{1,15}", re.ASCII)
 
@@ -370,6 +371,13 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
               and NVME_CONTROLLER.fullmatch(argv[pos+1]), "invalid planned NVMe controller")
         nvme = argv[pos+1]
         expected.extend(argv[pos:pos+2])
+    mmc = None
+    pos = len(expected)
+    if argv[pos:pos+1] == ["--mmc-card"]:
+        check(len(argv) > pos + 1 and type(argv[pos+1]) is str
+              and MMC_CARD.fullmatch(argv[pos+1]), "invalid planned MMC card")
+        mmc = argv[pos+1]
+        expected.extend(argv[pos:pos+2])
     cap = plan["max_evidence_bytes"]
     check(type(cap) is int and 0 < evidence_bytes <= cap <= MAX_BYTES,
           "evidence exceeds plan byte limit")
@@ -391,6 +399,10 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
               and type(network.get("requested_wait_ms")) is int
               and network["requested_wait_ms"] == nic[1], "NIC window differs from trusted plan")
         planned.add("network_health")
+    if mmc is not None:
+        from check_mmc_health_evidence import validate_snapshot
+        validate_snapshot(observation.get("mmc_health"), mmc)
+        planned.add("mmc_health")
     seen = set()
     for row in rows:
         check(type(row) is dict and row.keys() == {"feature", "status"}

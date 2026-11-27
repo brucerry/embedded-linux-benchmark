@@ -66,3 +66,23 @@ class BoardBringupTest(unittest.TestCase):
             bringup(network_sample_ms=100)
         with self.assertRaises(ValueError):
             bringup(nvme_controller="nvme0n1")
+
+
+    def test_mmc_capability_is_explicit_and_opt_in(self):
+        def make(**options):
+            return preview(self.cap, self.run_id, "/tmp/new-run/result.json", **options)
+
+        def state(result):
+            return next(r["status"] for r in result["steps"] if r["id"] == "selected_mmc")
+
+        self.assertEqual(state(make()), "not_requested")
+        self.assertEqual(state(make(mmc_card="mmc0:000a")), "unsupported")
+        self.assertNotIn("--mmc-card", make(mmc_card="mmc0:000a")["passive_plan"]["argv"])
+        self.cap["contracts"]["passive_mmc_health"] = {
+            "schema": 1, "flag": "--mmc-card", "scope": "cached_sysfs_only",
+        }
+        result = make(mmc_card="mmc0:000a")
+        self.assertEqual(state(result), "planned")
+        self.assertEqual(result["passive_plan"]["argv"][-2:], ["--mmc-card", "mmc0:000a"])
+        with self.assertRaisesRegex(ValueError, "invalid requested MMC"):
+            make(mmc_card="mmcblk0")

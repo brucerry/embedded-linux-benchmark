@@ -4,7 +4,7 @@ import argparse
 import json
 
 from check_hub_evidence import (
-    EDAC_CONTROLLER, NVME_CONTROLLER, check, parse, pcie_expectations, read_bounded, valid_nic_interface,
+    EDAC_CONTROLLER, MMC_CARD, NVME_CONTROLLER, check, parse, pcie_expectations, read_bounded, valid_nic_interface,
 )
 from plan_hub_passive import plan
 
@@ -16,7 +16,7 @@ def supports(contracts, key, flag, scope=None):
 
 
 def preview(capabilities, run_id, evidence_path, expected_pcie=None, edac_controller=None,
-            network_interface=None, network_sample_ms=None, nvme_controller=None):
+            network_interface=None, network_sample_ms=None, nvme_controller=None, mmc_card=None):
     # Validate requests even when a feature cannot be planned. Do not treat bad
     # values as a harmless skip or infer a hardware target from capabilities.
     if expected_pcie is not None:
@@ -31,6 +31,8 @@ def preview(capabilities, run_id, evidence_path, expected_pcie=None, edac_contro
     if nvme_controller is not None:
         check(type(nvme_controller) is str and NVME_CONTROLLER.fullmatch(nvme_controller),
               "invalid requested NVMe controller")
+    if mmc_card is not None:
+        check(type(mmc_card) is str and MMC_CARD.fullmatch(mmc_card), "invalid requested MMC card")
     check(type(capabilities) is dict, "unsupported capabilities")
     contracts = capabilities.get("contracts")
     check(type(contracts) is dict, "unsupported capabilities")
@@ -39,6 +41,7 @@ def preview(capabilities, run_id, evidence_path, expected_pcie=None, edac_contro
                                        "selected_snapshot") else None
     nvme = nvme_controller if supports(contracts, "passive_nvme_controller", "--nvme-controller",
                                        "selected_sysfs_attributes_only") else None
+    mmc = mmc_card if supports(contracts, "passive_mmc_health", "--mmc-card", "cached_sysfs_only") else None
     nic_row = contracts.get("passive_network_health")
     nic = (network_interface if nic_requested and type(nic_row) is dict
            and type(nic_row.get("schema")) is int and nic_row["schema"] == 1
@@ -46,13 +49,14 @@ def preview(capabilities, run_id, evidence_path, expected_pcie=None, edac_contro
            and type(nic_row.get("max_sample_wait_ms")) is int
            and network_sample_ms <= nic_row["max_sample_wait_ms"] <= 2000 else None)
     passive = plan(capabilities, run_id, evidence_path, ["system-health", "timeline"], pcie, edac,
-                   nic, network_sample_ms if nic is not None else None, nvme)
+                   nic, network_sample_ms if nic is not None else None, nvme, mmc)
     steps = [{"id": "inventory", "status": "planned"}]
     steps.extend({"id": row["feature"], "status": row["status"]} for row in passive["optional"])
     for ident, requested, selected in (("expected_pcie", expected_pcie, pcie),
                                        ("selected_edac", edac_controller, edac),
                                        ("selected_nic", network_interface, nic),
-                                       ("selected_nvme", nvme_controller, nvme)):
+                                       ("selected_nvme", nvme_controller, nvme),
+                                       ("selected_mmc", mmc_card, mmc)):
         steps.append({"id": ident, "status": "not_requested" if requested is None else
                       "planned" if selected is not None else "unsupported"})
     for ident in ("cpu_ram_load", "storage_write", "network_peer", "hardware_fixture"):
@@ -71,11 +75,12 @@ def main():
     cli.add_argument("--network-interface")
     cli.add_argument("--network-sample-ms", type=int)
     cli.add_argument("--nvme-controller")
+    cli.add_argument("--mmc-card")
     args = cli.parse_args()
     try:
         out = preview(parse(read_bounded(args.capabilities)), args.run_id, args.evidence_path,
                       args.require_pcie, args.edac_controller, args.network_interface,
-                      args.network_sample_ms, args.nvme_controller)
+                      args.network_sample_ms, args.nvme_controller, args.mmc_card)
     except (OSError, ValueError, RecursionError) as exc:
         cli.exit(1, f"Preview rejected: {exc}\n")
     print(json.dumps(out, sort_keys=True))

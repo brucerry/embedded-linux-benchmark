@@ -5,9 +5,8 @@ import hashlib
 import json
 import re
 
-from check_hub_evidence import check, parse, read_bounded
+from check_hub_evidence import MMC_CARD, check, parse, read_bounded
 
-CARD = re.compile(r"mmc(?:0|[1-9][0-9]{0,6}):[a-f0-9]{4}")
 HASH = re.compile(r"[a-f0-9]{64}")
 WITHHELD_FIELD = ("unavailable", "inaccessible", "invalid")
 RAW_FIELDS = ("pre_eol_info_raw", "life_time_raw")
@@ -35,7 +34,7 @@ def life(value):
 
 
 def validate_snapshot(result, expected_card):
-    check(type(expected_card) is str and CARD.fullmatch(expected_card), "invalid expected MMC card")
+    check(type(expected_card) is str and MMC_CARD.fullmatch(expected_card), "invalid expected MMC card")
     check(type(result) is dict, "invalid MMC report object")
     base = {"schema_version", "card", "status"}
     check(base <= result.keys() and type(result["schema_version"]) is int

@@ -6,12 +6,12 @@ import argparse
 import json
 
 from check_hub_evidence import (
-    EDAC_CONTROLLER, MAX_BYTES, NVME_CONTROLLER, OPTIONAL_PASSIVE, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded, valid_nic_interface,
+    EDAC_CONTROLLER, MAX_BYTES, MMC_CARD, NVME_CONTROLLER, OPTIONAL_PASSIVE, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded, valid_nic_interface,
 )
 
 
 def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_controller=None,
-         network_interface=None, network_sample_ms=None, nvme_controller=None):
+         network_interface=None, network_sample_ms=None, nvme_controller=None, mmc_card=None):
     check(type(run_id) is str and RUN_ID.fullmatch(run_id) and run_id != "0" * 32,
           "invalid run ID")
     check_evidence_path(output_path)
@@ -69,6 +69,14 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_co
               and advertised.get("scope") == "selected_sysfs_attributes_only",
               "Engine does not advertise passive NVMe controller selection")
         argv.extend(("--nvme-controller", nvme_controller))
+    if mmc_card is not None:
+        check(type(mmc_card) is str and MMC_CARD.fullmatch(mmc_card), "invalid requested MMC card")
+        advertised = contracts.get("passive_mmc_health")
+        check(type(advertised) is dict and type(advertised.get("schema")) is int
+              and advertised["schema"] == 1 and advertised.get("flag") == "--mmc-card"
+              and advertised.get("scope") == "cached_sysfs_only",
+              "Engine does not advertise selected cached MMC observations")
+        argv.extend(("--mmc-card", mmc_card))
     results = []
     for feature in options:
         name, flag, _field = OPTIONAL_PASSIVE[feature]
@@ -93,9 +101,10 @@ def main():
     args.add_argument("--network-interface", help="one explicitly selected NIC interface")
     args.add_argument("--network-sample-ms", type=int, help="passive NIC window in milliseconds")
     args.add_argument("--nvme-controller", help="one explicitly selected NVMe controller; no SMART or raw I/O")
+    args.add_argument("--mmc-card", help="one explicit MMC card; cached sysfs only")
     a = args.parse_args()
     try:
-        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller)
+        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller, a.mmc_card)
     except (OSError, ValueError, RecursionError) as exc:
         args.exit(1, f"invalid: {exc}\n")
     print(json.dumps(result, sort_keys=True))
