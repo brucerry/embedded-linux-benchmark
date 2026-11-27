@@ -62,3 +62,11 @@ An AER category-set change can be a previously omitted kernel category
 becoming nonzero; preserve both snapshots and the not-comparable reason.
 Never substitute zero or assign the new error to the endpoint from that
 interval alone.
+
+When `contracts.passive_pcie_expectation.schema` is 1, a caller can specify
+`--require-pcie BDF=VVVV:DDDD` instead of `--board-profile`. Read
+`inventory.required_pcie` for each expectation's result. A `mismatch`
+means the actual IDs differ from the supplied IDs; it is not proof of a
+hardware fault. For a demonstration, use a deliberately wrong expectation
+on a known present device without changing the device. The observation is
+reported with a successful command exit; Hub must inspect the row status.

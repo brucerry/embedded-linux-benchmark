@@ -122,9 +122,15 @@ pub(crate) fn render(
     ))
 }
 
+pub(crate) enum BoardScope<'a> {
+    None,
+    Profile(&'a std::path::Path),
+    RequiredPcie(&'a str),
+}
+
 /// Read inventory and selected passive snapshots. No workload argv.
 fn passive(
-    board_profile: Option<&std::path::Path>,
+    board: BoardScope<'_>,
     network_interface: Option<&str>,
     nvme_controller: Option<&str>,
     run_id: Option<&str>,
@@ -153,7 +159,12 @@ fn passive(
         .map(|(device, ms)| crate::pcie_health::render_snapshot(device, ms, Default::default()))
         .transpose()?
         .map_or_else(String::new, |value| format!(r#","pcie_health":{value}"#));
-    let inventory = crate::inventory::snapshot(None, board_profile, None)?;
+    let (required, profile, board_check) = match board {
+        BoardScope::None => (None, None, "not_configured"),
+        BoardScope::Profile(path) => (None, Some(path), "see_inventory"),
+        BoardScope::RequiredPcie(expected) => (Some(expected), None, "see_required_pcie"),
+    };
+    let inventory = crate::inventory::snapshot(required, profile, None)?;
     let health = if include_system_health {
         format!(
             r#","system_health":{{"schema_version":1,"numa":{},"pressure":{}}}"#,
@@ -162,11 +173,6 @@ fn passive(
         )
     } else {
         String::new()
-    };
-    let board_check = if board_profile.is_some() {
-        "see_inventory"
-    } else {
-        "not_configured"
     };
     Ok(format!(
         r#"{{"qualification_schema_version":1,"kind":"passive_qualification_observation","scope":"bring-up","workload_execution":"none","board_check":"{board_check}","inventory":{inventory}{network}{nvme}{health}{pcie}{run}}}"#
@@ -184,7 +190,7 @@ fn valid_run_id(value: &str) -> bool {
 pub(crate) const MAX_EVIDENCE_BYTES: usize = 1024 * 1024;
 
 pub(crate) fn run_passive(
-    board_profile: Option<&std::path::Path>,
+    board: BoardScope<'_>,
     network_interface: Option<&str>,
     nvme_controller: Option<&str>,
     evidence_path: Option<&std::path::Path>,
@@ -196,7 +202,7 @@ pub(crate) fn run_passive(
     use std::time::{Instant, SystemTime};
     let clock = evidence_path.map(|_| (SystemTime::now(), Instant::now()));
     let observation = passive(
-        board_profile,
+        board,
         network_interface,
         nvme_controller,
         run_id,

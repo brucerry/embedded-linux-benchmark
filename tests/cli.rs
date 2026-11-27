@@ -1591,3 +1591,58 @@ fn passive_pcie_health_advertises_limit_and_checks_selection_before_evidence() {
         assert!(!out.status.success() && out.stdout.is_empty() && !evidence.exists());
     }
 }
+
+#[test]
+fn passive_pcie_expectations_are_opt_in_and_preserve_missing_rows() {
+    let scratch = ScratchDirectory::create();
+    let path = scratch.0.join("evidence.json");
+    let evidence = path.to_str().unwrap();
+    let cap = successful_output(&["capabilities"]);
+    assert!(cap.contains(r#""passive_pcie_expectation":{"schema":1,"flag":"--require-pcie"}"#));
+    assert!(!successful_output(&["qualify", "passive"]).contains(r#""required_pcie":"#));
+    let conflict = run(&[
+        "qualify",
+        "passive",
+        "--require-pcie",
+        "ffff:ff:1f.7=ffff:ffff",
+        "--board-profile",
+        "not-needed",
+        "--evidence-json",
+        evidence,
+    ]);
+    assert!(!conflict.status.success() && conflict.stdout.is_empty() && !path.exists());
+    let invalid = run(&[
+        "qualify",
+        "passive",
+        "--require-pcie",
+        "bad",
+        "--evidence-json",
+        evidence,
+    ]);
+    assert!(!invalid.status.success() && invalid.stdout.is_empty() && !path.exists());
+    let bdf = ["ffff:ff:1f.7", "ffff:ff:1f.6", "ffff:ff:1f.5"]
+        .into_iter()
+        .find(|b| {
+            !std::path::Path::new("/sys/bus/pci/devices")
+                .join(b)
+                .exists()
+        })
+        .unwrap();
+    let expectation = format!("{bdf}=ffff:ffff");
+    let output = successful_output(&[
+        "qualify",
+        "passive",
+        "--require-pcie",
+        &expectation,
+        "--run-id",
+        "0123456789abcdeffedcba9876543210",
+        "--evidence-json",
+        evidence,
+    ]);
+    assert!(output.contains(r#""board_check":"see_required_pcie""#));
+    assert!(output.contains(&format!(r#""bdf":"{bdf}","status":"missing""#)));
+    assert!(std::fs::read_to_string(path)
+        .unwrap()
+        .trim_end()
+        .ends_with(&format!(r#","qualification":{}}}"#, output.trim_end())));
+}
