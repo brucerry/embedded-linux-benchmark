@@ -434,6 +434,40 @@ def verify_edac_health(value):
                   ("unavailable", "inaccessible", "invalid"), "invalid EDAC field status")
 
 
+def verify_planned_pcie_health(snapshot, device):
+    check(type(snapshot) is dict
+          and snapshot.keys() == {"schema_version", "device", "observations", "root_hierarchy_aer"}
+          and type(snapshot["schema_version"]) is int and snapshot["schema_version"] == 1
+          and snapshot["device"] == device, "PCIe health snapshot differs from trusted plan")
+    from compare_pcie_snapshots import DEVICE_KEYS, ROOT_KEYS, binding, integer, messages, observation
+    rows, roots = snapshot["observations"], snapshot["root_hierarchy_aer"]
+    check(type(rows) is list and 1 <= len(rows) <= 32 and type(roots) is list
+          and len(roots) <= len(rows), "invalid PCIe health observer count")
+    known = set()
+    for i, row in enumerate(rows):
+        check(type(row) is dict and row.keys() == {"bdf", "role", "driver_binding", "link", "device_aer"}
+              and type(row["bdf"]) is str and PCI_BDF.fullmatch(row["bdf"])
+              and row["bdf"] not in known and row["role"] == ("target" if i == 0 else "upstream")
+              and (i != 0 or row["bdf"] == device) and type(row["link"]) is dict,
+              "invalid PCIe health observer")
+        known.add(row["bdf"])
+        binding(row["driver_binding"])
+        counters = row["device_aer"]
+        check(type(counters) is dict and counters.keys() == set(DEVICE_KEYS), "invalid PCIe device AER")
+        for counter in counters.values():
+            observation(counter, messages)
+    seen_roots = set()
+    for row in roots:
+        check(type(row) is dict and row.keys() == {"bdf", "counters"}
+              and type(row["bdf"]) is str and row["bdf"] in known and row["bdf"] not in seen_roots,
+              "unknown or duplicate root observer")
+        seen_roots.add(row["bdf"])
+        counters = row["counters"]
+        check(type(counters) is dict and counters.keys() == set(ROOT_KEYS), "invalid PCIe root AER")
+        for counter in counters.values():
+            observation(counter, integer)
+
+
 def verify_plan(plan, observation, run_id, evidence_bytes):
     check(type(plan) is dict and plan.keys() == {
         "plan_schema_version", "argv", "execution", "max_evidence_bytes", "optional"
@@ -488,6 +522,13 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
               and int(argv[pos+1]) <= 2000, "invalid planned thermal window")
         thermal = int(argv[pos+1])
         expected.extend(argv[pos:pos+2])
+    pcie_health = None
+    pos = len(expected)
+    if argv[pos:pos+1] == ["--pcie-health-device"]:
+        check(len(argv) > pos + 1 and type(argv[pos+1]) is str
+              and PCI_BDF.fullmatch(argv[pos+1]), "invalid planned PCIe health device")
+        pcie_health = argv[pos+1]
+        expected.extend(argv[pos:pos+2])
     cap = plan["max_evidence_bytes"]
     check(type(cap) is int and 0 < evidence_bytes <= cap <= MAX_BYTES,
           "evidence exceeds plan byte limit")
@@ -513,6 +554,9 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
         from check_mmc_health_evidence import validate_snapshot
         validate_snapshot(observation.get("mmc_health"), mmc)
         planned.add("mmc_health")
+    if pcie_health is not None:
+        verify_planned_pcie_health(observation.get("pcie_health"), pcie_health)
+        planned.add("pcie_health")
     seen = set()
     for row in rows:
         check(type(row) is dict and row.keys() == {"feature", "status"}

@@ -54,6 +54,11 @@ windows across a boot/device change. A missing requested BDF is a command
 error; use the board profile checks if the expectation is that a device
 must exist. This does not measure PCIe throughput.
 
+For trusted plan verification, the planner can select one explicit
+`--pcie-health-device BDF` and one snapshot only. The verifier binds the
+target and checks the bounded observer and AER scopes. It does not judge
+link performance or support planning a two-snapshot PCIe window yet.
+
 Pass `--plan` to the verifier with the trusted plan previously generated
 by `scripts/plan_hub_passive.py` for this run. The verifier checks run ID,
 evidence size, and the exact planned set of optional observations; a skipped

@@ -80,6 +80,17 @@ class PassivePlan(unittest.TestCase):
                 plan(c, TOKEN, PATH, [], thermal_sample_ms=invalid)
         self.assertNotIn("--thermal-sample-ms", plan(c, TOKEN, PATH, [])["argv"])
 
+    def test_pcie_health_plans_one_explicit_snapshot(self):
+        c = self.capabilities()
+        with self.assertRaisesRegex(ValueError, "does not advertise"):
+            plan(c, TOKEN, PATH, [], pcie_health_device="0000:01:00.0")
+        c["contracts"]["passive_pcie_health"] = {"schema": 1, "max_sample_wait_ms": 2000}
+        result = plan(c, TOKEN, PATH, [], pcie_health_device="0000:01:00.0")
+        self.assertEqual(result["argv"][-2:], ["--pcie-health-device", "0000:01:00.0"])
+        self.assertNotIn("--pcie-health-sample-ms", result["argv"])
+        with self.assertRaisesRegex(ValueError, "invalid requested PCIe"):
+            plan(c, TOKEN, PATH, [], pcie_health_device="../0000:01:00.0")
+
     def test_nvme_requires_named_controller_and_sysfs_only_advertisement(self):
         c = self.capabilities()
         with self.assertRaisesRegex(ValueError, "does not advertise"):

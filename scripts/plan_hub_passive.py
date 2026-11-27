@@ -6,7 +6,7 @@ import argparse
 import json
 
 from check_hub_evidence import (
-    EDAC_CONTROLLER, MAX_BYTES, MMC_CARD, NVME_CONTROLLER, OPTIONAL_PASSIVE, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded, valid_nic_interface,
+    EDAC_CONTROLLER, MAX_BYTES, MMC_CARD, NVME_CONTROLLER, OPTIONAL_PASSIVE, PCI_BDF, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded, valid_nic_interface,
 )
 
 
@@ -23,7 +23,7 @@ def supports_thermal_wait(contracts, wait):
 
 
 def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_controller=None,
-         network_interface=None, network_sample_ms=None, nvme_controller=None, mmc_card=None, thermal_sample_ms=None):
+         network_interface=None, network_sample_ms=None, nvme_controller=None, mmc_card=None, thermal_sample_ms=None, pcie_health_device=None):
     check(type(run_id) is str and RUN_ID.fullmatch(run_id) and run_id != "0" * 32,
           "invalid run ID")
     check_evidence_path(output_path)
@@ -94,6 +94,16 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_co
         check(supports_thermal_wait(contracts, thermal_sample_ms),
               "Engine does not advertise the requested thermal window")
         argv.extend(("--thermal-sample-ms", str(thermal_sample_ms)))
+    if pcie_health_device is not None:
+        check(type(pcie_health_device) is str and PCI_BDF.fullmatch(pcie_health_device),
+              "invalid requested PCIe health device")
+        contract = contracts.get("passive_pcie_health")
+        check(type(contract) is dict and type(contract.get("schema")) is int
+              and contract["schema"] == 1
+              and type(contract.get("max_sample_wait_ms")) is int
+              and 1 <= contract["max_sample_wait_ms"] <= 2000,
+              "Engine does not advertise passive PCIe health schema 1")
+        argv.extend(("--pcie-health-device", pcie_health_device))
     results = []
     for feature in options:
         name, flag, _field = OPTIONAL_PASSIVE[feature]
@@ -120,9 +130,10 @@ def main():
     args.add_argument("--nvme-controller", help="one explicitly selected NVMe controller; no SMART or raw I/O")
     args.add_argument("--mmc-card", help="one explicit MMC card; cached sysfs only")
     args.add_argument("--thermal-sample-ms", type=int, help="optional thermal window, 1–2000 ms")
+    args.add_argument("--pcie-health-device", help="one explicit PCIe BDF; single snapshot")
     a = args.parse_args()
     try:
-        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller, a.mmc_card, a.thermal_sample_ms)
+        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller, a.mmc_card, a.thermal_sample_ms, a.pcie_health_device)
     except (OSError, ValueError, RecursionError) as exc:
         args.exit(1, f"invalid: {exc}\n")
     print(json.dumps(result, sort_keys=True))

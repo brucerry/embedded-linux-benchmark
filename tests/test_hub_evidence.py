@@ -42,6 +42,24 @@ def fixture():
 
 
 class Evidence(unittest.TestCase):
+    def test_planned_pcie_health_binds_target_and_preserves_observer_scope(self):
+        from test_pcie_snapshot_comparison import TARGET, PARENT, fixture as snapshot
+        from plan_hub_passive import plan
+        from test_hub_passive_plan import PassivePlan
+        cap = PassivePlan().capabilities()
+        cap["contracts"]["passive_pcie_health"] = {"schema": 1, "max_sample_wait_ms": 2000}
+        q = fixture()
+        q["pcie_health"] = snapshot(1, 0)["snapshot"]
+        selected = plan(cap, TOKEN, "/tmp/owned/evidence.json", [], pcie_health_device=TARGET)
+        self.assertEqual(m.verify(pack(q), json.dumps(q).encode(), TOKEN, selected)["status"],
+                         "correlated")
+        wrong = plan(cap, TOKEN, "/tmp/owned/evidence.json", [], pcie_health_device=PARENT)
+        with self.assertRaisesRegex(ValueError, "differs from trusted plan"):
+            m.verify(pack(q), json.dumps(q).encode(), TOKEN, wrong)
+        q["pcie_health"]["observations"][1]["role"] = "target"
+        with self.assertRaisesRegex(ValueError, "invalid PCIe health observer"):
+            m.verify(pack(q), json.dumps(q).encode(), TOKEN, selected)
+
     def test_cpu_frequency_does_not_replace_hardware_value_with_scaling_estimate(self):
         q = fixture()
         row = {"policy": "policy0", "scaling_reported_khz": {"status": "observed", "value": "1200000"},
