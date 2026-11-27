@@ -117,9 +117,29 @@ counter resets do not mean zero change. This option does not generate traffic
 or measure throughput.
 
 For this read window, the offline verifier requires the same named interface
-in both snapshots, a measured interval within the enclosing run, and delta
-availability consistent with the reported continuity. It does not validate
-every counter's arithmetic or establish that the claimed link identity is real.
+in both snapshots and a measured interval within the enclosing run. When the
+reported continuity permits comparison, it recomputes each comparable
+unsigned 64-bit counter difference, including exact values above the
+JavaScript safe-integer limit. Missing counters remain unavailable, and a
+decrease produces a possible-reset result instead of a negative delta.
+The verifier checks consistency, not the authenticity of the link identity.
+
+A saved single snapshot from the released Engine is valid input too. It does
+not imply a measured interval or delta. Its counter fields are checked as
+canonical decimal strings and unavailable observations must not contain an
+invented value. If `--plan` calls for a two-sample window, a single snapshot
+does not satisfy it.
+
+To inspect already collected evidence offline:
+
+```sh
+python3 scripts/check_hub_evidence.py --evidence saved.json --stdout stdout.json --run-id HEX32
+```
+
+Replace `HEX32` with the trusted run ID, not a value inferred from the files.
+`stdout.json` must be the independently saved stdout from that same run.
+The checker does not run diagnostics, and a correlated result does not
+authenticate the device or attest its health.
 
 To include two passive Linux thermal observations in run-bound evidence,
 select `--thermal-sample-ms MS` (1–2000 ms). The inventory's `thermal_window`
