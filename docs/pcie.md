@@ -88,7 +88,10 @@ changed or swapped inputs. With no expected digests, the input selection is
 
 Run the examples inside a private directory; do not post the raw snapshots.
 Only the opt-in format includes the kernel boot ID and sysfs device/inode
-numbers. The comparison omits them and does not access hardware. It exits 0
+numbers. The comparison omits them and does not access hardware. The
+negotiated and maximum link fields must match the snapshot schema, but this
+command calculates AER counter differences, not link or throughput trends.
+It exits 0
 when records can be compared (individual fields may still be unavailable),
 2 for incompatible continuity evidence, and 1 for invalid input. It rejects
 different boots, overlapping or reversed capture windows, changed observers,

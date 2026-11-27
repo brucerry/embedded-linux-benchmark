@@ -5,7 +5,7 @@ import hashlib
 import json
 import re
 
-from check_hub_evidence import PCI_BDF, check, parse, read_bounded
+from check_hub_evidence import PCI_BDF, check, parse, read_bounded, verify_pcie_link
 
 UUID = re.compile(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}")
 U64 = re.compile(r"(?:0|[1-9][0-9]{0,19})")
@@ -97,6 +97,7 @@ def read_snapshot(raw):
               "invalid observer ordering")
         check(idx != 0 or target == name, "target does not match first observer")
         sequence.append((name, integer(marker["sysfs_dev"]), integer(marker["sysfs_inode"])))
+        verify_pcie_link(row["link"])
         aer = row["device_aer"]
         keys(aer, DEVICE_KEYS)
         rows[name] = (binding(row["driver_binding"]),

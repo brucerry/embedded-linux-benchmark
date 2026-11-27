@@ -76,6 +76,22 @@ class PcieSnapshotTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "after snapshot differs"):
             compare(a, b + b" ", first, second)
 
+    def test_snapshot_comparison_refuses_malformed_link_fields(self):
+        for side in ("before", "after"):
+            for field_value in (None, {"status": "observed", "value": 16}):
+                with self.subTest(side=side, field_value=field_value):
+                    a, b = copy.deepcopy(self.before), copy.deepcopy(self.after)
+                    link = (a if side == "before" else b)["snapshot"]["observations"][1]["link"]
+                    if field_value is None:
+                        del link["max_link_width"]
+                    else:
+                        link["max_link_width"] = field_value
+                    with self.assertRaisesRegex(ValueError, "invalid PCIe link"):
+                        compare(encode(a), encode(b))
+        self.after["snapshot"]["observations"][1]["link"]["max_link_width"] = {"status": "invalid"}
+        self.assertEqual(self.current()["by_observer"], compare(
+            encode(self.before), encode(fixture(5, 2**63 + 4)))["by_observer"])
+
     def test_changed_continuity_and_out_of_order(self):
         baseline = copy.deepcopy(self.after)
         variants = (
