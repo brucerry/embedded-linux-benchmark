@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compare two private, opt-in Engine PCIe snapshots without accessing hardware."""
 import argparse
+import hashlib
 import json
 import re
 
@@ -140,11 +141,21 @@ def delta(before, after, is_message):
     return {"status": "observed", "value": value}
 
 
-def compare(before, after):
+def compare(before, after, before_sha256=None, after_sha256=None):
+    observed = {label: hashlib.sha256(data).hexdigest()
+                for label, data in (("before", before), ("after", after))}
+    expected = {"before": before_sha256, "after": after_sha256}
+    pinned = any(value is not None for value in expected.values())
+    if pinned:
+        for label, digest in expected.items():
+            check(type(digest) is str and re.fullmatch(r"[a-f0-9]{64}", digest),
+                  "provide both lowercase capture digests")
+            check(digest == observed[label], f"{label} snapshot differs from expected SHA-256")
     boot0, _, end, order0, rows0, roots0 = read_snapshot(before)
     boot1, start, _, order1, rows1, roots1 = read_snapshot(after)
     out = {"schema_version": 1, "kind": "pcie_saved_snapshot_comparison",
-           "hardware_authenticity": "not_verified"}
+           "hardware_authenticity": "not_verified",
+           "input_digests": {"sha256": observed, "selection": "matched" if pinned else "unbound"}}
     if boot0 != boot1:
         return {**out, **refuse("boot_changed")}
     if end >= start:
@@ -189,9 +200,12 @@ def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("before")
     cli.add_argument("after")
+    cli.add_argument("--before-sha256")
+    cli.add_argument("--after-sha256")
     args = cli.parse_args()
     try:
-        result = compare(read_bounded(args.before), read_bounded(args.after))
+        result = compare(read_bounded(args.before), read_bounded(args.after),
+                         args.before_sha256, args.after_sha256)
     except (OSError, ValueError, RecursionError) as exc:
         cli.exit(1, f"Snapshot rejected: {exc}\n")
     print(json.dumps(result, sort_keys=True))

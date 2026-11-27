@@ -80,6 +80,12 @@ eld-engine pcie health --device 0000:01:00.0 --save-snapshot > after.json
 python3 scripts/compare_pcie_snapshots.py before.json after.json
 ```
 
+The comparison reports the SHA-256 of each supplied file. When a controller
+already has trusted capture digests, pass both
+`--before-sha256 BEFORE_SHA256 --after-sha256 AFTER_SHA256` to reject
+changed or swapped inputs. With no expected digests, the input selection is
+`unbound`. Matching the selected bytes does not authenticate the hardware.
+
 Run the examples inside a private directory; do not post the raw snapshots.
 Only the opt-in format includes the kernel boot ID and sysfs device/inode
 numbers. The comparison omits them and does not access hardware. It exits 0

@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -54,6 +55,22 @@ class PcieSnapshotTest(unittest.TestCase):
         self.assertEqual(rows[0]["root_hierarchy_aer"][ROOT_KEYS[0]], {"status": "unavailable"})
         self.assertEqual(rows[1]["root_hierarchy_aer"][ROOT_KEYS[0]]["value"], "3")
         self.assertNotIn("boot_id", result)
+
+    def test_binds_the_two_files_to_optional_ordered_expected_digests(self):
+        a, b = encode(self.before), encode(self.after)
+        first, second = (hashlib.sha256(raw).hexdigest() for raw in (a, b))
+        self.assertEqual(compare(a, b)["input_digests"]["selection"], "unbound")
+        out = compare(a, b, first, second)
+        self.assertEqual(out["input_digests"], {
+            "selection": "matched", "sha256": {"before": first, "after": second}
+        })
+        self.assertEqual(out["hardware_authenticity"], "not_verified")
+        with self.assertRaisesRegex(ValueError, "before snapshot differs"):
+            compare(b, a, first, second)
+        with self.assertRaisesRegex(ValueError, "provide both"):
+            compare(a, b, first, None)
+        with self.assertRaisesRegex(ValueError, "after snapshot differs"):
+            compare(a, b + b" ", first, second)
 
     def test_changed_continuity_and_out_of_order(self):
         baseline = copy.deepcopy(self.after)
@@ -116,10 +133,17 @@ class PcieSnapshotTest(unittest.TestCase):
             a, b = Path(root) / "a.json", Path(root) / "b.json"
             a.write_bytes(encode(self.before))
             b.write_bytes(encode(self.after))
-            run = lambda: subprocess.run(
-                [sys.executable, "-B", str(SCRIPTS / "compare_pcie_snapshots.py"), str(a), str(b)],
+            run = lambda *args: subprocess.run(
+                [sys.executable, "-B", str(SCRIPTS / "compare_pcie_snapshots.py"), str(a), str(b), *args],
                 capture_output=True, timeout=5)
             self.assertEqual(run().returncode, 0)
+            first, second = (hashlib.sha256(p.read_bytes()).hexdigest() for p in (a, b))
+            result = run("--before-sha256", first, "--after-sha256", second)
+            self.assertEqual(result.returncode, 0)
+            self.assertEqual(json.loads(result.stdout)["input_digests"]["selection"], "matched")
+            refused = run("--before-sha256", second, "--after-sha256", first)
+            self.assertEqual(refused.returncode, 1)
+            self.assertEqual(refused.stdout, b"")
             b.write_bytes(encode(self.before))
             self.assertEqual(run().returncode, 2)
             b.write_bytes(b'{"schema_version":1,"schema_version":1}')
