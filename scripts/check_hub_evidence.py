@@ -443,32 +443,67 @@ def verify_planned_pcie_health(snapshot, device):
     rows, roots = snapshot["observations"], snapshot["root_hierarchy_aer"]
     check(type(rows) is list and 1 <= len(rows) <= 32 and type(roots) is list
           and len(roots) <= len(rows), "invalid PCIe health observer count")
-    known = set()
+    known = {}
     for i, row in enumerate(rows):
         check(type(row) is dict and row.keys() == {"bdf", "role", "driver_binding", "link", "device_aer"}
               and type(row["bdf"]) is str and PCI_BDF.fullmatch(row["bdf"])
               and row["bdf"] not in known and row["role"] == ("target" if i == 0 else "upstream")
               and (i != 0 or row["bdf"] == device) and type(row["link"]) is dict,
               "invalid PCIe health observer")
-        known.add(row["bdf"])
-        binding(row["driver_binding"])
         counters = row["device_aer"]
         check(type(counters) is dict and counters.keys() == set(DEVICE_KEYS), "invalid PCIe device AER")
-        for counter in counters.values():
-            observation(counter, messages)
-    seen_roots = set()
+        known[row["bdf"]] = (binding(row["driver_binding"]),
+                             {k: observation(v, messages) for k, v in counters.items()})
+    seen_roots = {}
     for row in roots:
         check(type(row) is dict and row.keys() == {"bdf", "counters"}
               and type(row["bdf"]) is str and row["bdf"] in known and row["bdf"] not in seen_roots,
               "unknown or duplicate root observer")
-        seen_roots.add(row["bdf"])
         counters = row["counters"]
         check(type(counters) is dict and counters.keys() == set(ROOT_KEYS), "invalid PCIe root AER")
-        for counter in counters.values():
-            observation(counter, integer)
+        seen_roots[row["bdf"]] = {k: observation(v, integer) for k, v in counters.items()}
+    return known, seen_roots
 
 
-def verify_plan(plan, observation, run_id, evidence_bytes):
+def verify_planned_pcie_window(window, device, wait, elapsed):
+    check(type(window) is dict and window.keys() == {
+        "schema_version", "device", "requested_wait_ms", "sample_start_interval_ms",
+        "before", "after", "delta",
+    } and type(window["schema_version"]) is int and window["schema_version"] == 1
+        and window["device"] == device and type(window["requested_wait_ms"]) is int
+        and window["requested_wait_ms"] == wait, "PCIe health window differs from trusted plan")
+    interval = window["sample_start_interval_ms"]
+    check(type(interval) is int and wait <= interval <= elapsed, "invalid PCIe health window timing")
+    a, roots_a = verify_planned_pcie_health(window["before"], device)
+    b, roots_b = verify_planned_pcie_health(window["after"], device)
+    reported = window["delta"]
+    check(type(reported) is dict, "invalid PCIe delta")
+    if reported.get("status") == "not_comparable":
+        check(reported.keys() == {"status", "reason"} and reported["reason"] in (
+            "boot_changed", "boot_identity_unavailable", "device_identity_changed",
+            "driver_binding_changed", "driver_binding_indeterminate"
+        ), "invalid withheld PCIe delta")
+        return
+    check(list(a) == list(b), "PCIe delta lacks consistent observer sequence")
+    from compare_pcie_snapshots import DEVICE_KEYS, ROOT_KEYS, delta
+    withheld = ("unavailable", None)
+    rows = []
+    for name, (bind_a, dev_a) in a.items():
+        bind_b, dev_b = b[name]
+        check(bind_a == bind_b and (bind_a[0] == "unbound" or
+              (bind_a[0] == "bound" and bind_a[2][0] in ("observed", "unavailable"))),
+              "PCIe delta lacks consistent driver binding")
+        root_a, root_b = roots_a.get(name, {}), roots_b.get(name, {})
+        rows.append({"bdf": name, "device_aer": {
+            k: delta(dev_a[k], dev_b[k], True) for k in DEVICE_KEYS
+        }, "root_hierarchy_aer": {
+            k: delta(root_a.get(k, withheld), root_b.get(k, withheld), False) for k in ROOT_KEYS
+        }})
+    check(equal(reported, {"status": "compared", "by_observer": rows}),
+          "reported PCIe delta disagrees with the snapshots")
+
+
+def verify_plan(plan, observation, run_id, evidence_bytes, elapsed):
     check(type(plan) is dict and plan.keys() == {
         "plan_schema_version", "argv", "execution", "max_evidence_bytes", "optional"
     } and type(plan["plan_schema_version"]) is int and plan["plan_schema_version"] == 1
@@ -523,11 +558,19 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
         thermal = int(argv[pos+1])
         expected.extend(argv[pos:pos+2])
     pcie_health = None
+    pcie_wait = None
     pos = len(expected)
     if argv[pos:pos+1] == ["--pcie-health-device"]:
         check(len(argv) > pos + 1 and type(argv[pos+1]) is str
               and PCI_BDF.fullmatch(argv[pos+1]), "invalid planned PCIe health device")
         pcie_health = argv[pos+1]
+        expected.extend(argv[pos:pos+2])
+    pos = len(expected)
+    if argv[pos:pos+1] == ["--pcie-health-sample-ms"]:
+        check(pcie_health is not None and len(argv) > pos + 1 and type(argv[pos+1]) is str
+              and re.fullmatch(r"[1-9][0-9]{0,3}", argv[pos+1])
+              and int(argv[pos+1]) <= 2000, "invalid planned PCIe health wait")
+        pcie_wait = int(argv[pos+1])
         expected.extend(argv[pos:pos+2])
     cap = plan["max_evidence_bytes"]
     check(type(cap) is int and 0 < evidence_bytes <= cap <= MAX_BYTES,
@@ -555,7 +598,10 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
         validate_snapshot(observation.get("mmc_health"), mmc)
         planned.add("mmc_health")
     if pcie_health is not None:
-        verify_planned_pcie_health(observation.get("pcie_health"), pcie_health)
+        if pcie_wait is None:
+            verify_planned_pcie_health(observation.get("pcie_health"), pcie_health)
+        else:
+            verify_planned_pcie_window(observation.get("pcie_health"), pcie_health, pcie_wait, elapsed)
         planned.add("pcie_health")
     seen = set()
     for row in rows:
@@ -655,7 +701,7 @@ def verify(evidence, stdout, run_id, plan=None):
     if "observation_timeline" in q:
         verify_timeline(q, saved["elapsed_monotonic_ms"])
     if plan is not None:
-        verify_plan(plan, q, run_id, len(evidence))
+        verify_plan(plan, q, run_id, len(evidence), saved["elapsed_monotonic_ms"])
     return {"status": "correlated", "run_id": run_id,
             "evidence_bytes": len(evidence), "sha256": hashlib.sha256(evidence).hexdigest(),
             "hardware_authenticity": "not_verified"}

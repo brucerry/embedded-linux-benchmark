@@ -30,7 +30,8 @@ def supports_pcie_health(contracts):
 
 
 def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_controller=None,
-         network_interface=None, network_sample_ms=None, nvme_controller=None, mmc_card=None, thermal_sample_ms=None, pcie_health_device=None):
+         network_interface=None, network_sample_ms=None, nvme_controller=None, mmc_card=None, thermal_sample_ms=None, pcie_health_device=None,
+         pcie_health_sample_ms=None):
     check(type(run_id) is str and RUN_ID.fullmatch(run_id) and run_id != "0" * 32,
           "invalid run ID")
     check_evidence_path(output_path)
@@ -101,12 +102,19 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_co
         check(supports_thermal_wait(contracts, thermal_sample_ms),
               "Engine does not advertise the requested thermal window")
         argv.extend(("--thermal-sample-ms", str(thermal_sample_ms)))
+    if pcie_health_sample_ms is not None:
+        check(pcie_health_device is not None and type(pcie_health_sample_ms) is int
+              and 1 <= pcie_health_sample_ms <= 2000, "provide a PCIe device and a bounded wait")
     if pcie_health_device is not None:
         check(type(pcie_health_device) is str and PCI_BDF.fullmatch(pcie_health_device),
               "invalid requested PCIe health device")
         check(supports_pcie_health(contracts),
               "Engine does not advertise passive PCIe health schema 1")
         argv.extend(("--pcie-health-device", pcie_health_device))
+        if pcie_health_sample_ms is not None:
+            check(pcie_health_sample_ms <= contracts["passive_pcie_health"]["max_sample_wait_ms"],
+                  "Engine does not advertise the requested PCIe health wait")
+            argv.extend(("--pcie-health-sample-ms", str(pcie_health_sample_ms)))
     results = []
     for feature in options:
         name, flag, _field = OPTIONAL_PASSIVE[feature]
@@ -133,10 +141,11 @@ def main():
     args.add_argument("--nvme-controller", help="one explicitly selected NVMe controller; no SMART or raw I/O")
     args.add_argument("--mmc-card", help="one explicit MMC card; cached sysfs only")
     args.add_argument("--thermal-sample-ms", type=int, help="optional thermal window, 1–2000 ms")
-    args.add_argument("--pcie-health-device", help="one explicit PCIe BDF; single snapshot")
+    args.add_argument("--pcie-health-device", help="one explicit PCIe BDF; single snapshot by default")
+    args.add_argument("--pcie-health-sample-ms", type=int, help="optional PCIe window, 1–2000 ms")
     a = args.parse_args()
     try:
-        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller, a.mmc_card, a.thermal_sample_ms, a.pcie_health_device)
+        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller, a.mmc_card, a.thermal_sample_ms, a.pcie_health_device, a.pcie_health_sample_ms)
     except (OSError, ValueError, RecursionError) as exc:
         args.exit(1, f"invalid: {exc}\n")
     print(json.dumps(result, sort_keys=True))

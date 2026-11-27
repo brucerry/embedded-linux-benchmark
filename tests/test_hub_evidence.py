@@ -42,6 +42,39 @@ def fixture():
 
 
 class Evidence(unittest.TestCase):
+    def test_planned_pcie_window_recomputes_delta_and_binds_duration(self):
+        from compare_pcie_snapshots import compare
+        from test_pcie_snapshot_comparison import TARGET, fixture as capture, encode
+        from plan_hub_passive import plan
+        from test_hub_passive_plan import PassivePlan
+        cap = PassivePlan().capabilities()
+        cap["contracts"]["passive_pcie_health"] = {"schema": 1, "max_sample_wait_ms": 2000}
+        a, b = capture(1, 2**63), capture(5, 2**63 + 3)
+        rows = compare(encode(a), encode(b))["by_observer"]
+        q = fixture()
+        q["pcie_health"] = {"schema_version": 1, "device": TARGET, "requested_wait_ms": 5,
+                            "sample_start_interval_ms": 6, "before": a["snapshot"],
+                            "after": b["snapshot"], "delta": {"status": "compared", "by_observer": rows}}
+        args = (cap, TOKEN, "/tmp/owned/snapshot.json", [])
+        selected = plan(*args, pcie_health_device=TARGET, pcie_health_sample_ms=5)
+
+        def validate(expected=selected):
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN, expected)
+
+        self.assertEqual(validate()["hardware_authenticity"], "not_verified")
+        with self.assertRaisesRegex(ValueError, "window differs from trusted plan"):
+            validate(plan(*args, pcie_health_device=TARGET, pcie_health_sample_ms=6))
+        q["pcie_health"]["sample_start_interval_ms"] = 11
+        with self.assertRaisesRegex(ValueError, "invalid PCIe health window timing"):
+            validate()
+        q["pcie_health"]["sample_start_interval_ms"] = 6
+        rows[0]["device_aer"]["aer_dev_correctable"]["value"]["total_messages"] = "0"
+        with self.assertRaisesRegex(ValueError, "delta disagrees"):
+            validate()
+        q["pcie_health"]["delta"] = {"status": "not_comparable",
+                                      "reason": "boot_identity_unavailable"}
+        self.assertEqual(validate()["status"], "correlated")
+
     def test_planned_pcie_health_binds_target_and_preserves_observer_scope(self):
         from test_pcie_snapshot_comparison import TARGET, PARENT, fixture as snapshot
         from plan_hub_passive import plan
