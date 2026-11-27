@@ -1774,3 +1774,23 @@ fn passive_timeline_is_opt_in_and_records_only_executed_phases() {
     assert!(successful_output(&["capabilities"])
         .contains(r#""passive_observation_timeline":{"schema":1"#));
 }
+
+#[test]
+fn nvidia_health_decode_is_literal_and_requires_matching_device() {
+    let args = [
+        "accelerator",
+        "nvidia-health-decode",
+        "--device",
+        "0000:65:00.0",
+        "--capture-text",
+        "eld_nvml_v1,00000000:65:00.0,45,40000,0,unsupported",
+    ];
+    let output = successful_output(&args);
+    assert!(output.contains(r#""capture_identity":"unverified","live_query":"not_performed""#));
+    assert!(output.contains(r#""power_milliwatts":{"status":"observed","value":"40000"}"#));
+    let mut invalid = args;
+    invalid[3] = "0000:66:00.0";
+    let rejected = run(&invalid);
+    assert!(!rejected.status.success() && rejected.stdout.is_empty());
+    assert!(successful_output(&["capabilities"]).contains(r#""offline_nvidia_health":{"schema":1"#));
+}

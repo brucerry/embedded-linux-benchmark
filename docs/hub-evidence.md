@@ -138,3 +138,19 @@ it never executes a command. A preview does not authenticate the captured
 report or establish that the nominated report directory is fresh and private.
 The controller must verify those independently and confirm device/run/exit
 identity before accepting evidence.
+
+## Fixture-backed NVIDIA capture format
+
+`accelerator nvidia-health-decode --device BDF --capture-text TEXT` is an
+offline decoder, not a GPU probe. Its adapter record is one bounded ASCII
+line: `eld_nvml_v1,BDF,TEMP_C,POWER_MW,CORRECTED_VOLATILE_TOTAL,UNCORRECTED_VOLATILE_TOTAL`.
+Each metric is an unsigned decimal or one of `unsupported`, `unavailable`
+and `inaccessible`. Example synthetic record (not a GPU observation):
+`eld_nvml_v1,00000000:65:00.0,45,40000,0,unsupported`.
+Use the separately selected Linux PCI address `0000:65:00.0` for this example.
+The decoder preserves counter precision and refuses mismatched addresses, but
+cannot authenticate the device, collector or time. It does not accept a path,
+run a vendor tool, attach to a workload, or read live NVML. The power value's
+sampling behavior depends on the collecting hardware and vendor API.
+
+[NVIDIA NVML device queries](https://docs.nvidia.com/deploy/nvml-api/latest/api/group__nvmlDeviceQueries.html)

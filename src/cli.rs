@@ -319,6 +319,7 @@ fn help() {
   eld-engine accelerator inventory|interfaces
   eld-engine accelerator amdgpu-hwmon --device BDF
   eld-engine accelerator amdgpu-ras-decode --capture-text TEXT
+  eld-engine accelerator nvidia-health-decode --device BDF --capture-text TEXT
   eld-engine power ina3221 --node BUS-ADDRESS
   eld-engine inventory [--require-pcie BDF[=VVVV:DDDD][,...] | --board-profile PATH] [--thermal-sample-ms MS] [--evidence-json NEW_PATH]
   eld-engine qualify passive [--board-profile PATH | --require-pcie BDF[=VVVV:DDDD][,...]] [--network-interface NAME [--network-health-sample-ms 1..2000]] [--nvme-controller NAME] [--thermal-sample-ms 1..2000] [--include-timeline]
@@ -469,6 +470,7 @@ fn capabilities() -> String {
             r#""storage_nvme_smart_decode":{{"schema":1,"input":"offline_page","input_bytes":{}}},"#,
             r#""storage_mmc_health":{{"schema":1,"input":"named_mmc_card"}},"#,
             r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}},"#,
+            r#""offline_nvidia_health":{{"schema":1,"input":"normalized_nvml_v1_literal","max_bytes":{}}},"#,
             r#""offline_amdgpu_ras":{{"schema":1,"input":"literal_capture_text","max_bytes":{}}},"#,
             r#""passive_pcie_health":{{"schema":1,"max_sample_wait_ms":2000}},"#,
             r#""passive_observation_timeline":{{"schema":1,"flag":"--include-timeline","execution":"sequential"}},"#,
@@ -482,6 +484,7 @@ fn capabilities() -> String {
         json_string(std::env::consts::OS),
         crate::qualification::MAX_EVIDENCE_BYTES,
         crate::nvme_health::SMART_PAGE_BYTES,
+        crate::nvidia_capture::MAX_CAPTURE_BYTES,
         crate::ras_capture::LIMIT,
         crate::pressure::MAX_SAMPLES,
         crate::pressure::MAX_INTERVAL_MS,
@@ -541,6 +544,13 @@ pub(crate) fn run() -> Result<(), String> {
             match args {
                 [mode] if mode == "inventory" => crate::accelerator::run(),
                 [mode] if mode == "interfaces" => crate::accelerator_interfaces::run(),
+                [mode, rest @ ..] if mode == "nvidia-health-decode" => {
+                    let options = Options::parse(
+                        "accelerator nvidia-health-decode", rest,
+                        &[("--device", Kind::Text), ("--capture-text", Kind::Text)],
+                    )?;
+                    println!("{}", crate::nvidia_capture::decode(options.text("--device")?, options.text("--capture-text")?)?);
+                }
                 [mode, rest @ ..] if mode == "amdgpu-ras-decode" => {
                     let options = Options::parse(
                         "accelerator amdgpu-ras-decode",
@@ -555,7 +565,7 @@ pub(crate) fn run() -> Result<(), String> {
                 }
                 _ => {
                     return Err(
-                        "expected an accelerator subcommand: inventory, interfaces, amdgpu-hwmon, or amdgpu-ras-decode. See --help."
+                        "expected an accelerator subcommand: inventory, interfaces, amdgpu-hwmon, amdgpu-ras-decode, or nvidia-health-decode. See --help."
                             .into(),
                     )
                 }

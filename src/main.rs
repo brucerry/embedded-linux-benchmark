@@ -24,6 +24,7 @@ mod network;
 mod network_health;
 mod network_peer;
 mod numa;
+mod nvidia_capture;
 mod nvme_health;
 mod pcie;
 mod pcie_health;
