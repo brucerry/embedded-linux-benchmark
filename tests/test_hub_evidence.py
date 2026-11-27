@@ -42,6 +42,34 @@ def fixture():
 
 
 class Evidence(unittest.TestCase):
+    def test_released_single_network_snapshot_is_validated_not_just_correlated(self):
+        from check_network_health_window import KEYS
+
+        q = fixture()
+        sample = {
+            "schema_version": 1, "interface": "eth0", "status": "observed",
+            "carrier": {"status": "observed", "value": True},
+            "speed_mbps": {"status": "unavailable"},
+            "duplex": {"status": "unavailable"},
+            "operstate": {"status": "observed", "value": "up"},
+            "counters": {key: {"status": "unavailable"} for key in KEYS},
+        }
+        sample["counters"]["rx_bytes"] = {"status": "observed", "value": "9007199254740993"}
+        sample["counters"]["tx_errors"] = {"status": "observed", "value": "0"}
+        for valid in (sample, {"schema_version": 1, "interface": "eth0", "status": "unavailable"}):
+            q["network_health"] = valid
+            result = m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+            self.assertEqual(result["hardware_authenticity"], "not_verified")
+        rounded = copy.deepcopy(sample)
+        rounded["counters"]["rx_bytes"]["value"] = 9007199254740993
+        invented = copy.deepcopy(sample)
+        invented["counters"]["rx_errors"]["value"] = "0"
+        for invalid in (None, [], {**sample, "interface": "../eth0"}, rounded, invented):
+            with self.subTest(invalid=invalid):
+                q["network_health"] = invalid
+                with self.assertRaises(ValueError):
+                    m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+
     def test_keeps_sparse_rows_and_counter_precision(self):
         q = fixture()
         encoded = pack(q)

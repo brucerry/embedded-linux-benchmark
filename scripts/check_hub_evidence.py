@@ -448,9 +448,18 @@ def verify(evidence, stdout, run_id, plan=None):
     health = q.get("system_health")
     if type(health) is dict and "pressure_series" in health:
         verify_pressure_series(health["pressure_series"], saved["elapsed_monotonic_ms"])
-    network = q.get("network_health")
-    if type(network) is dict and "mode" in network:
-        verify_network_window(network, saved["elapsed_monotonic_ms"])
+    if "network_health" in q:
+        network = q["network_health"]
+        check(type(network) is dict, "invalid passive network observation")
+        if "mode" in network:
+            verify_network_window(network, saved["elapsed_monotonic_ms"])
+        else:
+            # Released v0.3.0 could emit a single snapshot. It has no interval
+            # or delta proof, but every reported field still needs validation.
+            from check_network_health_window import snapshot
+            interface = network.get("interface")
+            check(valid_nic_interface(interface), "invalid snapshot interface")
+            snapshot(network, interface)
     if "nvme_health" in q:
         verify_nvme_controller(q["nvme_health"])
     if "edac_health" in q:
