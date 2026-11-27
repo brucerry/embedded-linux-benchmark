@@ -164,6 +164,39 @@ def verify_network_window(window, elapsed):
     recompute(window, a["interface"], wait, allow_legacy=True)
 
 
+def verify_unsigned_observation(row, label):
+    check(type(row) is dict and row.get("status") in (
+        "observed", "unavailable", "inaccessible", "invalid"
+    ), f"invalid {label} observation")
+    if row["status"] != "observed":
+        check(row.keys() == {"status"}, f"unobserved {label} carries a value")
+        return
+    value = row.get("value")
+    check(row.keys() == {"status", "value"} and type(value) is str
+          and re.fullmatch(r"0|[1-9][0-9]{0,19}", value) and int(value) < 2**64,
+          f"invalid unsigned {label} observation")
+
+
+def verify_cpu_throttle(report):
+    check(type(report) is dict and report.keys() == {"status", "cpu_observers"}
+          and report["status"] in ("observed", "truncated", "unavailable",
+                                   "inaccessible", "invalid")
+          and type(report["cpu_observers"]) is list and len(report["cpu_observers"]) <= 64,
+          "invalid CPU throttle observation")
+    rows = report["cpu_observers"]
+    status = report["status"]
+    check(status == "truncated" or (status == "observed") == bool(rows),
+          "inconsistent CPU throttle coverage")
+    last = -1
+    for row in rows:
+        check(type(row) is dict and row.keys() == {"cpu", "core_count", "package_count_at_cpu"}
+              and type(row["cpu"]) is int and last < row["cpu"] <= 9_999_999,
+              "invalid, duplicate, or unordered CPU observer")
+        last = row["cpu"]
+        for name in ("core_count", "package_count_at_cpu"):
+            verify_unsigned_observation(row[name], "CPU throttle")
+
+
 def verify_powercap(report):
     states = ("observed", "unavailable", "inaccessible", "invalid")
     check(type(report) is dict and report.keys() == {"status", "zones"}
@@ -191,6 +224,9 @@ def verify_powercap(report):
         for name, row in zone.items():
             if name == "zone":
                 continue
+            if name != "name":
+                verify_unsigned_observation(row, "powercap")
+                continue
             check(type(row) is dict and row.get("status") in states,
                   "invalid powercap field observation")
             if row["status"] != "observed":
@@ -199,13 +235,9 @@ def verify_powercap(report):
             value = row.get("value")
             check(row.keys() == {"status", "value"} and type(value) is str,
                   "powercap observed value must be text")
-            if name == "name":
-                check(0 < len(value.encode("utf-8")) <= 256 and value == value.strip()
-                      and all(not (ord(c) < 32 or 127 <= ord(c) <= 159) for c in value),
-                      "invalid powercap label")
-            else:
-                check(re.fullmatch(r"0|[1-9][0-9]{0,19}", value) and int(value) < 2**64,
-                      "invalid unsigned powercap observation")
+            check(0 < len(value.encode("utf-8")) <= 256 and value == value.strip()
+                  and all(not (ord(c) < 32 or 127 <= ord(c) <= 159) for c in value),
+                  "invalid powercap label")
 
 
 def verify_thermal_window(inventory, elapsed):
@@ -542,6 +574,8 @@ def verify(evidence, stdout, run_id, plan=None):
         verify_required_pcie(q["inventory"]["required_pcie"])
     if q.get("board_check") == "see_required_pcie":
         check("required_pcie" in q["inventory"], "requested PCIe rows were omitted")
+    if "cpu_thermal_throttle" in q["inventory"]:
+        verify_cpu_throttle(q["inventory"]["cpu_thermal_throttle"])
     if "powercap" in q["inventory"]:
         verify_powercap(q["inventory"]["powercap"])
     if "thermal_window" in q["inventory"]:

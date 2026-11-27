@@ -42,6 +42,36 @@ def fixture():
 
 
 class Evidence(unittest.TestCase):
+    def test_cpu_throttle_rows_are_observations_not_a_package_aggregate(self):
+        q = fixture()
+        zero = {"status": "observed", "value": "0"}
+        wide = {"status": "observed", "value": "9007199254740993"}
+        rows = [{"cpu": num, "core_count": zero, "package_count_at_cpu": wide}
+                for num in (0, 24)]
+        report = {"status": "observed", "cpu_observers": rows}
+        q["inventory"]["cpu_thermal_throttle"] = report
+
+        def check_report():
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+
+        self.assertEqual(check_report()["status"], "correlated")
+        variants = (
+            dict(report, status="unavailable"),
+            dict(report, cpu_observers=[rows[1], rows[0]]),
+            dict(report, cpu_observers=[rows[0], rows[0]]),
+            dict(report, cpu_observers=[dict(rows[0], cpu=True)]),
+            dict(report, package_total="18014398509481986"),
+            dict(report, cpu_observers=[dict(rows[0], package_count_at_cpu={
+                "status": "unavailable", "value": "0",
+            })]),
+        )
+        for bad in variants:
+            with self.assertRaises(ValueError):
+                q["inventory"]["cpu_thermal_throttle"] = bad
+                check_report()
+        q["inventory"]["cpu_thermal_throttle"] = {"status": "unavailable", "cpu_observers": []}
+        self.assertEqual(check_report()["hardware_authenticity"], "not_verified")
+
     def test_powercap_keeps_units_and_legacy_reports_distinct(self):
         q = fixture()
         row = {"zone": "intel-rapl:0:1", "name": {"status": "observed", "value": "CPU core"},

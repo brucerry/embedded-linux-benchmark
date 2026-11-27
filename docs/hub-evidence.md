@@ -175,6 +175,12 @@ power-capable rows. It rejects numbers encoded as JSON numeric values,
 out-of-range counters, duplicate zones and values attached to unavailable
 fields. A valid observation is not a power or energy attestation.
 
+`inventory.cpu_thermal_throttle` retains separate core and package-counter
+observations per logical CPU. The same physical package counter can be
+reported at several CPUs; do not sum those rows into a machine-wide count.
+The verifier checks decimal counters, unique ordered CPU observers and
+withheld states. This is not proof of a throttling interval or its cause.
+
 The reference verifier checks the requested interval, inventory baseline,
 ordered zone set and signed difference arithmetic. It preserves
 `not_comparable` because device identity is not exported in the report.
