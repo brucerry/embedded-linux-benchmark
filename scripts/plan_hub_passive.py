@@ -11,7 +11,7 @@ from check_hub_evidence import (
 
 
 def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_controller=None,
-         network_interface=None, network_sample_ms=None, nvme_controller=None, mmc_card=None):
+         network_interface=None, network_sample_ms=None, nvme_controller=None, mmc_card=None, thermal_sample_ms=None):
     check(type(run_id) is str and RUN_ID.fullmatch(run_id) and run_id != "0" * 32,
           "invalid run ID")
     check_evidence_path(output_path)
@@ -77,6 +77,16 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_co
               and advertised.get("scope") == "cached_sysfs_only",
               "Engine does not advertise selected cached MMC observations")
         argv.extend(("--mmc-card", mmc_card))
+    if thermal_sample_ms is not None:
+        check(type(thermal_sample_ms) is int and 1 <= thermal_sample_ms <= 2000,
+              "invalid requested thermal window")
+        row = contracts.get("passive_thermal_window")
+        check(type(row) is dict and type(row.get("schema")) is int and row["schema"] == 1
+              and row.get("qualification_flag") == "--thermal-sample-ms"
+              and type(row.get("max_sample_wait_ms")) is int
+              and thermal_sample_ms <= row["max_sample_wait_ms"] <= 2000,
+              "Engine does not advertise the requested thermal window")
+        argv.extend(("--thermal-sample-ms", str(thermal_sample_ms)))
     results = []
     for feature in options:
         name, flag, _field = OPTIONAL_PASSIVE[feature]
@@ -102,9 +112,10 @@ def main():
     args.add_argument("--network-sample-ms", type=int, help="passive NIC window in milliseconds")
     args.add_argument("--nvme-controller", help="one explicitly selected NVMe controller; no SMART or raw I/O")
     args.add_argument("--mmc-card", help="one explicit MMC card; cached sysfs only")
+    args.add_argument("--thermal-sample-ms", type=int, help="optional thermal window, 1–2000 ms")
     a = args.parse_args()
     try:
-        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller, a.mmc_card)
+        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller, a.mmc_card, a.thermal_sample_ms)
     except (OSError, ValueError, RecursionError) as exc:
         args.exit(1, f"invalid: {exc}\n")
     print(json.dumps(result, sort_keys=True))

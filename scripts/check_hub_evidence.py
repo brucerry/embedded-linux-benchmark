@@ -378,6 +378,14 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
               and MMC_CARD.fullmatch(argv[pos+1]), "invalid planned MMC card")
         mmc = argv[pos+1]
         expected.extend(argv[pos:pos+2])
+    thermal = None
+    pos = len(expected)
+    if argv[pos:pos+1] == ["--thermal-sample-ms"]:
+        check(len(argv) > pos + 1 and type(argv[pos+1]) is str
+              and re.fullmatch(r"[1-9][0-9]{0,3}", argv[pos+1])
+              and int(argv[pos+1]) <= 2000, "invalid planned thermal window")
+        thermal = int(argv[pos+1])
+        expected.extend(argv[pos:pos+2])
     cap = plan["max_evidence_bytes"]
     check(type(cap) is int and 0 < evidence_bytes <= cap <= MAX_BYTES,
           "evidence exceeds plan byte limit")
@@ -422,9 +430,14 @@ def verify_plan(plan, observation, run_id, evidence_bytes):
     }
     check(observed == planned and all(type(observation[k]) is dict for k in planned),
           "observation features disagree with plan")
-    check("thermal_window" not in observation["inventory"],
-          "unplanned thermal sample")
     inventory = observation["inventory"]
+    if thermal is None:
+        check("thermal_window" not in inventory, "unplanned thermal sample")
+    else:
+        window = inventory.get("thermal_window")
+        check(type(window) is dict and type(window.get("requested_wait_ms")) is int
+              and window["requested_wait_ms"] == thermal,
+              "thermal window differs from trusted plan")
     check("board_profile" not in inventory, "unplanned board profile")
     if required is None:
         check("required_pcie" not in inventory

@@ -148,6 +148,11 @@ identity. Missing, changed, or unsupported sensors do not imply zero change.
 No heating load is started, and the window is not synchronized with NIC or
 pressure observations.
 
+The passive planner accepts `--thermal-sample-ms MS` only when the selected
+Engine advertises the requested duration. For archived evidence, the
+verifier's `--plan` check binds that exact request; a different or missing
+interval is refused even when the saved output and stdout agree.
+
 Where the Linux powercap driver exposes them, per-zone `power_microwatts`
 and `max_power_range_microwatts` are decimal strings, distinct from the
 energy counter and range. Some drivers expose only energy. An unavailable or

@@ -66,6 +66,20 @@ class PassivePlan(unittest.TestCase):
                                              "--include-system-health"])
         self.assertEqual(result["execution"], "none")
 
+    def test_thermal_window_requires_an_advertised_valid_duration(self):
+        c = self.capabilities()
+        with self.assertRaisesRegex(ValueError, "does not advertise"):
+            plan(c, TOKEN, PATH, [], thermal_sample_ms=5)
+        c["contracts"]["passive_thermal_window"] = {
+            "schema": 1, "qualification_flag": "--thermal-sample-ms", "max_sample_wait_ms": 50,
+        }
+        self.assertEqual(plan(c, TOKEN, PATH, [], thermal_sample_ms=5)["argv"][-2:],
+                         ["--thermal-sample-ms", "5"])
+        for invalid in (0, True, 51, 2001):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                plan(c, TOKEN, PATH, [], thermal_sample_ms=invalid)
+        self.assertNotIn("--thermal-sample-ms", plan(c, TOKEN, PATH, [])["argv"])
+
     def test_nvme_requires_named_controller_and_sysfs_only_advertisement(self):
         c = self.capabilities()
         with self.assertRaisesRegex(ValueError, "does not advertise"):

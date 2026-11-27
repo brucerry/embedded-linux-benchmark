@@ -119,6 +119,22 @@ def smoke(binary):
         else:
             raise ValueError("MMC report was accepted for the wrong card")
         token = secrets.token_hex(16)
+        thermal_output = Path(directory) / "planned-thermal.json"
+        thermal = plan(cap, token, str(thermal_output), [], thermal_sample_ms=5)
+        thermal_stdout = invoke(binary, *thermal["argv"])
+        thermal_saved = read_bounded(thermal_output)
+        if verify(thermal_saved, thermal_stdout, token, thermal)["status"] != "correlated":
+            raise ValueError("planned thermal evidence did not correlate")
+        changed_window = deepcopy(thermal)
+        changed_window["argv"][-1] = "6"
+        try:
+            verify(thermal_saved, thermal_stdout, token, changed_window)
+        except ValueError as exc:
+            if "thermal window differs" not in str(exc):
+                raise
+        else:
+            raise ValueError("planned thermal evidence accepted a different duration")
+        token = secrets.token_hex(16)
         output = Path(directory) / "evidence-windows.json"
         stdout = invoke(
             binary, "qualify", "passive", "--run-id", token, "--evidence-json", str(output),
