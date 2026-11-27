@@ -181,6 +181,12 @@ reported at several CPUs; do not sum those rows into a machine-wide count.
 The verifier checks decimal counters, unique ordered CPU observers and
 withheld states. This is not proof of a throttling interval or its cause.
 
+CPU frequency evidence keeps the scaling driver's reported frequency
+separate from any current hardware frequency exposed by the kernel.
+The verifier requires distinct ordered policy rows and positive observed
+kHz values. An unavailable hardware reading is not filled in from a
+scaling estimate or a policy limit.
+
 The reference verifier checks the requested interval, inventory baseline,
 ordered zone set and signed difference arithmetic. It preserves
 `not_comparable` because device identity is not exported in the report.

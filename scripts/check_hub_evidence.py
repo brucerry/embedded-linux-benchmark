@@ -177,6 +177,32 @@ def verify_unsigned_observation(row, label):
           f"invalid unsigned {label} observation")
 
 
+def verify_cpu_frequency(report):
+    fields = {"scaling_reported_khz", "cpuinfo_current_khz", "policy_max_khz", "cpuinfo_max_khz"}
+    check(type(report) is dict and report.keys() == {"status", "policies"}
+          and report["status"] in ("observed", "truncated", "no_policies", "unavailable",
+                                   "inaccessible", "invalid")
+          and type(report["policies"]) is list and len(report["policies"]) <= 32,
+          "invalid CPU frequency observation")
+    rows = report["policies"]
+    status = report["status"]
+    check((status == "observed" and bool(rows))
+          or (status == "truncated" and len(rows) in (0, 32))
+          or (status not in ("observed", "truncated") and not rows),
+          "inconsistent CPU frequency policy coverage")
+    last = -1
+    for row in rows:
+        check(type(row) is dict and row.keys() == {"policy", *fields}
+              and type(row["policy"]) is str, "invalid CPU frequency policy fields")
+        index = re.fullmatch(r"policy(0|[1-9][0-9]{0,6})", row["policy"])
+        check(index and int(index[1]) > last, "invalid, duplicate, or unordered CPU policy")
+        last = int(index[1])
+        for name in fields:
+            item = row[name]
+            verify_unsigned_observation(item, "CPU frequency")
+            check(item.get("value") != "0", "observed CPU frequency must be positive")
+
+
 def verify_cpu_throttle(report):
     check(type(report) is dict and report.keys() == {"status", "cpu_observers"}
           and report["status"] in ("observed", "truncated", "unavailable",
@@ -574,6 +600,8 @@ def verify(evidence, stdout, run_id, plan=None):
         verify_required_pcie(q["inventory"]["required_pcie"])
     if q.get("board_check") == "see_required_pcie":
         check("required_pcie" in q["inventory"], "requested PCIe rows were omitted")
+    if "cpu_frequency" in q["inventory"]:
+        verify_cpu_frequency(q["inventory"]["cpu_frequency"])
     if "cpu_thermal_throttle" in q["inventory"]:
         verify_cpu_throttle(q["inventory"]["cpu_thermal_throttle"])
     if "powercap" in q["inventory"]:

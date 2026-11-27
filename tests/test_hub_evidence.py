@@ -42,6 +42,31 @@ def fixture():
 
 
 class Evidence(unittest.TestCase):
+    def test_cpu_frequency_does_not_replace_hardware_value_with_scaling_estimate(self):
+        q = fixture()
+        row = {"policy": "policy0", "scaling_reported_khz": {"status": "observed", "value": "1200000"},
+               "cpuinfo_current_khz": {"status": "unavailable"},
+               "policy_max_khz": {"status": "observed", "value": "2000000"},
+               "cpuinfo_max_khz": {"status": "inaccessible"}}
+        report = {"status": "observed", "policies": [row]}
+        q["inventory"]["cpu_frequency"] = report
+
+        def check_report():
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+
+        self.assertEqual(check_report()["hardware_authenticity"], "not_verified")
+        for bad in (
+            dict(report, policies=[row, row]),
+            dict(report, status="no_policies"),
+            dict(report, policies=[dict(row, policy="policy01")]),
+            dict(report, policies=[dict(row, scaling_reported_khz={"status": "observed", "value": "0"})]),
+            dict(report, policies=[dict(row, cpuinfo_current_khz={"status": "unavailable",
+                                                                "value": "1200000"})]),
+        ):
+            with self.assertRaises(ValueError):
+                q["inventory"]["cpu_frequency"] = bad
+                check_report()
+
     def test_cpu_throttle_rows_are_observations_not_a_package_aggregate(self):
         q = fixture()
         zero = {"status": "observed", "value": "0"}
