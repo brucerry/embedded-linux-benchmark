@@ -70,3 +70,11 @@ means the actual IDs differ from the supplied IDs; it is not proof of a
 hardware fault. For a demonstration, use a deliberately wrong expectation
 on a known present device without changing the device. The observation is
 reported with a successful command exit; Hub must inspect the row status.
+
+For a small offline interoperability demo, `scripts/summarize_hub_evidence.py`
+groups up to eight previously retrieved, correlated report pairs by
+caller-selected host labels. It does not discover devices or authenticate
+those labels. It counts named PCIe expectation states per host only. The
+same BDF on two hosts is not the same device. A report with no expectation
+rows is not a pass. Keep each original report and its digest; do not use a
+demo summary to trigger remediation.
