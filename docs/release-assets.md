@@ -28,6 +28,16 @@ source, build evidence and asset digests using independently verified provenance
 This tool emits only `binary_inspected`, with empty `qualified_targets`. Hub must
 not offer automatic deployment to a specific board on this evidence alone.
 
+## CLI contract discovery
+
+Run `eld-engine capabilities` only after verifying the executable and its
+release digest. It prints one versioned JSON record without reading sysfs,
+running diagnostics, or creating a report. It identifies the compiled
+package version (not necessarily a release tag), target OS and architecture,
+and machine-readable contracts available in this binary. Hardware,
+permissions and real board support are not checked by this command. A
+missing contract means a consumer must not assume that feature is available.
+
 ## Internal build preflight
 
 On a clean Linux x86-64 checkout with Rust 1.96.0 and its

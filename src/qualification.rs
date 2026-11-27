@@ -141,6 +141,8 @@ fn valid_run_id(value: &str) -> bool {
         && value.bytes().any(|b| b != b'0')
 }
 
+pub(crate) const MAX_EVIDENCE_BYTES: usize = 1024 * 1024;
+
 pub(crate) fn run_passive(
     board_profile: Option<&std::path::Path>,
     network_interface: Option<&str>,
@@ -165,7 +167,7 @@ pub(crate) fn run_passive(
             elapsed,
             observation
         );
-        if evidence.len() > 1024 * 1024 {
+        if evidence.len() > MAX_EVIDENCE_BYTES {
             return Err("qualification evidence exceeds 1 MiB; no file created".to_owned());
         }
         write_new_evidence(path, evidence.as_bytes())

@@ -1438,3 +1438,31 @@ fn passive_qualification_run_id_is_bounded_and_correlates_stdout_and_evidence() 
         .ends_with(&format!(r#","qualification":{}}}"#, stdout.trim_end())));
     assert!(!successful_output(&["qualify", "passive"]).contains(r#""run_id":"#));
 }
+
+#[test]
+fn capabilities_advertises_compiled_contracts_without_checking_hardware() {
+    let scratch = ScratchDirectory::create();
+    let invoke = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_eld-engine"))
+            .current_dir(&scratch.0)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let observed = invoke(&["capabilities"]);
+    assert!(observed.status.success(), "{observed:?}");
+    assert!(observed.stderr.is_empty());
+    let text = String::from_utf8(observed.stdout).unwrap();
+    assert!(text.starts_with(r#"{"capabilities_schema_version":1,"package_version":"#));
+    assert!(text.contains(&format!(
+        r#""package_version":"{}""#,
+        env!("CARGO_PKG_VERSION")
+    )));
+    assert!(text.contains(r#""hardware_availability":"not_checked""#));
+    assert!(text.contains(r#""run_id":"hex32","max_evidence_bytes":1048576"#));
+    assert!(text.contains(r#""input":"offline_page","input_bytes":512"#));
+    assert!(text.contains(r#""storage_mmc_health":{"schema":1,"input":"named_mmc_card"}"#));
+    let bad = invoke(&["capabilities", "--network-interface", "eth0"]);
+    assert!(!bad.status.success() && bad.stdout.is_empty());
+    assert!(scratch.names().is_empty());
+}

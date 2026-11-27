@@ -290,6 +290,7 @@ impl<'a> Options<'a> {
 fn help() {
     println!(
         "Usage:
+  eld-engine capabilities
   eld-engine accelerator inventory|interfaces
   eld-engine accelerator amdgpu-hwmon --device BDF
   eld-engine power ina3221 --node BUS-ADDRESS
@@ -429,6 +430,24 @@ fn parse_stress(args: &[String]) -> Result<stress::Plan, String> {
     })
 }
 
+fn capabilities() -> String {
+    use crate::pcie_health::json_string;
+    format!(
+        concat!(
+            r#"{{"capabilities_schema_version":1,"package_version":{},"architecture":{},"os_target":{},"hardware_availability":"not_checked","contracts":{{"#,
+            r#""passive_qualification":{{"observation_schema":1,"evidence_schema":1,"run_id":"hex32","max_evidence_bytes":{}}},"#,
+            r#""qualification_plan":{{"schema":1,"execution":"preview_only"}},"#,
+            r#""storage_nvme_smart_decode":{{"schema":1,"input":"offline_page","input_bytes":{}}},"#,
+            r#""storage_mmc_health":{{"schema":1,"input":"named_mmc_card"}}}}}}"#,
+        ),
+        json_string(env!("CARGO_PKG_VERSION")),
+        json_string(std::env::consts::ARCH),
+        json_string(std::env::consts::OS),
+        crate::qualification::MAX_EVIDENCE_BYTES,
+        crate::nvme_health::SMART_PAGE_BYTES,
+    )
+}
+
 pub(crate) fn run() -> Result<(), String> {
     let args: Vec<String> = env::args_os()
         .skip(1)
@@ -440,6 +459,11 @@ pub(crate) fn run() -> Result<(), String> {
     }
     let (command, args) = args.split_first().expect("command is present");
     let (spec, subject) = match command.as_str() {
+        "capabilities" => {
+            Options::parse("capabilities", args, &[])?;
+            println!("{}", capabilities());
+            return Ok(());
+        }
         "accelerator" => {
             match args {
                 [mode] if mode == "inventory" => crate::accelerator::run(),

@@ -97,7 +97,7 @@ pub(crate) fn run(name: &str) -> Result<(), String> {
     Ok(())
 }
 
-const SMART_PAGE_BYTES: usize = 512;
+pub(crate) const SMART_PAGE_BYTES: usize = 512;
 
 // NVMe SMART / Health Information log page 02h. This parser does not
 // establish the supplied page's provenance, age, or controller identity.
