@@ -1,5 +1,6 @@
 """Exercise plan and evidence correlation with a trusted, locally built Engine."""
 import argparse
+from copy import deepcopy
 from pathlib import Path
 import secrets
 import subprocess
@@ -14,6 +15,42 @@ from plan_hub_passive import plan  # noqa: E402
 def invoke(binary, *args):
     return subprocess.run([str(binary), *args], check=True, capture_output=True,
                           timeout=15).stdout
+
+
+def smoke_missing(invoke_local, directory, cap):
+    # Nonexistent targets only: never substitute a real interface or controller.
+    nic = "eld" + secrets.token_hex(5)
+    nvme = "nvme9999999"
+    for target in (Path("/sys/class/net") / nic, Path("/sys/class/nvme") / nvme):
+        if target.exists() or target.is_symlink():
+            raise ValueError("test target unexpectedly exists")
+    token = secrets.token_hex(16)
+    output = Path(directory) / "evidence-missing-nic-nvme.json"
+    preview = plan(cap, token, str(output), ["timeline"],
+                   network_interface=nic, network_sample_ms=5, nvme_controller=nvme)
+    stdout = invoke_local(*preview["argv"])
+    saved = read_bounded(output)
+    result = verify(saved, stdout, token, preview)
+    if result["status"] != "correlated" or result["hardware_authenticity"] != "not_verified":
+        raise ValueError("unexpected missing-device validation result")
+    actual = parse(stdout)
+    window = actual["network_health"]
+    if (window["before"]["status"], window["after"]["status"], window["delta"]["status"],
+            actual["nvme_health"]["status"], actual["nvme_health"]["smart_sampled"]) != (
+                "unavailable", "unavailable", "not_comparable", "unavailable", False):
+        raise ValueError("missing devices did not stay explicitly unavailable")
+    for flag, alternate in (("--network-interface", "lo"), ("--network-health-sample-ms", "6"),
+                            ("--nvme-controller", "nvme0")):
+        other = deepcopy(preview)
+        other["argv"][other["argv"].index(flag) + 1] = alternate
+        try:
+            verify(saved, stdout, token, other)
+        except ValueError as exc:
+            if "differs from trusted plan" not in str(exc):
+                raise
+        else:
+            raise ValueError("device evidence matched a different trusted plan")
+    return result
 
 
 def smoke(binary):
@@ -52,6 +89,7 @@ def smoke(binary):
 
             if result["status"] != "correlated" or result["hardware_authenticity"] != "not_verified":
                 raise ValueError("unexpected offline validation result")
+        smoke_missing(lambda *args: invoke(binary, *args), directory, cap)
         token = secrets.token_hex(16)
         output = Path(directory) / "evidence-windows.json"
         stdout = invoke(
@@ -72,7 +110,7 @@ def smoke(binary):
         receipt = verify(read_bounded(output), stdout, token)
         if receipt["status"] != "correlated" or receipt["hardware_authenticity"] != "not_verified":
             raise ValueError("unexpected window validation result")
-    print("Engine passive evidence smoke passed (baseline, negotiated options, PCIe/EDAC plan, and read windows)")
+    print("Engine passive evidence smoke passed (baseline, negotiated options, PCIe/EDAC plan, missing NIC/NVMe, and read windows)")
 
 
 if __name__ == "__main__":
