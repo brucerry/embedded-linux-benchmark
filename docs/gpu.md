@@ -120,6 +120,16 @@ This adapter recognizes the documented `GR3D_FREQ` load and compact
 clock-list forms, an available GPU temperature token, and one optional
 explicit `VDD_` or `VIN_` rail. Use the label actually present in the sample.
 A rail retains its original scope: a GPU+SoC rail is not GPU-only power.
+
+Save the decoded JSON and verify it on the analysis host:
+
+```sh
+python3 -B scripts/check_tegrastats_evidence.py --report tegrastats.json --rail VDD_GPU_SOC
+```
+
+Omit `--rail` only for a decode that selected no rail. Optionally match
+a separately recorded `--expected-sha256`. The checker does not query
+the Jetson, verify the provenance of the capture, or infer GPU-only power.
 A missing field is not zero. Values are observations from the provided
 text, not independently verified telemetry, ECC or a health verdict. The
 decoder does not start `tegrastats`, load a driver or modify device state.
