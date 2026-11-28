@@ -103,6 +103,19 @@ and adds no sleep. Omit it for the default report. Evidence correlation
 matches the named controller to the requested one but does not
 authenticate the hardware.
 
+For offline validation, save the first command's stdout and transfer it to
+the host running the checker:
+
+```sh
+eld-engine ram edac --controller mc0 > edac.json
+python3 scripts/check_edac_health_evidence.py --report edac.json --controller mc0
+```
+
+Pass `--expected-sha256` with a digest obtained from a trusted capture to
+bind the exact file bytes. The checker preserves the reported availability
+and exact decimal counters. It does not authenticate the device or assess
+memory health, and it accepts neither sampled windows nor DIMM/rank detail.
+
 Use `eld-engine ram edac --controller mc0 --location dimm0` to record
 one explicitly selected DIMM or rank and the controller's unknown-location
 counts. The controller totals already include errors counted in those

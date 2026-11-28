@@ -136,8 +136,18 @@ def smoke(binary, pcie_health_device=None):
                             "result": {"status": "unavailable"}}
                 if edac != expected:
                     raise ValueError("missing EDAC controller was not explicitly unavailable")
-                if parse(invoke(binary, "ram", "edac", "--controller", absent_edac)) != expected:
+                standalone = invoke(binary, "ram", "edac", "--controller", absent_edac)
+                if parse(standalone) != expected:
                     raise ValueError("standalone and qualification EDAC observations differ")
+                capture = Path(directory) / "edac-standalone.json"
+                capture.write_bytes(standalone)
+                digest = hashlib.sha256(standalone).hexdigest()
+                checker = Path(__file__).resolve().parents[1] / "scripts" / "check_edac_health_evidence.py"
+                receipt = parse(invoke(sys.executable, "-B", str(checker), "--report", str(capture),
+                                       "--controller", absent_edac, "--expected-sha256", digest))
+                if (receipt["digest_selection"], receipt["result"], receipt["memory_health"]) != (
+                        "matched", {"status": "unavailable"}, "not_assessed"):
+                    raise ValueError("standalone EDAC checker altered the unavailable state")
                 preview["argv"][preview["argv"].index("--edac-controller") + 1] = "mc0"
                 try:
                     verify(read_bounded(output), stdout, token, preview)
