@@ -171,6 +171,20 @@ python3 -B scripts/check_hwmon_fan_evidence.py --report fan.json --sensor hwmon0
 An optional independently recorded SHA-256 binds the exact report bytes.
 This does not authenticate the device or assess cooling health.
 
+## Read one thermal cooling device
+
+```sh
+eld-engine thermal cooling --device cooling_device0
+```
+
+Select a current cooling-device index. This reads its type, current state,
+and maximum state from Linux thermal sysfs. The states are driver-defined
+levels, not degrees, RPM, or throughput. A nonzero state does not prove
+throttling or a hardware fault; a zero state does not prove the device is
+cool. Fields are read separately; missing remains distinct from zero.
+The command never writes a cooling state.
+[Linux thermal sysfs ABI](https://docs.kernel.org/driver-api/thermal/sysfs-api.html)
+
 ## Read a selected HugeTLB pool
 
 ```sh

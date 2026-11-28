@@ -326,6 +326,7 @@ fn help() {
   eld-engine pressure series --samples N --interval-ms MS
   eld-engine hwmon temperature --sensor hwmon0 --channel 1
   eld-engine hwmon fan --sensor hwmon0 --channel 1
+  eld-engine thermal cooling --device cooling_device0
   eld-engine numa inventory
   eld-engine fabric rdma-port --device NAME --port NUMBER
   eld-engine accelerator inventory|interfaces
@@ -498,6 +499,7 @@ fn capabilities() -> String {
             r#""network_peer_receipt":{{"schema":1,"flag":"--peer-receipt","traffic":"explicit_peer_only"}},"#,
             r#""passive_observation_timeline":{{"schema":1,"flag":"--include-timeline","execution":"sequential"}},"#,
             r#""passive_hugetlb_pool":{{"schema":1,"scope":"explicit_page_size_only"}},"#,
+            r#""passive_thermal_cooling_state":{{"schema":1,"scope":"explicit_cooling_device_only"}},"#,
             r#""passive_hwmon_fan":{{"schema":1,"scope":"explicit_sensor_channel_only","unit":"rpm"}},"#,
             r#""passive_hwmon_temperature":{{"schema":2,"scope":"explicit_sensor_channel_only","unit":"unknown"}},"#,
             r#""passive_thermal_window":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--thermal-sample-ms"}},"#,
@@ -537,6 +539,13 @@ pub(crate) fn run() -> Result<(), String> {
                 );
             }
             _ => return Err("expected memory hugepages with an explicit size".into()),
+        },
+        "thermal" => match args {
+            [mode, rest @ ..] if mode == "cooling" => {
+                let opts = Options::parse("thermal cooling", rest, &[("--device", Kind::Text)])?;
+                return crate::thermal_cooling::run(opts.text("--device")?);
+            }
+            _ => return Err("expected thermal cooling with an explicit device".into()),
         },
         "hwmon" => match args {
             [mode, rest @ ..] if matches!(mode.as_str(), "temperature" | "fan") => {

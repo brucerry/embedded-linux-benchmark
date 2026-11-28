@@ -40,6 +40,7 @@ These commands do not generate test traffic or write to the selected device.
 | [Board, CPU, memory, thermal](docs/system.md#read-host-resource-inventory) | `eld-engine inventory` | Board and kernel metadata, resources, and available thermal and error counters |
 | [hwmon temperature](docs/system.md#read-one-hwmon-temperature-channel) | `eld-engine hwmon temperature --sensor hwmon0 --channel 1` | One selected raw temperature-channel reading, without assuming units |
 | [hwmon fan speed](docs/system.md#read-one-hwmon-fan-channel) | `eld-engine hwmon fan --sensor hwmon0 --channel 1` | RPM from one selected tachometer channel |
+| [Thermal cooling state](docs/system.md#read-one-thermal-cooling-device) | `eld-engine thermal cooling --device cooling_device0` | Current and maximum cooling state on one selected device |
 | [CPU, memory, I/O pressure](docs/system.md#passive-linux-pressure-snapshot) | `eld-engine pressure` | Linux PSI where available |
 | [HugeTLB pool](docs/system.md#read-a-selected-hugetlb-pool) | `eld-engine memory hugepages --size-kib 2048` | Counts for one selected Linux huge-page size |
 | [Expected PCIe device](docs/pcie.md#check-expected-pci-devices) | `eld-engine inventory --require-pcie 0000:01:00.0=14c3:7990` | Whether the expected vendor/device is at that PCI address |
