@@ -1,0 +1,6 @@
+{
+  "state": "4: ACTIVE",
+  "phys_state": "5: LinkUp",
+  "link_layer": "Ethernet",
+  "rate": "2.5 Gb/sec (1X SDR)"
+}

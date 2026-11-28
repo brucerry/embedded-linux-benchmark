@@ -140,6 +140,11 @@ An optional `--expected-sha256` compares the exact saved bytes with an
 independently known digest. It does not authenticate the hardware.
 This never probes a device, starts traffic, or verifies which device supplied
 the data. The displayed link rate is a kernel report, not throughput.
-Ethernet alone doesn't prove a usable RoCE path. No GID or network address
+Ethernet alone doesn't prove a usable RoCE path. For example, Linux software
+RoCE (RXE) can report an active Ethernet port with a kernel-reported RDMA
+rate of `2.5 Gb/sec (1X SDR)` when the Ethernet link speed is unknown.
+This is neither a measured Ethernet line rate nor proof of a hardware adapter.
+[RXE port query](https://github.com/torvalds/linux/blob/v6.12/drivers/infiniband/sw/rxe/rxe_verbs.c)
+· [Linux Ethernet speed mapping](https://github.com/torvalds/linux/blob/v6.12/drivers/infiniband/core/verbs.c). No GID or network address
 is captured, and no fabric or hardware qualification is implied.
 [Linux RDMA sysfs ABI](https://www.kernel.org/doc/html/v6.10/admin-guide/abi-stable.html#abi-file-stable-sysfs-class-infiniband)

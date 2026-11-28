@@ -22,6 +22,18 @@ class RdmaPortCapture(unittest.TestCase):
         self.assertFalse(out["throughput_measured"])
         self.assertFalse(out["device_sampled"])
 
+    def test_software_roce_rate_is_not_ethernet_speed(self):
+        path = Path(__file__).with_name("fixtures") / "rdma-rxe-fallback.json"
+        out = decode(path.read_bytes())
+        fields = out["attributes"]
+        self.assertEqual(fields["state"]["kernel_label"], "ACTIVE")
+        self.assertEqual(fields["phys_state"]["kernel_label"], "LinkUp")
+        self.assertEqual(fields["link_layer"]["raw"], "Ethernet")
+        self.assertEqual(fields["rate"]["gigabits_per_second"], "2.5")
+        self.assertEqual(out["hardware_authenticity"], "not_verified")
+        self.assertFalse(out["throughput_measured"])
+        self.assertNotIn("ethernet_speed", out)
+
     def test_pins_exact_saved_bytes_not_hardware(self):
         raw = json.dumps(FIXTURE).encode()
         digest = hashlib.sha256(raw).hexdigest()
