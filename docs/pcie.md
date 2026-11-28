@@ -122,7 +122,11 @@ python3 -B scripts/check_pcie_aer_log.py --log boot.log --observer-bdf 0000:00:0
 This extracts only recognized root-port AER notice lines, with their line
 numbers, observer BDF, printed source ID and severity. It does not forward
 unrelated log text, read the live kernel, or infer a failing endpoint from
-the source ID. The number of log notices is not a hardware error count.
+the source ID. Linux can treat a reported bus-00 source ID as unreliable
+and consult device status instead. The checker preserves the printed source
+ID without resolving it to an endpoint. Bus 00 can still be valid in an
+ordinary PCI inventory. [Linux AER source selection](https://github.com/torvalds/linux/blob/v6.6/drivers/pci/pcie/aer.c#L772-L803)
+The number of log notices is not a hardware error count.
 No matches does not mean zero errors, and unrelated vendor log formats are
 not included. An optional `--expected-sha256` pins the saved bytes.
 [Linux AER notice format](https://github.com/torvalds/linux/blob/v6.6/drivers/pci/pcie/aer.c#L690-L698)

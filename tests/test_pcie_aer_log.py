@@ -19,6 +19,15 @@ class AerLog(unittest.TestCase):
         self.assertEqual(out["root_cause"], "not_assessed")
         self.assertFalse(out["hardware_errors_counted"])
 
+    def test_bus_zero_is_printed_but_never_resolved_to_a_device(self):
+        raw = (Path(__file__).parent / "fixtures/pcie-aer-bus-zero.log").read_bytes()
+        out = verify(raw, "0005:00:01.0")
+        self.assertEqual(out["notices"], [{"line": 1, "observer_bdf": "0005:00:01.0",
+                         "source_id_printed": "0005:00:00.0", "severity": "corrected",
+                         "multiple_flag": False}])
+        self.assertEqual(out["root_cause"], "not_assessed")
+        self.assertFalse(out["hardware_errors_counted"])
+
     def test_no_match_is_not_a_health_result(self):
         out = verify(LINE, "0000:02:00.0")
         self.assertEqual(out["status"], "no_matching_notices")
