@@ -59,6 +59,11 @@ grep -qF 'eld-engine pcie health' "$out/x86_64-help.txt"
 python3 scripts/release_manifest.py write --asset-dir "$stage" --version "$version" --commit "$commit"
 python3 scripts/release_manifest.py verify --asset-dir "$stage" --version "$version" --commit "$commit"
 [[ $(git rev-parse HEAD) = "$commit" && -z $(git status --porcelain=v1 --untracked-files=normal) ]]
+archive="$out/eld-engine-preflight-assets.tar"
 tar --format=ustar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner \
-    -cf "$out/eld-engine-preflight-assets.tar" -C "$stage" \
+    -cf "$archive" -C "$stage" \
     eld-engine-linux-aarch64-musl eld-engine-linux-x86_64-gnu eld-engine-release-manifest.json
+# This is a readback of this job's archive, not independent provenance.
+archive_digest=$(sha256sum -- "$archive")
+python3 -B scripts/check_preflight_archive.py --archive "$archive" \
+    --expected-sha256 "${archive_digest%% *}" --version "$version" --commit "$commit"
