@@ -20,3 +20,19 @@ health verdict. No BMC or hardware is qualified by the synthetic fixture.
 
 [DMTF ComputerSystem schema](https://redfish.dmtf.org/schemas/v1/ComputerSystem.v1_22_0.json) ·
 [DMTF resource properties](https://redfish.dmtf.org/schemas/v1/Resource.json)
+
+## Saved temperature sensor
+
+For an already saved Redfish `Sensor` response:
+
+```sh
+python3 -B scripts/check_redfish_temperature_capture.py --capture inlet.json --sensor-id inlet
+```
+
+The checker reports an exact decimal Celsius reading only when
+`ReadingType` is `Temperature` and `ReadingUnits` is `Cel`. It keeps an
+observed zero distinct from missing data or an unsupported unit. It does
+not fetch a sensor, follow links, export OEM data, or assess cooling health.
+Provide `--expected-sha256` from an independent capture record when available.
+
+[DMTF Redfish data model](https://redfish.dmtf.org/schemas/v1/DSP0268_2025.3.pdf)
