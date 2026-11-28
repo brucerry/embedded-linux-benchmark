@@ -85,3 +85,16 @@ RUSTUP_TOOLCHAIN=1.96.0 bash scripts/build-preflight-assets.sh /path/to/new-dire
 The tar preserves executable modes. The CI job runs only on pushes to an
 `engine/*` branch after the normal CI checks pass, and retains the tar as an
 unsigned test artifact. It does not publish a release or qualify a board. The manifest label defaults to `v<Cargo package version>-preflight` in both local and hosted builds. An explicit numbered preflight label must use the same package version. This label is not a public release tag.
+
+Before inspecting the contents of a retained private preflight tar, verify
+the exact archive digest, intended preflight version, and source commit
+from an independently known selection:
+
+```sh
+python3 -B scripts/check_preflight_archive.py --archive engine-preflight.tar \
+  --expected-sha256 "$EXPECTED_SHA256" --version "$EXPECTED_VERSION" --commit "$EXPECTED_COMMIT"
+```
+
+The checker does not extract or execute any member. Matching archive and
+member bytes is not signature verification, deployment approval, or a
+hardware compatibility result.
