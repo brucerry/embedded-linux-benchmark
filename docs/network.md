@@ -139,6 +139,15 @@ an independent Ethernet line-rate reading. Software and hardware RDMA are
 not distinguished. Check `capabilities` for `contracts.passive_rdma_port`
 before invoking the command from another app.
 
+For a saved report from that command, the host-side checker verifies the
+selected device and port and can compare the exact bytes to a known digest:
+
+```sh
+python3 -B scripts/check_passive_rdma_report.py --report rdma.json --device mlx5_0 --port 1
+```
+
+It does not certify the device, the physical link or report origin.
+
 ### Offline RDMA port observations
 
 The host-side checker can decode a saved JSON fixture with exactly the Linux
