@@ -71,6 +71,20 @@ final-component symlink. Check the command’s exit status before consuming the
 file; an interrupted or failed write may leave a partial file. This passive
 evidence is not a signed attestation or hardware qualification.
 
+### Inspect one saved thermal zone
+
+```sh
+eld-engine inventory --thermal-sample-ms 1000 --evidence-json ./thermal.json
+python3 -B scripts/check_inventory_thermal.py --inventory thermal.json --zone thermal_zone0
+```
+
+Choose a zone reported for that device. This offline check validates the two
+snapshots and their reported arithmetic. It distinguishes a zone that wasn't
+reported from a reported one with no comparable value. It never discovers a
+sensor, starts a workload, or treats matching labels as proof of the same
+physical sensor across runs. Use `--expected-inventory-sha256` to match an
+independently selected report digest.
+
 ### Compare saved inventories
 
 ```sh

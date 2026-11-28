@@ -343,13 +343,13 @@ def verify_powercap(report):
                   "invalid powercap label")
 
 
-def verify_thermal_window(inventory, elapsed):
+def verify_thermal_window(inventory, elapsed, *, max_wait_ms=2000):
     window = inventory["thermal_window"]
     check(type(window) is dict and window.keys() == {
         "requested_wait_ms", "sample_start_interval_ms", "before", "after", "differences"
     }, "invalid thermal window")
     wait, interval = window["requested_wait_ms"], window["sample_start_interval_ms"]
-    check(type(wait) is int and type(interval) is int and 1 <= wait <= 2000
+    check(type(wait) is int and type(interval) is int and 1 <= wait <= max_wait_ms
           and wait <= interval <= elapsed, "invalid thermal timing")
 
     def indexed(snapshot):
