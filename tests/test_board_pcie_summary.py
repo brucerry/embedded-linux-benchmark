@@ -1,6 +1,8 @@
 import hashlib
 import json
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -168,3 +170,27 @@ class BoardPcieSummaryTest(unittest.TestCase):
             self.coverage([], [expected, dict(expected, board="FIXTURE-A")])
         with self.assertRaisesRegex(ValueError, "roster differs"):
             coverage(b"{}", self.path, b"{}", "0" * 64)
+
+    def test_coverage_cli_refuses_altered_saved_evidence_without_emitting_counts(self):
+        a = self.with_context()
+        b = self.with_context(board="fixture-b", char="b", status="unavailable")
+        c = self.with_context(board="fixture-c", char="c")
+        capture = self.path / "captures.json"
+        roster = self.path / "roster.json"
+        capture.write_text(json.dumps({"schema_version": 2, "boards": [a, b]}))
+        roster.write_text(json.dumps({"schema_version": 1,
+                                     "boards": [self.expected(row) for row in (a, b, c)]}))
+        digest = hashlib.sha256(roster.read_bytes()).hexdigest()
+        cmd = [sys.executable, "-B", str(Path(__file__).resolve().parents[1] /
+               "scripts/check_board_batch_coverage.py"), "--manifest", str(capture), "--roster",
+               str(roster), "--expected-roster-sha256", digest]
+        accepted = subprocess.run(cmd, cwd=self.path, capture_output=True, check=True, timeout=5)
+        output = json.loads(accepted.stdout)
+        self.assertEqual([r["evidence_outcome"] for r in output["boards"]],
+                         ["pass", "unavailable", "no_capture"])
+        raw = self.path / (a["run_id"] + ".evidence.json")
+        raw.write_bytes(raw.read_bytes() + b" ")
+        rejected = subprocess.run(cmd, cwd=self.path, capture_output=True, timeout=5)
+        self.assertEqual(rejected.returncode, 1)
+        self.assertFalse(rejected.stdout)
+        self.assertIn(b"evidence digest mismatch", rejected.stderr)
