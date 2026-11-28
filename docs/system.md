@@ -208,6 +208,17 @@ compute a delta across boots. Unsupported targets report unavailable,
 not zero. The command does not read MSRs, reset counters, or start load.
 [Linux Intel thermal throttle interface](https://docs.kernel.org/admin-guide/thermal/intel_thermal_throttle.html)
 
+To validate one saved snapshot without the device:
+
+```sh
+python3 -B scripts/check_cpu_throttle_evidence.py --report throttle.json --cpu 0
+```
+
+For an exact byte match, use the independently recorded
+`--expected-sha256`. The saved report does not establish boot continuity or
+package membership. The checker does not calculate deltas or totals for
+several logical CPUs.
+
 ## Read a selected HugeTLB pool
 
 ```sh
