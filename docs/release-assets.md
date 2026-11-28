@@ -79,9 +79,9 @@ On a clean Linux x86-64 checkout with Rust 1.96.0 and its
 `aarch64-unknown-linux-musl` target installed, run:
 
 ```sh
-RUSTUP_TOOLCHAIN=1.96.0 bash scripts/build-preflight-assets.sh /path/to/new-directory v0.2.1-preflight
+RUSTUP_TOOLCHAIN=1.96.0 bash scripts/build-preflight-assets.sh /path/to/new-directory
 ```
 
 The tar preserves executable modes. The CI job runs only on pushes to an
 `engine/*` branch after the normal CI checks pass, and retains the tar as an
-unsigned test artifact. It does not publish a release or qualify a board. The existing hosted job's fixed preflight label is not the executable's compiled version or a public release tag.
+unsigned test artifact. It does not publish a release or qualify a board. The manifest label defaults to `v<Cargo package version>-preflight` in both local and hosted builds. An explicit numbered preflight label must use the same package version. This label is not a public release tag.

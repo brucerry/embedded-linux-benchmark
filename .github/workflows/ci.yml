@@ -69,7 +69,7 @@ jobs:
       - name: Build and verify internal assets without publishing
         env:
           RUSTUP_TOOLCHAIN: 1.96.0
-        run: bash scripts/build-preflight-assets.sh "$RUNNER_TEMP/eld-engine-preflight" v0.2.1-preflight
+        run: bash scripts/build-preflight-assets.sh "$RUNNER_TEMP/eld-engine-preflight"
 
       - name: Check offline asset previews against preflight bytes
         run: python3 -B tests/engine_assets_smoke.py "$RUNNER_TEMP/eld-engine-preflight/assets"
