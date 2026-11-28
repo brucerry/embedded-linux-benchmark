@@ -13,8 +13,13 @@ STATE = re.compile(r"(0|[1-9][0-9]{0,2}): ([A-Za-z0-9_ <>-]{1,40})")
 RATE = re.compile(r"(0|[1-9][0-9]{0,5})(\.5)? Gb/sec \(([1-9][0-9]?)X ([A-Z0-9]{1,12})\)")
 
 
-def decode(raw):
+def decode(raw, expected_sha256=None):
     check(len(raw) <= CAPTURE_LIMIT, "RDMA capture exceeds byte limit")
+    digest = hashlib.sha256(raw).hexdigest()
+    if expected_sha256 is not None:
+        check(type(expected_sha256) is str and re.fullmatch(r"[0-9a-f]{64}", expected_sha256),
+              "expected a lowercase SHA-256 digest")
+        check(digest == expected_sha256, "capture differs from expected SHA-256")
     value = parse(raw)
     check(type(value) is dict and value.keys() == FIELDS, "expected exactly four saved RDMA attributes")
     fields = {}
@@ -42,15 +47,18 @@ def decode(raw):
     return {"schema_version": 1, "kind": "rdma_port_capture_decode", "source": "provided_capture",
             "hardware_authenticity": "not_verified", "port_attribution": "not_present",
             "device_sampled": False, "throughput_measured": False,
-            "capture_sha256": hashlib.sha256(raw).hexdigest(), "attributes": fields}
+            "capture_sha256": digest,
+            "digest_selection": "matched" if expected_sha256 is not None else "unbound",
+            "attributes": fields}
 
 
 def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--capture", required=True, help="saved JSON fixture; null for unavailable attributes")
+    cli.add_argument("--expected-sha256", help="independently known digest of the saved bytes")
     args = cli.parse_args()
     try:
-        result = decode(read_bounded(args.capture))
+        result = decode(read_bounded(args.capture), args.expected_sha256)
     except (OSError, ValueError, RecursionError) as e:
         cli.exit(1, f"RDMA capture refused: {e}\n")
     print(json.dumps(result, sort_keys=True))

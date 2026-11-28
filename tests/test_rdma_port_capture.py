@@ -22,6 +22,18 @@ class RdmaPortCapture(unittest.TestCase):
         self.assertFalse(out["throughput_measured"])
         self.assertFalse(out["device_sampled"])
 
+    def test_pins_exact_saved_bytes_not_hardware(self):
+        raw = json.dumps(FIXTURE).encode()
+        digest = hashlib.sha256(raw).hexdigest()
+        self.assertEqual(decode(raw)["digest_selection"], "unbound")
+        matched = decode(raw, digest)
+        self.assertEqual(matched["digest_selection"], "matched")
+        self.assertEqual(matched["hardware_authenticity"], "not_verified")
+        with self.assertRaisesRegex(ValueError, "differs from expected SHA-256"):
+            decode(raw + b" ", digest)
+        with self.assertRaisesRegex(ValueError, "lowercase SHA-256"):
+            decode(raw, digest.upper())
+
     def test_whole_half_zero_and_absent_are_distinct(self):
         out = decode(json.dumps({**FIXTURE, "link_layer": None, "state": "0: NOP",
                                  "rate": "2.5 Gb/sec (1X SDR)"}).encode())["attributes"]

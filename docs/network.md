@@ -136,6 +136,8 @@ RDMA port (use JSON null for unavailable). For example:
 python3 -B scripts/check_rdma_port_capture.py --capture /path/to/saved-fixture.json
 ```
 
+An optional `--expected-sha256` compares the exact saved bytes with an
+independently known digest. It does not authenticate the hardware.
 This never probes a device, starts traffic, or verifies which device supplied
 the data. The displayed link rate is a kernel report, not throughput.
 Ethernet alone doesn't prove a usable RoCE path. No GID or network address
