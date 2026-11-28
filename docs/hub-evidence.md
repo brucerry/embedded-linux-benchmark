@@ -25,6 +25,32 @@ topology and kernel pressure snapshots. Qualification schema v1 without the flag
 is unchanged. No load, active accelerator operation, driver modification,
 reflash or remediation is performed. Treat unknown contracts as unsupported.
 
+## Offline HugeTLB pool review
+
+HugeTLB is a separate stdout command, not part of the passive qualification
+envelope. Select it only if the deployed Engine advertises
+`contracts.passive_hugetlb_pool.schema=1` and the operator selects a valid pool size.
+A future Hub implementation should construct the literal argument list
+`["memory", "hugepages", "--size-kib", "2048"]` for a selected 2048 KiB pool,
+not accept shell or sysfs paths from the report. Require successful exit and
+cap stdout at 8 KiB before retaining it. Record trusted command arguments,
+binary digest, device/session association, and exit status separately from the
+JSON.
+
+To review the saved stdout against independently selected size and digest:
+
+```sh
+python3 -B scripts/check_hugetlb_evidence.py --report hugetlb.json \
+    --size-kib 2048 --expected-sha256 "$RECORDED_STDOUT_SHA256"
+```
+
+Keep the raw file. The projection separates pool and counter status and
+preserves exact counts as strings in pages. Do not label total as persistent,
+derive available memory, or mark an unavailable pool as a passing zero count.
+A matching digest establishes byte equality, not target identity or
+successful collection. This example is an Engine-side offline contract,
+not an existing Hub GUI feature.
+
 ## Accelerator error counters
 
 Do not use the AMDGPU RAS sysfs error-count files as passive telemetry.

@@ -1,7 +1,9 @@
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -58,3 +60,27 @@ class HugeTLBEvidenceTest(unittest.TestCase):
                 verify(json.dumps(report).encode(), 2048)
         with self.assertRaises(ValueError):
             verify(b'{"status":"observed","status":"unavailable"}', 2048)
+
+    def test_offline_handoff_cli_requires_selected_size_and_digest(self):
+        raw = json.dumps(self.observed()).encode()
+        script = Path(__file__).resolve().parents[1] / "scripts/check_hugetlb_evidence.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            report = Path(tmp) / "hugetlb.json"
+            report.write_bytes(raw)
+            digest = hashlib.sha256(raw).hexdigest()
+            command = [sys.executable, "-B", str(script), "--report", str(report)]
+            allowed = subprocess.run(
+                command + ["--size-kib", "2048", "--expected-sha256", digest],
+                cwd=tmp, capture_output=True, check=True, text=True,
+            )
+            receipt = json.loads(allowed.stdout)
+            self.assertEqual(receipt["report_sha256"], digest)
+            self.assertEqual(receipt["hardware_identity"], "not_verified")
+            self.assertFalse(receipt["device_sampled"])
+            for size, selected in (("1024", digest), ("2048", "0" * 64)):
+                refused = subprocess.run(
+                    command + ["--size-kib", size, "--expected-sha256", selected],
+                    cwd=tmp, capture_output=True, check=False, text=True,
+                )
+                self.assertEqual(refused.returncode, 1)
+                self.assertEqual(refused.stdout, "")
