@@ -66,6 +66,21 @@ final-component symlink. Check the command’s exit status before consuming the
 file; an interrupted or failed write may leave a partial file. This passive
 evidence is not a signed attestation or hardware qualification.
 
+### Compare saved inventories
+
+```sh
+python3 scripts/compare_inventory_evidence.py --before baseline.json --after after-update.json
+```
+
+This offline comparison reports changes in observed kernel, distribution,
+model and DMI firmware labels. A field missing in either capture is
+`not_comparable`, even when both captures report it unavailable. Use
+`--expected-before-sha256` and `--expected-after-sha256` together if
+independent expected digests are available. Capture order is supplied by
+the caller, not inferred from the device clocks. The tool does not claim
+the files describe the same board, establish boot continuity, or compare
+dynamic readings such as free memory or temperature.
+
 ## Passive Linux pressure snapshot
 
 `eld-engine pressure` reads the CPU, memory and I/O files under
