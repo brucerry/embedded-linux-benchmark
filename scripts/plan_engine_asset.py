@@ -81,6 +81,29 @@ def asset_preview(manifest, os_target, arch, glibc=None, loader=None, libraries=
             "asset": {k: row[k] for k in ("file", "sha256", "bytes")}}
 
 
+def staging_preview(asset, facts):
+    """Evaluate supplied staging observations, not their trustworthiness."""
+    check(type(facts) is dict and set(facts) == {
+        "private", "writable", "mount_executable", "available_bytes"
+    }, "invalid staging observations")
+    for key in ("private", "writable", "mount_executable"):
+        check(facts[key] is None or type(facts[key]) is bool, "invalid " + key)
+    free = facts["available_bytes"]
+    check(free is None or (type(free) is int and 0 <= free <= (1 << 63) - 1),
+          "invalid available_bytes")
+    if asset is None:
+        return "no_metadata_candidate"
+    for key, reason in (("private", "not_private"), ("writable", "not_writable"),
+                        ("mount_executable", "noexec_mount")):
+        if facts[key] is False:
+            return reason
+    if free is not None and free < asset["bytes"]:
+        return "insufficient_space_for_asset"
+    if any(value is None for value in facts.values()):
+        return "missing_staging_facts"
+    return "observed_staging_requirements_met"
+
+
 def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--manifest", required=True)
@@ -89,12 +112,17 @@ def main():
     cli.add_argument("--glibc")
     cli.add_argument("--loader")
     cli.add_argument("--library", action="append", default=[])
+    cli.add_argument("--staging-facts", help="optional JSON observations for the selected staging directory")
     args = cli.parse_args()
     try:
         raw = read_bounded(args.manifest)
         check(len(raw) <= MAX_MANIFEST, "manifest exceeds byte limit")
         result = asset_preview(parse(raw), args.target_os, args.target_arch,
                                args.glibc, args.loader, args.library)
+        if args.staging_facts:
+            raw = read_bounded(args.staging_facts)
+            check(len(raw) <= 4096, "staging observations exceed byte limit")
+            result["staging_status"] = staging_preview(result["asset"], parse(raw))
     except (OSError, ValueError, RecursionError) as exc:
         cli.exit(1, f"invalid asset metadata: {exc}\n")
     print(json.dumps(result, sort_keys=True))

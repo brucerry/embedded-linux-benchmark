@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from plan_engine_asset import ASSETS, LOADER, asset_preview
+from plan_engine_asset import ASSETS, LOADER, asset_preview, staging_preview
 
 
 def fixture():
@@ -60,3 +60,30 @@ class AssetPreview(unittest.TestCase):
         data["assets"][1] = copy.deepcopy(data["assets"][0])
         with self.assertRaises(ValueError):
             asset_preview(data, "linux", "aarch64")
+
+    def test_staging_status_only_evaluates_observed_facts(self):
+        preview = asset_preview(fixture(), "linux", "aarch64")
+        asset = preview["asset"]
+        ready = dict(private=True, writable=True, mount_executable=True, available_bytes=1024)
+        for patch, expected in (
+            ({}, "observed_staging_requirements_met"),
+            ({"private": False}, "not_private"),
+            ({"writable": False}, "not_writable"),
+            ({"mount_executable": False}, "noexec_mount"),
+            ({"available_bytes": 1023}, "insufficient_space_for_asset"),
+            ({"available_bytes": None}, "missing_staging_facts"),
+            ({"mount_executable": None}, "missing_staging_facts"),
+            ({"private": None, "mount_executable": False}, "noexec_mount"),
+        ):
+            with self.subTest(expected=expected):
+                self.assertEqual(staging_preview(asset, {**ready, **patch}), expected)
+        self.assertEqual(staging_preview(None, ready), "no_metadata_candidate")
+        self.assertEqual(preview["deployment"], "not_authorized")
+
+    def test_rejects_invalid_staging_observations(self):
+        asset = asset_preview(fixture(), "linux", "aarch64")["asset"]
+        ready = dict(private=True, writable=True, mount_executable=True, available_bytes=1024)
+        for patch in ({"private": 1}, {"writable": "yes"}, {"available_bytes": True},
+                      {"available_bytes": -1}, {"available_bytes": 1 << 63}, {"extra": False}):
+            with self.subTest(patch=patch), self.assertRaises(ValueError):
+                staging_preview(asset, {**ready, **patch})

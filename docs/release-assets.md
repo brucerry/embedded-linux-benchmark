@@ -71,6 +71,21 @@ does not discover the device or check the binary contents, release origin,
 or eligibility to deploy; even an unsigned preflight may yield
 `metadata_candidate`. Do not treat that result as authorization.
 
+Optionally, provide `--staging-facts path/to/observations.json` to evaluate
+facts collected separately for the **actual selected staging directory**:
+
+```json
+{"private": true, "writable": true, "mount_executable": true, "available_bytes": 16777216}
+```
+
+Use JSON `null` for any unknown fact. A non-private or unwritable directory,
+a `noexec` mount, inadequate space for the asset, and unknown facts have
+distinct outcomes. A positive result is only a comparison of supplied
+observations. It does not perform a remote probe, verify ownership or
+mount state, reserve free space, or guarantee that execution is possible.
+The caller must confirm facts for the selected device and session before
+transfer or execution.
+
 See [passive evidence handoff](hub-evidence.md) for the run and report checks.
 
 ## Internal build preflight
