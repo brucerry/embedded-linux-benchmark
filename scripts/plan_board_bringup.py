@@ -3,6 +3,7 @@
 import argparse
 import json
 
+from check_cpufreq_policy_evidence import valid_policy
 from check_hub_evidence import (
     EDAC_CONTROLLER, MMC_CARD, NVME_CONTROLLER, PCI_BDF, check, pcie_expectations, read_selected_json, valid_nic_interface,
 )
@@ -20,7 +21,7 @@ def supports(contracts, key, flag, scope=None):
 
 def preview(capabilities, run_id, evidence_path, expected_pcie=None, edac_controller=None,
             network_interface=None, network_sample_ms=None, nvme_controller=None, mmc_card=None, thermal_sample_ms=None, pcie_health_device=None, pcie_health_sample_ms=None,
-            pressure_samples=None, pressure_gap_ms=None):
+            pressure_samples=None, pressure_gap_ms=None, cpufreq_policy=None):
     # Validate requests even when a feature cannot be planned. Do not treat bad
     # values as a harmless skip or infer a hardware target from capabilities.
     if expected_pcie is not None:
@@ -49,6 +50,8 @@ def preview(capabilities, run_id, evidence_path, expected_pcie=None, edac_contro
     if pressure_requested:
         check(valid_pressure_series(pressure_samples, pressure_gap_ms),
               "provide bounded pressure series count and gap")
+    if cpufreq_policy is not None:
+        check(valid_policy(cpufreq_policy), "invalid requested CPU frequency policy")
     check(type(capabilities) is dict, "unsupported capabilities")
     contracts = capabilities.get("contracts")
     check(type(contracts) is dict, "unsupported capabilities")
@@ -109,6 +112,17 @@ def preview(capabilities, run_id, evidence_path, expected_pcie=None, edac_contro
         pressure_step.update(sample_count=pressure_samples, requested_gap_ms=pressure_gap_ms,
                              scope="system_proc_pressure", workload_execution="none")
     steps.append(pressure_step)
+    cpufreq = contracts.get("passive_cpufreq_policy")
+    cpufreq_supported = (type(cpufreq) is dict and type(cpufreq.get("schema")) is int
+                         and cpufreq["schema"] == 1 and cpufreq.get("unit") == "kHz"
+                         and cpufreq.get("scope") == "explicit_policy_only")
+    cpufreq_step = {"id": "selected_cpufreq_policy",
+                    "status": "not_requested" if cpufreq_policy is None else
+                              "planned" if cpufreq_supported else "unsupported"}
+    if cpufreq_step["status"] == "planned":
+        cpufreq_step.update(argv=["eld-engine", "cpufreq", "policy", "--policy", cpufreq_policy],
+                            scope="standalone_readonly", throttling="not_assessed")
+    steps.append(cpufreq_step)
     for ident in ("cpu_ram_load", "storage_write", "network_peer", "hardware_fixture"):
         steps.append({"id": ident, "status": "skipped", "reason": "passive_profile"})
     return {"schema_version": 1, "kind": "board_bringup_preview", "execution": "none",
@@ -132,13 +146,14 @@ def main():
     cli.add_argument("--pcie-health-sample-ms", type=int)
     cli.add_argument("--pressure-series-samples", type=int)
     cli.add_argument("--pressure-series-gap-ms", type=int)
+    cli.add_argument("--cpufreq-policy")
     args = cli.parse_args()
     try:
         out = preview(read_selected_json(args.capabilities, args.capabilities_sha256), args.run_id, args.evidence_path,
                       args.require_pcie, args.edac_controller, args.network_interface,
                       args.network_sample_ms, args.nvme_controller, args.mmc_card, args.thermal_sample_ms,
                       args.pcie_health_device, args.pcie_health_sample_ms,
-                      args.pressure_series_samples, args.pressure_series_gap_ms)
+                      args.pressure_series_samples, args.pressure_series_gap_ms, args.cpufreq_policy)
     except (OSError, ValueError, RecursionError) as exc:
         cli.exit(1, f"Preview rejected: {exc}\n")
     print(json.dumps(out, sort_keys=True))

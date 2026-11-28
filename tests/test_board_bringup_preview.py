@@ -17,6 +17,30 @@ class BoardBringupTest(unittest.TestCase):
     def check(self, pcie=None, edac=None):
         return preview(self.cap, self.run_id, "/tmp/new-run/result.json", pcie, edac)
 
+    def test_cpufreq_preview_requires_explicit_selector_and_contract(self):
+        def make(policy=None):
+            result = preview(self.cap, self.run_id, "/tmp/new-run/result.json",
+                             cpufreq_policy=policy)
+            step = next(row for row in result["steps"] if row["id"] == "selected_cpufreq_policy")
+            self.assertEqual(result["execution"], "none")
+            self.assertNotIn("--policy", result["passive_plan"]["argv"])
+            return step
+
+        self.assertEqual(make()["status"], "not_requested")
+        self.assertEqual(make("policy0")["status"], "unsupported")
+        self.cap["contracts"]["passive_cpufreq_policy"] = {
+            "schema": True, "scope": "explicit_policy_only", "unit": "kHz",
+        }
+        self.assertEqual(make("policy0")["status"], "unsupported")
+        self.cap["contracts"]["passive_cpufreq_policy"]["schema"] = 1
+        self.assertEqual(make("policy0"), {
+            "id": "selected_cpufreq_policy", "status": "planned",
+            "argv": ["eld-engine", "cpufreq", "policy", "--policy", "policy0"],
+            "scope": "standalone_readonly", "throttling": "not_assessed",
+        })
+        with self.assertRaisesRegex(ValueError, "invalid requested CPU frequency policy"):
+            make("../policy0")
+
     def test_pressure_series_requires_both_contracts(self):
         cap = {"capabilities_schema_version": 1, "os_target": "linux", "contracts": {
             "passive_qualification": {"observation_schema": 1, "evidence_schema": 1,

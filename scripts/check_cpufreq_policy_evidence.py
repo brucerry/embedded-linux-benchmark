@@ -11,10 +11,13 @@ FIELDS = ("scaling_min_freq", "scaling_max_freq", "scaling_cur_freq", "cpuinfo_c
 WITHHELD = ("unavailable", "inaccessible", "invalid")
 
 
+def valid_policy(policy):
+    return type(policy) is str and re.fullmatch(r"policy(0|[1-9][0-9]{0,6})", policy) is not None
+
+
 def verify(raw, policy, expected_sha256=None):
     check(type(raw) is bytes and 0 < len(raw) <= 4096, "invalid cpufreq report size")
-    check(type(policy) is str and re.fullmatch(r"policy(0|[1-9][0-9]{0,6})", policy),
-          "invalid policy selector")
+    check(valid_policy(policy), "invalid policy selector")
     sha = hashlib.sha256(raw).hexdigest()
     if expected_sha256 is not None:
         check(type(expected_sha256) is str and re.fullmatch(r"[0-9a-f]{64}", expected_sha256),

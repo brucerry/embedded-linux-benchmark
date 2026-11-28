@@ -328,6 +328,14 @@ unsupported software feature. The preview excludes CPU/RAM load, writes,
 peer traffic, and hardware fixture actions. It does not check installed
 hardware, launch commands, or authenticate the source capability capture.
 
+An explicit `--cpufreq-policy policy0` adds a separate read-only command
+preview if the saved capabilities advertise the matching policy contract.
+The command is not appended to `qualify passive` and the preview does not
+check whether the policy exists on the board. Save that command's output
+separately and check it with
+[`check_cpufreq_policy_evidence.py`](system.md#read-one-cpu-frequency-policy).
+The reading does not establish thermal throttling.
+
 ### Offline comparison across selected boards
 
 Run `python3 scripts/summarize_board_pcie.py --manifest /private/batch/batch.json`
