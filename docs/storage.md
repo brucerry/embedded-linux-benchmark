@@ -86,3 +86,16 @@ and can appear in the observation timeline. Use
 produce fixed arguments without running them. The offline evidence checker's
 `--plan` option requires the resulting MMC observation to match that exact
 card. It does not authenticate the device or establish wear.
+
+To compare saved cached raw codes from two captures selected by the operator:
+
+```sh
+python3 -B scripts/compare_mmc_health_evidence.py \
+  --before baseline.json --after follow-up.json --card mmc0:0001
+```
+
+Use both expected SHA-256 flags to enforce independently selected inputs.
+The report separates unchanged and changed codes from incomparable fields.
+A matching Linux card address does not establish card identity or continuity;
+a changed raw code does not quantify wear or predict failure. The offline
+comparison issues no MMC commands.
