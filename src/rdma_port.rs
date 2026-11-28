@@ -101,6 +101,10 @@ mod tests {
             fs::write(port.join(field), format!("{value}\n")).unwrap();
         }
         let result = snapshot(&root, "rxe0", 1).unwrap();
+        assert_eq!(
+            result,
+            include_str!("../tests/fixtures/rdma-passive-rxe-report.json").trim_end()
+        );
         assert!(result.contains(r#""status":"observed""#));
         assert!(result.contains(r#""raw":"2.5 Gb/sec (1X SDR)""#));
         assert!(result.contains(r#""ethernet_line_rate":"not_assessed""#));

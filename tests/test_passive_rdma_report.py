@@ -19,6 +19,14 @@ def pack(fields=None, **overrides):
 
 
 class PassiveRdmaReport(unittest.TestCase):
+    def test_exact_golden_fixture_shared_with_rust_producer(self):
+        fixture = Path(__file__).with_name("fixtures") / "rdma-passive-rxe-report.json"
+        raw = fixture.read_bytes()
+        outcome = verify(raw, "rxe0", 1, hashlib.sha256(raw).hexdigest())
+        self.assertEqual(outcome["attributes"]["link_layer"]["raw"], "Ethernet")
+        self.assertEqual(outcome["attributes"]["rate"]["raw"], "2.5 Gb/sec (1X SDR)")
+        self.assertFalse(outcome["throughput_measured"])
+
     def test_saved_bytes_and_selection_remain_distinct_from_physical_identity(self):
         raw = pack()
         result = verify(raw, "rxe0", 1, hashlib.sha256(raw).hexdigest())
