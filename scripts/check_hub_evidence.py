@@ -621,6 +621,16 @@ def verify_plan(plan, observation, run_id, evidence_bytes, elapsed):
               and int(argv[pos+1]) <= 2000, "invalid planned PCIe health wait")
         pcie_wait = int(argv[pos+1])
         expected.extend(argv[pos:pos+2])
+    pressure_plan = None
+    pos = len(expected)
+    if argv[pos:pos+1] == ["--pressure-series-samples"]:
+        check(len(argv) >= pos + 4 and type(argv[pos+1]) is str
+              and re.fullmatch(r"[2-8]", argv[pos+1])
+              and argv[pos+2] == "--pressure-series-gap-ms" and type(argv[pos+3]) is str
+              and re.fullmatch(r"[1-9][0-9]{2}|1000", argv[pos+3]),
+              "invalid planned pressure series")
+        pressure_plan = (int(argv[pos+1]), int(argv[pos+3]))
+        expected.extend(argv[pos:pos+4])
     cap = plan["max_evidence_bytes"]
     check(type(cap) is int and 0 < evidence_bytes <= cap <= MAX_BYTES,
           "evidence exceeds plan byte limit")
@@ -671,6 +681,13 @@ def verify_plan(plan, observation, run_id, evidence_bytes, elapsed):
     }
     check(observed == planned and all(type(observation[k]) is dict for k in planned),
           "observation features disagree with plan")
+    series = observation.get("system_health", {}).get("pressure_series")
+    if pressure_plan is None:
+        check("pressure_series" not in observation.get("system_health", {}), "unplanned pressure series")
+    else:
+        check("system_health" in planned and type(series) is dict
+              and (series.get("sample_count"), series.get("requested_gap_ms")) == pressure_plan,
+              "pressure series differs from trusted plan")
     inventory = observation["inventory"]
     if thermal is None:
         check("thermal_window" not in inventory, "unplanned thermal sample")

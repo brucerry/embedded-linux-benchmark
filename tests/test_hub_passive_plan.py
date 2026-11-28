@@ -26,6 +26,25 @@ class PassivePlan(unittest.TestCase):
         self.assertEqual([x["status"] for x in result["optional"]], ["planned", "unsupported"])
         self.assertEqual(result["execution"], "none")
 
+    def test_pressure_series_is_explicit_and_never_silently_downgraded(self):
+        cap = self.capabilities()
+        kwargs = dict(pressure_samples=2, pressure_gap_ms=100)
+        with self.assertRaisesRegex(ValueError, "does not advertise"):
+            plan(cap, TOKEN, PATH, ["system-health"], **kwargs)
+        cap["contracts"]["pressure_series"] = {
+            "schema": 1, "max_samples": 8, "max_gap_ms": 1000,
+            "qualification_flag": "--pressure-series-samples",
+        }
+        out = plan(cap, TOKEN, PATH, ["system-health"], **kwargs)
+        self.assertEqual(out["argv"][6:], ["--pressure-series-samples", "2",
+                                         "--pressure-series-gap-ms", "100", "--include-system-health"])
+        self.assertEqual(out["execution"], "none")
+        with self.assertRaisesRegex(ValueError, "planned system health"):
+            plan(cap, TOKEN, PATH, [], **kwargs)
+        for count, gap in ((None, 100), (2, None), (True, 100), (9, 100), (2, 1001)):
+            with self.subTest(count=count, gap=gap), self.assertRaisesRegex(ValueError, "bounded"):
+                plan(cap, TOKEN, PATH, ["system-health"], pressure_samples=count, pressure_gap_ms=gap)
+
     def test_bad_contract_path_or_duplicate_fail(self):
         c = self.capabilities()
         for p in ("/tmp/../evil", "/tmp/test; malicious", "//tmp/evil", "relative/path"):

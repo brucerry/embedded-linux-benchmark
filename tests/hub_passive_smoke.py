@@ -207,13 +207,10 @@ def smoke(binary, pcie_health_device=None):
             raise ValueError("planned thermal evidence accepted a different duration")
         token = secrets.token_hex(16)
         output = Path(directory) / "evidence-windows.json"
-        stdout = invoke(
-            binary, "qualify", "passive", "--run-id", token, "--evidence-json", str(output),
-            "--network-interface", "lo", "--network-health-sample-ms", "5",
-            "--thermal-sample-ms", "5", "--include-system-health",
-            "--pressure-series-samples", "2", "--pressure-series-gap-ms", "100",
-            "--include-timeline",
-        )
+        planned = plan(cap, token, str(output), ["system-health", "timeline"],
+                       network_interface="lo", network_sample_ms=5, thermal_sample_ms=5,
+                       pressure_samples=2, pressure_gap_ms=100)
+        stdout = invoke(binary, *planned["argv"])
         observation = parse(stdout)
         required = (
             observation["network_health"]["requested_wait_ms"],
@@ -222,7 +219,17 @@ def smoke(binary, pcie_health_device=None):
         )
         if required != (5, 5, 2) or not observation["observation_timeline"]["phases"]:
             raise ValueError("passive sample windows were missing or did not match the invocation")
-        receipt = verify(read_bounded(output), stdout, token)
+        saved = read_bounded(output)
+        receipt = verify(saved, stdout, token, planned)
+        other = deepcopy(planned)
+        other["argv"][other["argv"].index("--pressure-series-gap-ms") + 1] = "101"
+        try:
+            verify(saved, stdout, token, other)
+        except ValueError as exc:
+            if "pressure series differs from trusted plan" not in str(exc):
+                raise
+        else:
+            raise ValueError("pressure evidence matched a different trusted plan")
         if receipt["status"] != "correlated" or receipt["hardware_authenticity"] != "not_verified":
             raise ValueError("unexpected window validation result")
         if pcie_health_device is not None:
