@@ -279,6 +279,23 @@ They do not imply a device exists, authorize workload execution, or make
 raw continuity identifiers suitable for logging or upload.
 
 
+## Offline Jetson GPU capture handoff
+
+Only offer the decoder when the selected Engine advertises
+`contracts.offline_tegrastats.schema=1`. Give
+`["accelerator", "tegrastats-decode", "--rail", "VDD_GPU_SOC"]`
+only when the operator chose that exact rail. If no rail was selected, omit
+both rail arguments. Pass one saved bounded ASCII sample on stdin, not a
+command or path. This decoder does not start tegrastats or contact a board;
+any future live collector needs separate authorization and validation.
+
+Keep the original sample, its digest, the independent device association
+if known, and the Engine binary digest. Retain the decoded stdout and its
+digest separately. Use `scripts/check_tegrastats_evidence.py` with the same
+explicit rail (when present) and the recorded stdout digest. Rail labels
+are part of the result, not a proof of GPU-only power. A valid decode does
+not attest the source, correlate clocks or qualify GPU hardware.
+
 ## Fixture-backed NVIDIA capture format
 
 `accelerator nvidia-health-decode --device BDF --capture-text TEXT` is an

@@ -1,8 +1,11 @@
 """Exercise the Engine's offline Jetson telemetry entry point using inert text."""
 import argparse
+import hashlib
 import json
 from pathlib import Path
 import subprocess
+import sys
+import tempfile
 
 
 def smoke(engine):
@@ -21,6 +24,26 @@ def smoke(engine):
     assert row["gpu_frequency_mhz"] == {"status": "observed", "value": [306, 0, 1020]}
     assert row["gpu_temperature_millicelsius"] == {"status": "observed", "value": 41025}
     assert row["selected_rail"]["observation"]["value"] == {"instant_mw": 7, "average_mw": 8}
+    checker = Path(__file__).resolve().parents[1] / "scripts/check_tegrastats_evidence.py"
+    with tempfile.TemporaryDirectory(prefix="eld-jetson-smoke-") as tmp:
+        capture = Path(tmp) / "report.json"
+        capture.write_bytes(result.stdout)
+        digest = hashlib.sha256(result.stdout).hexdigest()
+        command = [sys.executable, "-B", str(checker), "--report", str(capture),
+                   "--expected-sha256", digest]
+        verified = subprocess.run(command + ["--rail", "VDD_GPU_SOC"], cwd=tmp,
+                                  capture_output=True, check=True, timeout=5)
+        projection = json.loads(verified.stdout)
+        assert projection["selected_rail"] == row["selected_rail"]
+        assert projection["metrics"]["gpu_utilization_percent"] == row["gpu_utilization_percent"]
+        assert projection["capture_identity"] == "not_verified" and not projection["device_sampled"]
+        wrong = subprocess.run(command + ["--rail", "VDD_GPU"], cwd=tmp,
+                               capture_output=True, timeout=5)
+        assert wrong.returncode == 1 and not wrong.stdout
+        capture.write_bytes(result.stdout + b" ")
+        altered = subprocess.run(command + ["--rail", "VDD_GPU_SOC"], cwd=tmp,
+                                 capture_output=True, timeout=5)
+        assert altered.returncode == 1 and not altered.stdout
     absent = run(b"GR3D_FREQ @[888,0]\n")
     assert absent.returncode == 0
     fields = json.loads(absent.stdout)
