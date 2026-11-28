@@ -143,3 +143,13 @@ Choose a known PCI address. This reads the selected function’s Linux
 unknown, not node zero. The CPU list is a kernel topology hint, not a
 measurement or the process’s allowed CPU mask. The command does not bind
 tasks, configure IRQs, benchmark the link, or modify sysfs.
+
+To verify saved stdout offline against the explicitly selected PCI function:
+
+```sh
+python3 -B scripts/check_pcie_locality_evidence.py \
+  --report locality.json --device 0000:01:00.0
+```
+
+Optionally pass the independently selected `--expected-sha256`. A matching
+report does not verify hardware identity or infer CPU affinity.
