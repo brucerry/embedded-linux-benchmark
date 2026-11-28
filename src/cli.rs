@@ -320,6 +320,7 @@ fn help() {
   eld-engine pressure
   eld-engine pressure series --samples N --interval-ms MS
   eld-engine numa inventory
+  eld-engine fabric rdma-port --device NAME --port NUMBER
   eld-engine accelerator inventory|interfaces
   eld-engine accelerator amdgpu-hwmon --device BDF
   eld-engine accelerator amdgpu-ras-decode --capture-text TEXT
@@ -480,6 +481,7 @@ fn capabilities() -> String {
             r#""passive_system_health":{{"schema":1,"flag":"--include-system-health","numa_schema":1,"pressure_schema":1}},"#,
             r#""offline_nvidia_health":{{"schema":1,"input":"normalized_nvml_v1_literal","max_bytes":{}}},"#,
             r#""offline_amdgpu_ras":{{"schema":1,"input":"literal_capture_text","max_bytes":{}}},"#,
+            r#""passive_rdma_port":{{"schema":1,"scope":"explicit_local_port_only"}},"#,
             r#""passive_pcie_health":{{"schema":1,"max_sample_wait_ms":2000}},"#,
             r#""passive_edac_health":{{"schema":1,"flag":"--edac-controller","scope":"selected_snapshot"}},"#,
             r#""offline_tegrastats":{{"schema":1,"input":"saved_single_line","max_input_line_bytes":{}}},"#,
@@ -551,6 +553,28 @@ pub(crate) fn run() -> Result<(), String> {
         "pressure" => {
             Options::parse("pressure", args, &[])?;
             crate::pressure::run();
+            return Ok(());
+        }
+        "fabric" if args.first().map(String::as_str) == Some("rdma-port") => {
+            let opts = Options::parse(
+                "fabric rdma-port",
+                &args[1..],
+                &[
+                    ("--device", Kind::Text),
+                    ("--port", Number(0, u64::from(u32::MAX))),
+                ],
+            )?;
+            let port = opts
+                .number("--port")
+                .ok_or("fabric rdma-port requires --port")?;
+            println!(
+                "{}",
+                crate::rdma_port::snapshot(
+                    std::path::Path::new("/sys"),
+                    opts.text("--device")?,
+                    port
+                )?
+            );
             return Ok(());
         }
         "accelerator" => {

@@ -41,6 +41,7 @@ These commands do not generate test traffic or write to the selected device.
 | [CPU, memory, I/O pressure](docs/system.md#passive-linux-pressure-snapshot) | `eld-engine pressure` | Linux PSI where available |
 | [Expected PCIe device](docs/pcie.md#check-expected-pci-devices) | `eld-engine inventory --require-pcie 0000:01:00.0=14c3:7990` | Whether the expected vendor/device is at that PCI address |
 | [Ethernet or Wi-Fi interface](docs/network.md#passive-network-link-health) | `eld-engine network health --interface eth0 --sample-ms 1000` | Link state and comparable error/drop counter changes, not throughput |
+| [RDMA port](docs/network.md#passive-local-rdma-port) | `eld-engine fabric rdma-port --device mlx5_0 --port 1` | Selected local port state and kernel-reported rate, not measured throughput |
 | [NVMe controller](docs/storage.md#passive-nvme-controller-status) | `eld-engine storage nvme-health --controller nvme0` | Controller state, transport, model, and firmware; not a live SMART read |
 | [eMMC](docs/storage.md#passive-mmc-wear-observations) | `eld-engine storage mmc-health --card mmc0:0001` | Cached wear indicators when the driver exposes them; not SD card support |
 | [HDMI output](docs/display.md#hdmi-connector-observations-and-capture-delivery) | `eld-engine hdmi status --connector card0-HDMI-A-1` | Connection and advertised modes, not active signal timing |

@@ -122,6 +122,23 @@ NIC windows. Older saved windows without coverage fields are accepted only
 when their original counter values and withheld/reset states are consistent.
 Matching saved JSON and stdout by themselves cannot establish valid arithmetic.
 
+### Passive local RDMA port
+
+If you already know the local RDMA device and port, pass both explicitly:
+
+```sh
+eld-engine fabric rdma-port --device mlx5_0 --port 1
+```
+
+The command reads only `state`, `phys_state`, `link_layer`, and `rate` on
+that selected sysfs port. It does not enumerate other ports, read GIDs or
+hardware counters, change settings, or start traffic. The outer status
+describes the selected port; each attribute separately reports availability.
+The link rate is a kernel-reported RDMA value, not measured throughput or
+an independent Ethernet line-rate reading. Software and hardware RDMA are
+not distinguished. Check `capabilities` for `contracts.passive_rdma_port`
+before invoking the command from another app.
+
 ### Offline RDMA port observations
 
 The host-side checker can decode a saved JSON fixture with exactly the Linux
