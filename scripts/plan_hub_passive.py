@@ -6,7 +6,7 @@ import argparse
 import json
 
 from check_hub_evidence import (
-    EDAC_CONTROLLER, MAX_BYTES, MMC_CARD, NVME_CONTROLLER, OPTIONAL_PASSIVE, PCI_BDF, RUN_ID, check, check_evidence_path, parse, pcie_expectations, read_bounded, valid_nic_interface,
+    EDAC_CONTROLLER, MAX_BYTES, MMC_CARD, NVME_CONTROLLER, OPTIONAL_PASSIVE, PCI_BDF, RUN_ID, check, check_evidence_path, pcie_expectations, read_selected_json, valid_nic_interface,
 )
 
 
@@ -156,6 +156,7 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_co
 def main():
     args = argparse.ArgumentParser(description=__doc__)
     args.add_argument("--capabilities", required=True)
+    args.add_argument("--capabilities-sha256", help="independently selected capture SHA-256")
     args.add_argument("--run-id", required=True)
     args.add_argument("--evidence-path", required=True)
     args.add_argument("--feature", action="append", choices=tuple(OPTIONAL_PASSIVE), default=[])
@@ -172,7 +173,7 @@ def main():
     args.add_argument("--pressure-series-gap-ms", type=int, help="passive pressure gap, 100–1000 ms")
     a = args.parse_args()
     try:
-        result = plan(parse(read_bounded(a.capabilities)), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller, a.mmc_card, a.thermal_sample_ms, a.pcie_health_device, a.pcie_health_sample_ms, a.pressure_series_samples, a.pressure_series_gap_ms)
+        result = plan(read_selected_json(a.capabilities, a.capabilities_sha256), a.run_id, a.evidence_path, a.feature, a.require_pcie, a.edac_controller, a.network_interface, a.network_sample_ms, a.nvme_controller, a.mmc_card, a.thermal_sample_ms, a.pcie_health_device, a.pcie_health_sample_ms, a.pressure_series_samples, a.pressure_series_gap_ms)
     except (OSError, ValueError, RecursionError) as exc:
         args.exit(1, f"invalid: {exc}\n")
     print(json.dumps(result, sort_keys=True))

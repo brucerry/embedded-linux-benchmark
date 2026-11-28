@@ -239,7 +239,11 @@ and marks unadvertised optional `system-health` or `timeline` as unsupported;
 it never executes a command. A preview does not authenticate the captured
 report or establish that the nominated report directory is fresh and private.
 The controller must verify those independently and confirm device/run/exit
-identity before accepting evidence.
+identity before accepting evidence. Pass `--capabilities-sha256` to either
+offline planner to require the exact saved capture selected by the caller.
+A mismatch refuses the preview without output and a match leaves the plan
+schema unchanged. The expected digest must come from the caller's verified
+selection; hashing an untrusted capture alone does not authenticate it.
 
 The selected EDAC option takes only a passive snapshot and is accepted
 only when an Engine advertises `passive_edac_health`. New independent

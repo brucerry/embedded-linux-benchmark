@@ -4,7 +4,7 @@ import argparse
 import json
 
 from check_hub_evidence import (
-    EDAC_CONTROLLER, MMC_CARD, NVME_CONTROLLER, PCI_BDF, check, parse, pcie_expectations, read_bounded, valid_nic_interface,
+    EDAC_CONTROLLER, MMC_CARD, NVME_CONTROLLER, PCI_BDF, check, pcie_expectations, read_selected_json, valid_nic_interface,
 )
 from plan_hub_passive import (
     plan, supports_pcie_health, supports_pressure_series, supports_thermal_wait,
@@ -118,6 +118,7 @@ def preview(capabilities, run_id, evidence_path, expected_pcie=None, edac_contro
 def main():
     cli = argparse.ArgumentParser(description=__doc__)
     cli.add_argument("--capabilities", required=True)
+    cli.add_argument("--capabilities-sha256", help="independently selected capture SHA-256")
     cli.add_argument("--run-id", required=True)
     cli.add_argument("--evidence-path", required=True)
     cli.add_argument("--require-pcie")
@@ -133,7 +134,7 @@ def main():
     cli.add_argument("--pressure-series-gap-ms", type=int)
     args = cli.parse_args()
     try:
-        out = preview(parse(read_bounded(args.capabilities)), args.run_id, args.evidence_path,
+        out = preview(read_selected_json(args.capabilities, args.capabilities_sha256), args.run_id, args.evidence_path,
                       args.require_pcie, args.edac_controller, args.network_interface,
                       args.network_sample_ms, args.nvme_controller, args.mmc_card, args.thermal_sample_ms,
                       args.pcie_health_device, args.pcie_health_sample_ms,

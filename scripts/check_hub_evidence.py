@@ -62,6 +62,17 @@ def read_bounded(path):
         return data
 
 
+def read_selected_json(path, expected_sha256=None):
+    """Read, optionally match an independently selected digest, then parse once."""
+    raw = read_bounded(path)
+    if expected_sha256 is not None:
+        check(type(expected_sha256) is str and re.fullmatch(r"[0-9a-f]{64}", expected_sha256),
+              "expected a lowercase capabilities SHA-256")
+        check(hashlib.sha256(raw).hexdigest() == expected_sha256,
+              "capabilities differ from expected SHA-256")
+    return parse(raw)
+
+
 def parse(data):
     def unique(items):
         out = {}
