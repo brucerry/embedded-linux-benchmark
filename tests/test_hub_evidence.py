@@ -550,7 +550,12 @@ class Evidence(unittest.TestCase):
     def test_binds_optional_observations_to_saved_passive_plan(self):
         q = fixture()
         del q["pcie_health"]
-        q["system_health"] = {"available": False}
+        q["system_health"] = {
+            "schema_version": 1,
+            "numa": {"schema_version": 1, "scope": "linux_numa_inventory", "nodes": {"status": "unavailable"}},
+            "pressure": {"schema_version": 1, "scope": "system_proc_pressure",
+                         **{key: {"status": "unavailable"} for key in ("cpu", "memory", "io")}},
+        }
         plan = {
             "plan_schema_version": 1, "execution": "none", "max_evidence_bytes": m.MAX_BYTES,
             "argv": ["qualify", "passive", "--run-id", TOKEN, "--evidence-json",
@@ -575,6 +580,13 @@ class Evidence(unittest.TestCase):
         ):
             with self.assertRaisesRegex(ValueError, "disagree with plan"):
                 run(observation, plan)
+        health = q["system_health"]
+        for incomplete in ({}, {**health, "schema_version": True},
+                           {k: v for k, v in health.items() if k != "numa"},
+                           {k: v for k, v in health.items() if k != "pressure"},
+                           {**health, "unknown": False}):
+            with self.subTest(health=incomplete), self.assertRaisesRegex(ValueError, "planned system health"):
+                run({**q, "system_health": incomplete}, plan)
         with self.assertRaisesRegex(ValueError, "unplanned thermal"):
             run({**q, "inventory": {"thermal_window": {
                 "requested_wait_ms": 1, "sample_start_interval_ms": 1,

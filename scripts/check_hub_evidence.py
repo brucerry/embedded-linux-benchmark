@@ -720,9 +720,15 @@ def verify_plan(plan, observation, run_id, evidence_bytes, elapsed):
     }
     check(observed == planned and all(type(observation[k]) is dict for k in planned),
           "observation features disagree with plan")
-    series = observation.get("system_health", {}).get("pressure_series")
+    health = observation.get("system_health", {})
+    if "system_health" in planned:
+        required_health = {"schema_version", "numa", "pressure"}
+        check(health.keys() in (required_health, required_health | {"pressure_series"})
+              and type(health["schema_version"]) is int and health["schema_version"] == 1,
+              "planned system health must include schema 1 NUMA and pressure")
+    series = health.get("pressure_series")
     if pressure_plan is None:
-        check("pressure_series" not in observation.get("system_health", {}), "unplanned pressure series")
+        check("pressure_series" not in health, "unplanned pressure series")
     else:
         check("system_health" in planned and type(series) is dict
               and (series.get("sample_count"), series.get("requested_gap_ms")) == pressure_plan,
