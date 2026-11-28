@@ -369,6 +369,17 @@ profile for intended peers rather than reserializing the JSON. The report lists
 v1 boards under `comparison.unbound_boards` instead of grouping them. A group
 does not combine outcomes, prove comparable hardware, or measure yield.
 
+For a bounded coverage check, keep an independently selected approval roster
+of expected board labels, exact profile SHA-256 and Engine SHA-256. Use
+`scripts/check_board_batch_coverage.py --manifest CAPTURES --roster ROSTER
+--expected-roster-sha256 SHA256`. The v1 roster has a `boards` array whose
+rows contain `board`, `profile_sha256`, and `engine_sha256`. The v2 capture
+manifest may contain no rows if none have arrived yet. Counts distinguish
+`no_capture`, unavailable, not assessed, and the explicit PCIe requirement
+pass/fail outcomes. A capture for an unlisted board or with the wrong exact
+profile or Engine digest is refused. These counts describe only the selected
+evidence, not production yield or release approval.
+
 To preview a passive NIC window, specify both `--network-interface eth0` and
 `--network-sample-ms 1000` to `plan_hub_passive.py`. The selected capture must
 advertise the window and its interval bound. The generated plan never runs

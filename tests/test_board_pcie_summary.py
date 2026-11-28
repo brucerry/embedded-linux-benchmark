@@ -6,6 +6,7 @@ import unittest
 
 from test_pcie_requirements import FIRST, pair
 from summarize_board_pcie import summarize
+from check_board_batch_coverage import verify as coverage
 
 
 def manifest(rows):
@@ -69,9 +70,9 @@ class BoardPcieSummaryTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "run ID"):
             summarize(manifest([dict(row, run_id="../escape")]), self.path)
 
-    def with_context(self, board="fixture-a", char="a", engine="e", device=None):
+    def with_context(self, board="fixture-a", char="a", engine="e", device=None, status=None):
         identity = dict(vendor="8086", device=device) if device else None
-        row = self.artifacts(board, char, "match" if device else "present", identity)
+        row = self.artifacts(board, char, status or ("match" if device else "present"), identity)
         row["expected_engine_sha256"] = engine * 64
         self.context_record(row, "profile", {"schema_version": 1, "profile_id": "rev-a",
                                              "require_pcie": FIRST + ("=8086:" + device if device else "")})
@@ -129,3 +130,41 @@ class BoardPcieSummaryTest(unittest.TestCase):
         self.assertEqual(len({group["profile_sha256"] for group in groups}), 1)
         self.assertEqual({group["engine_sha256"]: group["boards"] for group in groups},
                          {"e" * 64: ["fixture-a", "fixture-b"], "f" * 64: ["fixture-c"]})
+
+
+    def coverage(self, rows, roster):
+        packet = json.dumps({"schema_version": 2, "boards": rows}).encode()
+        plan = json.dumps({"schema_version": 1, "boards": roster}).encode()
+        return coverage(packet, self.path, plan, hashlib.sha256(plan).hexdigest())
+
+    @staticmethod
+    def expected(row):
+        return dict(board=row["board"], profile_sha256=row["sha256"]["profile"],
+                    engine_sha256=row["expected_engine_sha256"])
+
+    def test_coverage_distinguishes_missing_capture_from_pcie_outcomes(self):
+        a = self.with_context()
+        b = self.with_context(board="fixture-b", char="b", status="missing")
+        c = self.with_context(board="fixture-c", char="c", status="unavailable")
+        d = self.with_context(board="fixture-d", char="d")
+        roster = [self.expected(r) for r in (a, b, c, d)]
+        result = self.coverage([a, b, c], roster)
+        self.assertEqual(result["counts"],
+                         {"pass": 1, "fail": 1, "unavailable": 1, "not_assessed": 0, "no_capture": 1})
+        self.assertEqual(result["boards"][-1], {"board": "fixture-d",
+                                            "evidence_outcome": "no_capture", "run_id": None})
+        self.assertEqual(result["manufacturing_yield"], "not_assessed")
+        self.assertEqual(self.coverage([], roster)["counts"]["no_capture"], 4)
+
+    def test_coverage_refuses_unlisted_board_wrong_revision_or_wrong_roster_digest(self):
+        a = self.with_context()
+        b = self.with_context(board="fixture-b", char="b")
+        expected = self.expected(a)
+        with self.assertRaisesRegex(ValueError, "not in the roster"):
+            self.coverage([a, b], [expected])
+        with self.assertRaisesRegex(ValueError, "differs from expected"):
+            self.coverage([a], [dict(expected, profile_sha256="f" * 64)])
+        with self.assertRaisesRegex(ValueError, "duplicate expected board"):
+            self.coverage([], [expected, dict(expected, board="FIXTURE-A")])
+        with self.assertRaisesRegex(ValueError, "roster differs"):
+            coverage(b"{}", self.path, b"{}", "0" * 64)
