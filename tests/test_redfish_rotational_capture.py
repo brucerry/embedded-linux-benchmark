@@ -1,7 +1,9 @@
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
@@ -31,3 +33,23 @@ class RedfishRotational(unittest.TestCase):
             (sample(Reading=None), "unavailable"),
         ):
             self.assertEqual(decode(raw, "fan1")["reading"], {"status": status})
+
+    def test_offline_cli_rejects_edited_capture_and_never_copies_oem(self):
+        raw = sample(Reading=1250, Oem={"unused": "private-fixture"})
+        p = Path(__file__).resolve().parents[1] / "scripts/check_redfish_rotational_capture.py"
+        with tempfile.TemporaryDirectory() as tmp:
+            capture = Path(tmp) / "fan.json"
+            capture.write_bytes(raw)
+            digest = hashlib.sha256(raw).hexdigest()
+            args = [sys.executable, "-B", str(p), "--capture", str(capture),
+                    "--sensor-id", "fan1", "--expected-sha256", digest]
+            result = subprocess.run(args, cwd=tmp, check=True, capture_output=True, timeout=5)
+            q = json.loads(result.stdout)
+            self.assertEqual(q["reading"]["value_rpm"], "1250")
+            self.assertEqual(q["live_request"], "not_performed")
+            self.assertNotIn(b"private-fixture", result.stdout)
+            capture.write_bytes(raw + b" ")
+            refused = subprocess.run(args, cwd=tmp, capture_output=True, timeout=5)
+            self.assertEqual(refused.returncode, 1)
+            self.assertFalse(refused.stdout)
+            self.assertIn(b"differs from expected SHA-256", refused.stderr)
