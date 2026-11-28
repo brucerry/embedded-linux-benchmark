@@ -30,6 +30,19 @@ def supports_pcie_health(contracts, wait=None):
             and (wait is None or (type(wait) is int and 1 <= wait <= row["max_sample_wait_ms"])))
 
 
+def valid_pressure_series(count, gap):
+    return type(count) is int and 2 <= count <= 8 and type(gap) is int and 100 <= gap <= 1000
+
+
+def supports_pressure_series(contracts, count, gap):
+    row = contracts.get("pressure_series")
+    return (valid_pressure_series(count, gap) and type(row) is dict
+            and type(row.get("schema")) is int and row["schema"] == 1
+            and row.get("qualification_flag") == "--pressure-series-samples"
+            and type(row.get("max_samples")) is int and count <= row["max_samples"] <= 8
+            and type(row.get("max_gap_ms")) is int and gap <= row["max_gap_ms"] <= 1000)
+
+
 def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_controller=None,
          network_interface=None, network_sample_ms=None, nvme_controller=None, mmc_card=None, thermal_sample_ms=None, pcie_health_device=None,
          pcie_health_sample_ms=None, pressure_samples=None, pressure_gap_ms=None):
@@ -118,17 +131,9 @@ def plan(capabilities, run_id, output_path, options, required_pcie=None, edac_co
             argv.extend(("--pcie-health-sample-ms", str(pcie_health_sample_ms)))
     wants_series = pressure_samples is not None or pressure_gap_ms is not None
     if wants_series:
-        check(type(pressure_samples) is int and 2 <= pressure_samples <= 8
-              and type(pressure_gap_ms) is int and 100 <= pressure_gap_ms <= 1000,
+        check(valid_pressure_series(pressure_samples, pressure_gap_ms),
               "provide bounded pressure series count and gap")
-        advertised = contracts.get("pressure_series")
-        check(type(advertised) is dict and type(advertised.get("schema")) is int
-              and advertised["schema"] == 1
-              and advertised.get("qualification_flag") == "--pressure-series-samples"
-              and type(advertised.get("max_samples")) is int
-              and pressure_samples <= advertised["max_samples"] <= 8
-              and type(advertised.get("max_gap_ms")) is int
-              and pressure_gap_ms <= advertised["max_gap_ms"] <= 1000,
+        check(supports_pressure_series(contracts, pressure_samples, pressure_gap_ms),
               "Engine does not advertise the requested pressure series")
         argv.extend(("--pressure-series-samples", str(pressure_samples),
                      "--pressure-series-gap-ms", str(pressure_gap_ms)))

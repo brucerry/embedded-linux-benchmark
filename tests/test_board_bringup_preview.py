@@ -17,6 +17,35 @@ class BoardBringupTest(unittest.TestCase):
     def check(self, pcie=None, edac=None):
         return preview(self.cap, self.run_id, "/tmp/new-run/result.json", pcie, edac)
 
+    def test_pressure_series_requires_both_contracts(self):
+        cap = {"capabilities_schema_version": 1, "os_target": "linux", "contracts": {
+            "passive_qualification": {"observation_schema": 1, "evidence_schema": 1,
+                                      "run_id": "hex32", "max_evidence_bytes": 1048576},
+            "pressure_series": {"schema": 1, "max_samples": 8, "max_gap_ms": 1000,
+                                "qualification_flag": "--pressure-series-samples"},
+        }}
+
+        def run(**options):
+            from plan_board_bringup import preview
+            result = preview(cap, "f" * 32, "/tmp/controller-owned/report.json", **options)
+            step = next(s for s in result["steps"] if s["id"] == "selected_pressure_series")
+            self.assertEqual(result["execution"], "none")
+            return step, result["passive_plan"]["argv"]
+
+        self.assertEqual(run()[0]["status"], "not_requested")
+        args = dict(pressure_samples=2, pressure_gap_ms=100)
+        step, argv = run(**args)
+        self.assertEqual(step["status"], "unsupported")
+        self.assertNotIn("--pressure-series-samples", argv)
+        cap["contracts"]["passive_system_health"] = {"schema": 1, "flag": "--include-system-health"}
+        step, argv = run(**args)
+        self.assertEqual((step["status"], step["sample_count"], step["requested_gap_ms"]),
+                         ("planned", 2, 100))
+        self.assertEqual(argv[-5:], ["--pressure-series-samples", "2", "--pressure-series-gap-ms",
+                                     "100", "--include-system-health"])
+        with self.assertRaisesRegex(ValueError, "bounded pressure"):
+            run(pressure_samples=2)
+
     def test_old_binary_runs_inventory_without_assuming_hardware(self):
         result = self.check("0000:01:00.0=8086:1234", "mc0")
         self.assertEqual(result["execution"], "none")
