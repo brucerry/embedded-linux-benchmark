@@ -185,6 +185,15 @@ cool. Fields are read separately; missing remains distinct from zero.
 The command never writes a cooling state.
 [Linux thermal sysfs ABI](https://docs.kernel.org/driver-api/thermal/sysfs-api.html)
 
+To review saved output without the target:
+
+```sh
+python3 -B scripts/check_thermal_cooling_evidence.py --report cooling.json --device cooling_device0
+```
+
+When available, pass `--expected-sha256` from the trusted capture record.
+Validation does not infer throttling, eligibility for stress, or identity.
+
 ## Read a selected HugeTLB pool
 
 ```sh
