@@ -81,6 +81,26 @@ the caller, not inferred from the device clocks. The tool does not claim
 the files describe the same board, establish boot continuity, or compare
 dynamic readings such as free memory or temperature.
 
+### Check explicit platform expectations
+
+Supply an independently selected JSON profile for the board or image under test:
+
+```json
+{"schema_version":1,"expected":{"kernel_release":"6.6.1","dmi_firmware_version":"v1.2"}}
+```
+
+```sh
+python3 scripts/check_inventory_profile.py --inventory after-update.json --profile expected.json
+```
+
+Use exact reported labels (not patterns) and only select fields your design
+actually exposes. The result is `match` when every selected label matches,
+`mismatch` when at least one observed label differs, and `incomplete` when
+no observed label differs but at least one cannot be compared. A successfully
+parsed evaluation exits zero for all three outcomes; consumers must check
+the JSON status. This is not a firmware measurement, a board identity check,
+or a hardware qualification.
+
 ## Passive Linux pressure snapshot
 
 `eld-engine pressure` reads the CPU, memory and I/O files under
