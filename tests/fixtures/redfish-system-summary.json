@@ -1,0 +1,9 @@
+{
+  "@odata.type": "#ComputerSystem.v1_22_0.ComputerSystem",
+  "Id": "node-1",
+  "Name": "Synthetic system",
+  "PowerState": "Off",
+  "Status": {"Health": null, "HealthRollup": "Warning"},
+  "SerialNumber": "synthetic-not-for-report",
+  "Oem": {"mock": {"Value": "omit-from-summary"}}
+}

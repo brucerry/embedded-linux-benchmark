@@ -1,6 +1,7 @@
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import sys
 import unittest
 
@@ -17,6 +18,25 @@ def blob(**kwargs):
 
 
 class RedfishSavedSystem(unittest.TestCase):
+    def test_file_cli_checks_selection_and_emits_only_summary(self):
+        directory = Path(__file__).resolve().parent
+        capture = directory / "fixtures/redfish-system-summary.json"
+        script = directory.parent / "scripts/check_redfish_system_capture.py"
+        digest = hashlib.sha256(capture.read_bytes()).hexdigest()
+        args = [sys.executable, "-B", str(script), "--capture", str(capture), "--system-id"]
+        verified = subprocess.run(args + ["node-1", "--expected-sha256", digest],
+                                  capture_output=True, timeout=5, check=True)
+        out = json.loads(verified.stdout)
+        self.assertEqual(out["power_state"], {"status": "reported", "value": "Off"})
+        self.assertEqual(out["resource_health"], {"status": "unavailable"})
+        self.assertEqual(out["health_rollup"], {"status": "reported", "value": "Warning"})
+        self.assertNotIn(b"synthetic-not-for-report", verified.stdout)
+        self.assertNotIn(b"omit-from-summary", verified.stdout)
+        wrong = subprocess.run(args + ["node-2"], capture_output=True, timeout=5, check=False)
+        self.assertEqual(wrong.returncode, 1)
+        self.assertFalse(wrong.stdout)
+        self.assertIn(b"selected system ID", wrong.stderr)
+
     def test_distinguishes_power_and_two_health_scopes(self):
         out = decode(blob(), "node-1")
         self.assertEqual(out["power_state"]["value"], "PoweringOn")
