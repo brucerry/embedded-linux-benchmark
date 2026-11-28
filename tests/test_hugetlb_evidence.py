@@ -26,6 +26,21 @@ class HugeTLBEvidenceTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 verify(raw, size, digest)
 
+    def test_preserves_independent_total_free_reserved_and_surplus(self):
+        report = self.observed()
+        values = dict(zip(COUNTERS, ("8", "5", "2", "3")))
+        report["counters"] = {key: dict(status="observed", value=value)
+                              for key, value in values.items()}
+        outcome = verify(json.dumps(report).encode(), 2048)
+        self.assertEqual(outcome["counters"], report["counters"])
+        self.assertEqual(outcome["counter_unit"], "pages")
+        self.assertNotIn("persistent_pages", outcome)
+        self.assertNotIn("available_pages", outcome)
+        # Independently read values may not describe one atomic pool state.
+        report["counters"]["nr_hugepages"]["value"] = "1"
+        outcome = verify(json.dumps(report).encode(), 2048)
+        self.assertEqual(outcome["counters"], report["counters"])
+
     def test_withheld_pool_cannot_supply_counters(self):
         report = self.observed()
         for state in ("unavailable", "inaccessible", "invalid", "changed"):

@@ -155,12 +155,21 @@ or a hardware qualification.
 eld-engine memory hugepages --size-kib 2048
 ```
 
-Select a page size supported by the target. This reads the pool's cached
-persistent, free, reserved and surplus counters. Counts are pages, not
-bytes, and unavailable values are not zeros. It does not allocate memory,
-change kernel limits, inspect transparent huge pages, or say that the
-current process can allocate the reported free pages.
-[Linux HugeTLB pools](https://docs.kernel.org/admin-guide/mm/hugetlbpage.html)
+Select a page size supported by the target. The per-size sysfs
+`nr_hugepages` read is the **total** pool, including surplus pages. It is
+not the persistent-pool setting read from `/proc/sys/vm/nr_hugepages`.
+For example, total 8 and surplus 3 describe 5 persistent pages if sampled
+at the same instant; do not add surplus to total. `free_hugepages` can
+include pages committed to reservations, so neither that count nor an
+inferred unreserved count guarantees a process can allocate pages.
+
+Counts are pages, not bytes. The four values are read independently, not
+as an atomic snapshot, so the checker preserves each observation without
+deriving counts or enforcing arithmetic across them. Missing is not zero.
+The command does not allocate memory, change kernel limits, or inspect
+transparent huge pages.
+[Linux HugeTLB pools](https://docs.kernel.org/admin-guide/mm/hugetlbpage.html) ·
+[Linux 6.6 sysfs read implementation](https://github.com/torvalds/linux/blob/v6.6/mm/hugetlb.c#L3490-L3503)
 
 To validate saved output on the analysis machine, use the same selected
 size and optionally a separately recorded digest:
