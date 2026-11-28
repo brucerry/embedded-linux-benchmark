@@ -44,6 +44,17 @@ fragment. Never read live sysfs RAS attributes to supply this command.
 text was collected. Keep provenance outside this output, do not treat it as a
 live metric, and never calculate a hardware-counter delta from this alone.
 
+To validate a saved decode without accessing the GPU:
+
+```sh
+python3 -B scripts/check_amdgpu_ras_evidence.py --report ras.json
+```
+
+Use `--expected-sha256` only with an independently trusted file digest.
+A matching file preserves the exact counts or reports unavailable with no
+counts. The format contains no PCI address, so the checker cannot attribute
+the result to a GPU or establish counter continuity.
+
 An Engine advertising `contracts.passive_pcie_health.schema=1` accepts the
 optional `--pcie-health-device BDF` argument. A second opt-in,
 `--pcie-health-sample-ms` (1–2000), takes two reads without applying load.

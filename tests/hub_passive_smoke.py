@@ -105,9 +105,28 @@ def smoke_standalone_mmc(binary, directory, card, expected_snapshot):
         raise ValueError("offline MMC checker did not reject changed report bytes")
 
 
+def smoke_offline_amdgpu(binary, directory):
+    checker = Path(__file__).resolve().parents[1] / "scripts" / "check_amdgpu_ras_evidence.py"
+    for name, capture, counters in (
+        ("decoded", "ce: 9007199254740993\nue: 0",
+         {"corrected_errors": "9007199254740993", "uncorrected_errors": "0"}),
+        ("unavailable", "Query currently inaccessible", {}),
+    ):
+        raw = invoke(binary, "accelerator", "amdgpu-ras-decode", "--capture-text", capture)
+        report = Path(directory) / f"amd-ras-{name}.json"
+        report.write_bytes(raw)
+        receipt = parse(invoke(sys.executable, "-B", str(checker), "--report", str(report),
+                               "--expected-sha256", hashlib.sha256(raw).hexdigest()))
+        if (receipt["status"], receipt["counters"], receipt["device_attribution"],
+                receipt["device_sampled"], receipt["digest_selection"]) != (
+                name, counters, "not_present", False, "matched"):
+            raise ValueError("synthetic AMDGPU report was not preserved by the offline checker")
+
+
 def smoke(binary, pcie_health_device=None):
     with tempfile.TemporaryDirectory(prefix="eld-hub-passive-") as directory:
         cap = parse(invoke(binary, "capabilities"))
+        smoke_offline_amdgpu(binary, directory)
         # Standalone outputs must meet the same producer schema as nested
         # system-health data. Separate reads can change; do not compare values.
         verify_numa_inventory(parse(invoke(binary, "numa", "inventory")))
