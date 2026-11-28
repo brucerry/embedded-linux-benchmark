@@ -194,6 +194,20 @@ python3 -B scripts/check_thermal_cooling_evidence.py --report cooling.json --dev
 When available, pass `--expected-sha256` from the trusted capture record.
 Validation does not infer throttling, eligibility for stress, or identity.
 
+## Read CPU thermal throttle events
+
+```sh
+eld-engine thermal throttle --cpu 0
+```
+
+Reads two Linux sysfs event counters for one explicitly selected logical
+CPU, where the kernel exposes the Intel thermal-throttle interface.
+The count is cumulative since kernel initialization, not a live
+throttling flag or temperature. Do not sum package counts across CPUs or
+compute a delta across boots. Unsupported targets report unavailable,
+not zero. The command does not read MSRs, reset counters, or start load.
+[Linux Intel thermal throttle interface](https://docs.kernel.org/admin-guide/thermal/intel_thermal_throttle.html)
+
 ## Read a selected HugeTLB pool
 
 ```sh

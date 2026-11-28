@@ -45,6 +45,7 @@ mod stress;
 mod sysfs;
 mod tegrastats_capture;
 mod thermal_cooling;
+mod thermal_throttle;
 mod uart;
 mod usb;
 
