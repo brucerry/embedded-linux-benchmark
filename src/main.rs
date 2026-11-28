@@ -30,6 +30,7 @@ mod nvidia_capture;
 mod nvme_health;
 mod pcie;
 mod pcie_health;
+mod pcie_locality;
 mod peripheral;
 mod pressure;
 mod qualification;

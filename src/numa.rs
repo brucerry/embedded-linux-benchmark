@@ -45,6 +45,10 @@ fn ids(text: &str, max: usize, allow_empty: bool) -> Reading<Vec<u32>> {
     Ok(values)
 }
 
+pub(crate) fn local_cpu_list(path: &Path) -> Reading<Vec<u32>> {
+    read(path, 8192).and_then(|text| ids(&text, MAX_CPUS, true))
+}
+
 fn memory(data: &str, node: u32) -> Reading<u64> {
     let mut total = None;
     for line in data.lines() {

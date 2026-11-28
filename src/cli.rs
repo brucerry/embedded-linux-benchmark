@@ -357,6 +357,7 @@ fn help() {
     [--samples N] [--timeout-ms MS]
   eld-engine camera --device PATH [--frames N] [--timeout-ms MS]
   eld-engine pcie link --device BDF
+  eld-engine pcie locality --device BDF
   eld-engine pcie health --device BDF [--sample-ms MS | --save-snapshot]
                         [--min-width LANES] [--min-speed-gtps GT_PER_SECOND]
   eld-engine pcie throughput --device BDF --fixture
@@ -485,6 +486,7 @@ fn capabilities() -> String {
             r#""offline_nvidia_health":{{"schema":1,"input":"normalized_nvml_v1_literal","max_bytes":{}}},"#,
             r#""offline_amdgpu_ras":{{"schema":1,"input":"literal_capture_text","max_bytes":{}}},"#,
             r#""passive_rdma_port":{{"schema":1,"scope":"explicit_local_port_only"}},"#,
+            r#""passive_pcie_locality":{{"schema":1,"scope":"explicit_pci_function_only"}},"#,
             r#""passive_pcie_health":{{"schema":1,"max_sample_wait_ms":2000}},"#,
             r#""passive_edac_health":{{"schema":1,"flag":"--edac-controller","scope":"selected_snapshot"}},"#,
             r#""offline_tegrastats":{{"schema":1,"input":"saved_single_line","max_input_line_bytes":{}}},"#,
@@ -923,7 +925,7 @@ pub(crate) fn run() -> Result<(), String> {
 fn run_pcie(args: &[String]) -> Result<(), String> {
     let (command, args) = args
         .split_first()
-        .ok_or("expected 'pcie link', 'pcie health', or 'pcie throughput'")?;
+        .ok_or("expected 'pcie link', 'pcie locality', 'pcie health', or 'pcie throughput'")?;
     if help_requested(args) {
         help();
         return Ok(());
@@ -933,6 +935,10 @@ fn run_pcie(args: &[String]) -> Result<(), String> {
             let options = Options::parse("pcie link", args, PCIE_LINK_OPTIONS)?;
             identify(Subject::PcieLink);
             pcie::link(options.text("--device")?)
+        }
+        "locality" => {
+            let options = Options::parse("pcie locality", args, PCIE_LINK_OPTIONS)?;
+            crate::pcie_locality::run(options.text("--device")?)
         }
         "health" => {
             let options = Options::parse("pcie health", args, PCIE_HEALTH_OPTIONS)?;
@@ -952,7 +958,9 @@ fn run_pcie(args: &[String]) -> Result<(), String> {
             identify(Subject::PcieThroughput);
             pcie::throughput(options.text("--device")?, options.flag("--fixture"))
         }
-        _ => Err("expected 'pcie link', 'pcie health', or 'pcie throughput'".into()),
+        _ => {
+            Err("expected 'pcie link', 'pcie locality', 'pcie health', or 'pcie throughput'".into())
+        }
     }
 }
 

@@ -130,3 +130,16 @@ The number of log notices is not a hardware error count.
 No matches does not mean zero errors, and unrelated vendor log formats are
 not included. An optional `--expected-sha256` pins the saved bytes.
 [Linux AER notice format](https://github.com/torvalds/linux/blob/v6.6/drivers/pci/pcie/aer.c#L690-L698)
+
+
+## Selected PCIe function locality
+
+```sh
+eld-engine pcie locality --device 0000:01:00.0
+```
+
+Choose a known PCI address. This reads the selected function’s Linux
+`numa_node` and `local_cpulist` only. A reported NUMA node of `-1` is
+unknown, not node zero. The CPU list is a kernel topology hint, not a
+measurement or the process’s allowed CPU mask. The command does not bind
+tasks, configure IRQs, benchmark the link, or modify sysfs.
