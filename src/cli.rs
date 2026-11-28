@@ -101,6 +101,8 @@ const IIO_OPTIONS: &[(&str, Kind)] = &[
     ("--samples", Number(2, iio::MAX_SAMPLES)),
     ("--timeout-ms", Number(1, iio::MAX_TIMEOUT_MS)),
 ];
+const HUGEPAGE_OPTIONS: &[(&str, Kind)] =
+    &[("--size-kib", Number(1, crate::hugepage_pool::MAX_SIZE_KIB))];
 const HWMON_TEMPERATURE_OPTIONS: &[(&str, Kind)] =
     &[("--sensor", Kind::Text), ("--channel", Number(1, 32))];
 const INVENTORY_OPTIONS: &[(&str, Kind)] = &[
@@ -319,6 +321,7 @@ fn help() {
     println!(
         "Usage:
   eld-engine capabilities
+  eld-engine memory hugepages --size-kib 2048
   eld-engine pressure
   eld-engine pressure series --samples N --interval-ms MS
   eld-engine hwmon temperature --sensor hwmon0 --channel 1
@@ -493,6 +496,7 @@ fn capabilities() -> String {
             r#""pcie_saved_snapshot":{{"schema":1,"flag":"--save-snapshot","continuity_metadata":"private_export"}},"#,
             r#""network_peer_receipt":{{"schema":1,"flag":"--peer-receipt","traffic":"explicit_peer_only"}},"#,
             r#""passive_observation_timeline":{{"schema":1,"flag":"--include-timeline","execution":"sequential"}},"#,
+            r#""passive_hugetlb_pool":{{"schema":1,"scope":"explicit_page_size_only"}},"#,
             r#""passive_hwmon_temperature":{{"schema":2,"scope":"explicit_sensor_channel_only","unit":"unknown"}},"#,
             r#""passive_thermal_window":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--thermal-sample-ms"}},"#,
             r#""passive_network_health":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--network-health-sample-ms"}},"#,
@@ -523,6 +527,15 @@ pub(crate) fn run() -> Result<(), String> {
     }
     let (command, args) = args.split_first().expect("command is present");
     let (spec, subject) = match command.as_str() {
+        "memory" => match args {
+            [mode, rest @ ..] if mode == "hugepages" => {
+                let opts = Options::parse("memory hugepages", rest, HUGEPAGE_OPTIONS)?;
+                return crate::hugepage_pool::run(
+                    opts.number("--size-kib").ok_or("missing --size-kib")?,
+                );
+            }
+            _ => return Err("expected memory hugepages with an explicit size".into()),
+        },
         "hwmon" => match args {
             [mode, rest @ ..] if mode == "temperature" => {
                 let opts = Options::parse("hwmon temperature", rest, HWMON_TEMPERATURE_OPTIONS)?;

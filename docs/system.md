@@ -149,6 +149,19 @@ parsed evaluation exits zero for all three outcomes; consumers must check
 the JSON status. This is not a firmware measurement, a board identity check,
 or a hardware qualification.
 
+## Read a selected HugeTLB pool
+
+```sh
+eld-engine memory hugepages --size-kib 2048
+```
+
+Select a page size supported by the target. This reads the pool's cached
+persistent, free, reserved and surplus counters. Counts are pages, not
+bytes, and unavailable values are not zeros. It does not allocate memory,
+change kernel limits, inspect transparent huge pages, or say that the
+current process can allocate the reported free pages.
+[Linux HugeTLB pools](https://docs.kernel.org/admin-guide/mm/hugetlbpage.html)
+
 ## Passive Linux pressure snapshot
 
 `eld-engine pressure` reads the CPU, memory and I/O files under

@@ -15,6 +15,7 @@ mod gpio;
 mod gpio_chardev;
 mod hdmi;
 mod hwmon;
+mod hugepage_pool;
 mod i2c;
 mod iio;
 mod ina3221;
