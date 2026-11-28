@@ -149,6 +149,19 @@ parsed evaluation exits zero for all three outcomes; consumers must check
 the JSON status. This is not a firmware measurement, a board identity check,
 or a hardware qualification.
 
+## Read one hwmon fan channel
+
+```sh
+eld-engine hwmon fan --sensor hwmon0 --channel 1
+```
+
+Choose the device's current hwmon index and fan channel explicitly. The
+command reads just `fanN_input` and reports RPM as an exact decimal string
+when observed. Zero RPM is an observation, not a cooling failure verdict;
+an absent tachometer reports unavailable. No PWM, fan control, or load is
+applied. Indices can change after reboot.
+[Linux hwmon fan ABI](https://docs.kernel.org/hwmon/sysfs-interface.html#fans)
+
 ## Read a selected HugeTLB pool
 
 ```sh

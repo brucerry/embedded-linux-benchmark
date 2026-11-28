@@ -1,4 +1,4 @@
-//! Read only the explicitly selected hwmon temperature attribute.
+//! Read one explicitly selected hwmon temperature or fan-speed attribute.
 use crate::pcie_health::json_string;
 use crate::sysfs::{attribute_status, bounded_text};
 use std::{fs, os::unix::fs::MetadataExt, path::Path};
@@ -13,9 +13,21 @@ fn valid_sensor(sensor: &str) -> bool {
         && n.bytes().all(|b| b.is_ascii_digit())
 }
 
-fn report(index: &Path, devices: &Path, sensor: &str, channel: u64) -> Result<String, String> {
+#[derive(Clone, Copy)]
+pub(crate) enum Reading {
+    Temperature,
+    Fan,
+}
+
+fn report(
+    index: &Path,
+    devices: &Path,
+    sensor: &str,
+    channel: u64,
+    reading: Reading,
+) -> Result<String, String> {
     if !valid_sensor(sensor) || !(1..=32).contains(&channel) {
-        return Err("expected an explicit hwmon index and temperature channel 1–32".to_owned());
+        return Err("expected an explicit hwmon index and channel 1–32".to_owned());
     }
     let entry = index.join(sensor);
     let identify = || {
@@ -30,41 +42,47 @@ fn report(index: &Path, devices: &Path, sensor: &str, channel: u64) -> Result<St
         Ok((path, stat.dev(), stat.ino()))
     };
     let sensor = json_string(sensor);
+    let (schema, kind, attr, unit) = match reading {
+        Reading::Temperature => (2, "hwmon_temperature", "temp", "unknown"),
+        Reading::Fan => (1, "hwmon_fan", "fan", "rpm"),
+    };
     let base = |status| {
         format!(
-            r#"{{"schema_version":2,"kind":"hwmon_temperature","sensor":{sensor},"channel":{channel},"status":"{status}"}}"#
+            r#"{{"schema_version":{schema},"kind":"{kind}","sensor":{sensor},"channel":{channel},"status":"{status}"}}"#
         )
     };
     let initial = match identify() {
         Ok(value) => value,
         Err(status) => return Ok(base(status)),
     };
-    let value = bounded_text(&initial.0.join(format!("temp{channel}_input"))).and_then(|raw| {
-        let v = raw.parse::<i64>().map_err(|_| "invalid")?;
-        if raw != v.to_string() {
-            return Err("invalid");
+    let value = bounded_text(&initial.0.join(format!("{attr}{channel}_input"))).and_then(|raw| {
+        let canonical = match reading {
+            Reading::Temperature => raw.parse::<i64>().map(|v| v.to_string()),
+            Reading::Fan => raw.parse::<u64>().map(|v| v.to_string()),
         }
-        Ok(v)
+        .map_err(|_| "invalid")?;
+        (raw == canonical).then_some(raw).ok_or("invalid")
     });
     if identify().ok().as_ref() != Some(&initial) {
         return Ok(base("changed"));
     }
     match value {
         Ok(v) => Ok(format!(
-            r#"{{"schema_version":2,"kind":"hwmon_temperature","sensor":{sensor},"channel":{channel},"status":"observed","raw_value":"{v}","unit":"unknown"}}"#
+            r#"{{"schema_version":{schema},"kind":"{kind}","sensor":{sensor},"channel":{channel},"status":"observed","raw_value":"{v}","unit":"{unit}"}}"#
         )),
         Err(status) => Ok(base(status)),
     }
 }
 
-pub(crate) fn run(sensor: &str, channel: u64) -> Result<(), String> {
+pub(crate) fn run(sensor: &str, channel: u64, reading: Reading) -> Result<(), String> {
     println!(
         "{}",
         report(
             Path::new("/sys/class/hwmon"),
             Path::new("/sys/devices"),
             sensor,
-            channel
+            channel,
+            reading
         )?
     );
     Ok(())
@@ -88,23 +106,36 @@ mod tests {
         fs::write(sensor.join("temp2_input"), "950\n").unwrap();
         fs::write(sensor.join("temp5_input"), "bad\n").unwrap();
         symlink(sensor.join("temp1_input"), sensor.join("temp3_input")).unwrap();
-        let check = |channel| report(&class, &devices, "hwmon0", channel).unwrap();
+        let check =
+            |channel| report(&class, &devices, "hwmon0", channel, Reading::Temperature).unwrap();
         assert!(check(1).contains(r#""status":"observed","raw_value":"0","unit":"unknown""#));
         assert!(check(2).contains(r#""status":"observed","raw_value":"950","unit":"unknown""#));
         assert!(!check(2).contains("millicelsius"));
         assert!(check(3).contains(r#""status":"invalid""#));
         assert!(check(4).contains(r#""status":"unavailable""#));
         assert!(check(5).contains(r#""status":"invalid""#));
-        assert!(report(&class, &devices, "../hwmon0", 1).is_err());
-        assert!(report(&class, &devices, "hwmon00", 1).is_err());
-        assert!(report(&class, &devices, "hwmon0", 0).is_err());
+        assert!(report(&class, &devices, "../hwmon0", 1, Reading::Temperature).is_err());
+        assert!(report(&class, &devices, "hwmon00", 1, Reading::Temperature).is_err());
+        assert!(report(&class, &devices, "hwmon0", 0, Reading::Temperature).is_err());
         let outside = root.join("outside/hwmon1");
         fs::create_dir_all(&outside).unwrap();
         fs::write(outside.join("temp1_input"), "42\n").unwrap();
         symlink(&outside, class.join("hwmon1")).unwrap();
-        let withheld = report(&class, &devices, "hwmon1", 1).unwrap();
+        let withheld = report(&class, &devices, "hwmon1", 1, Reading::Temperature).unwrap();
         assert!(withheld.contains(r#""status":"invalid""#));
         assert!(!withheld.contains("raw_value"));
+        fs::write(sensor.join("fan1_input"), "1250\n").unwrap();
+        fs::write(sensor.join("fan2_input"), "0\n").unwrap();
+        fs::write(sensor.join("fan4_input"), "-2\n").unwrap();
+        symlink(sensor.join("fan1_input"), sensor.join("fan5_input")).unwrap();
+        let fan = |channel| report(&class, &devices, "hwmon0", channel, Reading::Fan).unwrap();
+        assert!(fan(1).contains(r#""kind":"hwmon_fan""#));
+        assert!(fan(1).contains(r#""raw_value":"1250","unit":"rpm""#));
+        assert!(fan(2).contains(r#""raw_value":"0","unit":"rpm""#));
+        assert!(fan(3).contains(r#""status":"unavailable""#));
+        assert!(fan(4).contains(r#""status":"invalid""#));
+        assert!(fan(5).contains(r#""status":"invalid""#));
+        assert!(check(1).contains(r#""raw_value":"0","unit":"unknown""#));
         fs::remove_dir_all(root).unwrap();
     }
 }

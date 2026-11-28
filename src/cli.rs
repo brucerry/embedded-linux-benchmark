@@ -103,7 +103,7 @@ const IIO_OPTIONS: &[(&str, Kind)] = &[
 ];
 const HUGEPAGE_OPTIONS: &[(&str, Kind)] =
     &[("--size-kib", Number(1, crate::hugepage_pool::MAX_SIZE_KIB))];
-const HWMON_TEMPERATURE_OPTIONS: &[(&str, Kind)] =
+const HWMON_CHANNEL_OPTIONS: &[(&str, Kind)] =
     &[("--sensor", Kind::Text), ("--channel", Number(1, 32))];
 const INVENTORY_OPTIONS: &[(&str, Kind)] = &[
     ("--require-pcie", Kind::Text),
@@ -325,6 +325,7 @@ fn help() {
   eld-engine pressure
   eld-engine pressure series --samples N --interval-ms MS
   eld-engine hwmon temperature --sensor hwmon0 --channel 1
+  eld-engine hwmon fan --sensor hwmon0 --channel 1
   eld-engine numa inventory
   eld-engine fabric rdma-port --device NAME --port NUMBER
   eld-engine accelerator inventory|interfaces
@@ -497,6 +498,7 @@ fn capabilities() -> String {
             r#""network_peer_receipt":{{"schema":1,"flag":"--peer-receipt","traffic":"explicit_peer_only"}},"#,
             r#""passive_observation_timeline":{{"schema":1,"flag":"--include-timeline","execution":"sequential"}},"#,
             r#""passive_hugetlb_pool":{{"schema":1,"scope":"explicit_page_size_only"}},"#,
+            r#""passive_hwmon_fan":{{"schema":1,"scope":"explicit_sensor_channel_only","unit":"rpm"}},"#,
             r#""passive_hwmon_temperature":{{"schema":2,"scope":"explicit_sensor_channel_only","unit":"unknown"}},"#,
             r#""passive_thermal_window":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--thermal-sample-ms"}},"#,
             r#""passive_network_health":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--network-health-sample-ms"}},"#,
@@ -537,14 +539,21 @@ pub(crate) fn run() -> Result<(), String> {
             _ => return Err("expected memory hugepages with an explicit size".into()),
         },
         "hwmon" => match args {
-            [mode, rest @ ..] if mode == "temperature" => {
-                let opts = Options::parse("hwmon temperature", rest, HWMON_TEMPERATURE_OPTIONS)?;
+            [mode, rest @ ..] if matches!(mode.as_str(), "temperature" | "fan") => {
+                let (label, reading) = if mode == "fan" {
+                    ("hwmon fan", crate::hwmon::Reading::Fan)
+                } else {
+                    ("hwmon temperature", crate::hwmon::Reading::Temperature)
+                };
+                let opts = Options::parse(label, rest, HWMON_CHANNEL_OPTIONS)?;
                 let sensor = opts.text("--sensor")?;
                 let channel = opts.number("--channel").ok_or("missing --channel")?;
-                return crate::hwmon::run(sensor, channel);
+                return crate::hwmon::run(sensor, channel, reading);
             }
             _ => {
-                return Err("expected hwmon temperature with an explicit sensor and channel".into())
+                return Err(
+                    "expected hwmon temperature or fan with an explicit sensor and channel".into(),
+                )
             }
         },
         "capabilities" => {
