@@ -69,3 +69,22 @@ provenance. Read the JSON outcome rather than using tool exit as a pass.
 
 For synthetic and saved management-plane observations, see [offline BMC evidence](bmc.md).
 It is separate from physical board and firmware verification.
+
+## Passive diagnostics and offline evidence coverage
+
+These checks do not start a workload, write a hardware attribute, or certify
+a device. A fixture verifies software behavior, not the attached hardware.
+
+| Check | Verified evidence | Still not established |
+| --- | --- | --- |
+| [Selected Linux cooling device](system.md#read-one-thermal-cooling-device) | Native Ubuntu returned a processor cooling device with state 0 and maximum 10; the saved report round trip preserved both. | Cooling effectiveness or live throttling. |
+| [Intel thermal events](system.md#read-cpu-thermal-throttle-events) | Native Ubuntu returned observed zero core and package counters for one CPU. Fixtures covered unavailable and invalid attributes. | Counter continuity across boots, or package totals from several logical CPUs. |
+| [Selected hwmon fan](system.md#read-one-hwmon-fan-channel) | Fixtures preserved RPM, observed zero and unavailable. The selected Ubuntu host channel returned unavailable. | A real tachometer reading on a board. |
+| [Selected HugeTLB pool](system.md#read-a-selected-hugetlb-pool) | Ubuntu returned observed zero counts for 2 MiB pages. An ARM64 userspace fixture distinguished zero and a missing counter. | Ability to allocate pages, or an atomic cross-counter snapshot. |
+| [Saved Jetson GPU capture](gpu.md#offline-jetson-gpu-sample) | Native x86-64 and ARM64 userspace emulation returned matching output on the same inert line. The checker refused changed bytes and wrong rail. | Physical Jetson telemetry, GPU performance or GPU-only power on a shared rail. |
+| [PCIe batch evidence coverage](hub-evidence.md#offline-comparison-across-selected-boards) | An offline fixture distinguished a failed requirement, an unavailable check and a missing capture; a changed capture was refused. | Device authenticity or manufacturing yield. |
+| [Saved Redfish sensors](bmc.md) | CLI fixtures kept decimal temperature and RPM, rejected altered bytes and did not emit OEM data. | Any live BMC query, physical sensor identity, freshness or cooling health. |
+
+Use the separate [hardware smoke checklist](hardware-smoke.md) for a physical
+device. Report the exact binary tested and do not carry emulated or historical
+results forward as qualification for a different product binary.
