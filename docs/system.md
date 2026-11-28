@@ -84,6 +84,17 @@ A sensor index is local to a boot and is not a hardware identifier. An absent,
 inaccessible, invalid or replaced observation is not an observed temperature.
 Use an explicit sensor from the platform documentation or local sysfs.
 
+To validate a saved stdout capture offline on the controller:
+
+```sh
+python3 -B scripts/check_hwmon_temperature_evidence.py \
+  --report sensor.json --sensor hwmon0 --channel 1
+```
+
+Use `--expected-sha256` if the controller has independently selected the
+capture digest. A verified report records what the device reported; it
+does not verify sensor calibration or hardware identity.
+
 ### Inspect one saved thermal zone
 
 ```sh
