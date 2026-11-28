@@ -79,7 +79,11 @@ eld-engine hwmon temperature --sensor hwmon0 --channel 1
 
 Select a known Linux hwmon index and channel for the board under test. This
 reads only its `temp1_input` (or the selected channel up to 32) and reports
-millidegrees Celsius. The command does not enumerate sensors or write thresholds.
+a signed raw value with unknown unit. Some thermistor/ADC drivers expose
+voltage rather than Celsius in temperature-named files. Do not convert the
+reading or use it against a temperature threshold without independently
+checking the driver and channel. [Linux hwmon ABI](https://docs.kernel.org/6.6/hwmon/sysfs-interface.html)
+The command does not enumerate sensors or write thresholds.
 A sensor index is local to a boot and is not a hardware identifier. An absent,
 inaccessible, invalid or replaced observation is not an observed temperature.
 Use an explicit sensor from the platform documentation or local sysfs.
@@ -93,7 +97,8 @@ python3 -B scripts/check_hwmon_temperature_evidence.py \
 
 Use `--expected-sha256` if the controller has independently selected the
 capture digest. A verified report records what the device reported; it
-does not verify sensor calibration or hardware identity.
+does not verify the unit, sensor calibration, or hardware identity. Older
+development captures carrying a Celsius label are interpreted as raw values.
 
 ### Inspect one saved thermal zone
 

@@ -32,7 +32,7 @@ fn report(index: &Path, devices: &Path, sensor: &str, channel: u64) -> Result<St
     let sensor = json_string(sensor);
     let base = |status| {
         format!(
-            r#"{{"schema_version":1,"kind":"hwmon_temperature","sensor":{sensor},"channel":{channel},"status":"{status}"}}"#
+            r#"{{"schema_version":2,"kind":"hwmon_temperature","sensor":{sensor},"channel":{channel},"status":"{status}"}}"#
         )
     };
     let initial = match identify() {
@@ -41,7 +41,7 @@ fn report(index: &Path, devices: &Path, sensor: &str, channel: u64) -> Result<St
     };
     let value = bounded_text(&initial.0.join(format!("temp{channel}_input"))).and_then(|raw| {
         let v = raw.parse::<i64>().map_err(|_| "invalid")?;
-        if !(-273150..=300000).contains(&v) || raw != v.to_string() {
+        if raw != v.to_string() {
             return Err("invalid");
         }
         Ok(v)
@@ -51,7 +51,7 @@ fn report(index: &Path, devices: &Path, sensor: &str, channel: u64) -> Result<St
     }
     match value {
         Ok(v) => Ok(format!(
-            r#"{{"schema_version":1,"kind":"hwmon_temperature","sensor":{sensor},"channel":{channel},"status":"observed","temperature_millicelsius":"{v}"}}"#
+            r#"{{"schema_version":2,"kind":"hwmon_temperature","sensor":{sensor},"channel":{channel},"status":"observed","raw_value":"{v}","unit":"unknown"}}"#
         )),
         Err(status) => Ok(base(status)),
     }
@@ -85,13 +85,16 @@ mod tests {
         fs::create_dir_all(&class).unwrap();
         symlink(&sensor, class.join("hwmon0")).unwrap();
         fs::write(sensor.join("temp1_input"), "0\n").unwrap();
-        fs::write(sensor.join("temp2_input"), "300001\n").unwrap();
+        fs::write(sensor.join("temp2_input"), "950\n").unwrap();
+        fs::write(sensor.join("temp5_input"), "bad\n").unwrap();
         symlink(sensor.join("temp1_input"), sensor.join("temp3_input")).unwrap();
         let check = |channel| report(&class, &devices, "hwmon0", channel).unwrap();
-        assert!(check(1).contains(r#""status":"observed","temperature_millicelsius":"0""#));
-        assert!(check(2).contains(r#""status":"invalid""#));
+        assert!(check(1).contains(r#""status":"observed","raw_value":"0","unit":"unknown""#));
+        assert!(check(2).contains(r#""status":"observed","raw_value":"950","unit":"unknown""#));
+        assert!(!check(2).contains("millicelsius"));
         assert!(check(3).contains(r#""status":"invalid""#));
         assert!(check(4).contains(r#""status":"unavailable""#));
+        assert!(check(5).contains(r#""status":"invalid""#));
         assert!(report(&class, &devices, "../hwmon0", 1).is_err());
         assert!(report(&class, &devices, "hwmon00", 1).is_err());
         assert!(report(&class, &devices, "hwmon0", 0).is_err());
@@ -101,7 +104,7 @@ mod tests {
         symlink(&outside, class.join("hwmon1")).unwrap();
         let withheld = report(&class, &devices, "hwmon1", 1).unwrap();
         assert!(withheld.contains(r#""status":"invalid""#));
-        assert!(!withheld.contains("temperature_millicelsius"));
+        assert!(!withheld.contains("raw_value"));
         fs::remove_dir_all(root).unwrap();
     }
 }
