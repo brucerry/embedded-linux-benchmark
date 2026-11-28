@@ -336,6 +336,46 @@ class Evidence(unittest.TestCase):
                 finally:
                     obj[field] = old
 
+    def test_checks_pressure_measurements_without_rounding_or_inventing_cpu_full(self):
+        some = {"status": "observed", "avg10_percent": "0.00", "avg60_percent": "99.99",
+                "avg300_percent": "100.00", "total_stall_us": str(2**64 - 1)}
+        for series in (False, True):
+            q = fixture()
+            snapshot = {"schema_version": 1, "scope": "system_proc_pressure",
+                        "cpu": {"status": "observed", "some": copy.deepcopy(some),
+                                "full": {"status": "not_applicable"}},
+                        "memory": {"status": "observed", "some": copy.deepcopy(some),
+                                   "full": {"status": "unavailable"}},
+                        "io": {"status": "inaccessible"}}
+            q["system_health"] = {"pressure_series": {
+                "schema_version": 1, "kind": "linux_pressure_series", "scope": "single_process",
+                "sample_count": 2, "requested_gap_ms": 100, "workload_execution": "none",
+                "samples": [{"index": i, "started_monotonic_ms": i * 102,
+                             "finished_monotonic_ms": i * 102 + 2, "pressure": snapshot}
+                            for i in range(2)],
+            }} if series else {"pressure": snapshot}
+
+            def run():
+                return m.verify(pack(q, elapsed=104), json.dumps(q).encode(), TOKEN)
+
+            self.assertEqual(run()["status"], "correlated")
+            cases = [(snapshot["cpu"], "full", some),
+                     (snapshot["memory"], "some", {"status": "unavailable"}),
+                     (snapshot, "io", {"status": "inaccessible", "total_stall_us": "0"}),
+                     (snapshot["memory"]["some"], "avg10_percent", "100.01"),
+                     (snapshot["memory"]["some"], "avg10_percent", "00.10"),
+                     (snapshot["memory"]["some"], "avg10_percent", 0),
+                     (snapshot["memory"]["some"], "total_stall_us", str(2**64))]
+            for container, field, value in cases:
+                with self.subTest(series=series, field=field, value=value):
+                    old = container[field]
+                    try:
+                        container[field] = value
+                        with self.assertRaisesRegex(ValueError, "pressure|CPU full"):
+                            run()
+                    finally:
+                        container[field] = old
+
     def test_rejects_matching_network_windows_with_conflicting_metadata(self):
         q = fixture()
         window = {"schema_version": 1, "mode": "two_passive_snapshots", "requested_wait_ms": 5,

@@ -91,6 +91,39 @@ def equal(x, y):
     return x == y
 
 
+def verify_pressure_snapshot(snapshot):
+    resources = ("cpu", "memory", "io")
+    averages = ("avg10_percent", "avg60_percent", "avg300_percent")
+    check(type(snapshot) is dict and snapshot.keys() == {"schema_version", "scope", *resources}
+          and type(snapshot["schema_version"]) is int and snapshot["schema_version"] == 1
+          and snapshot["scope"] == "system_proc_pressure", "invalid pressure snapshot envelope")
+    for resource in resources:
+        item = snapshot[resource]
+        check(type(item) is dict, "invalid pressure resource")
+        status = item.get("status")
+        if status != "observed":
+            check(item.keys() == {"status"} and status in ("unavailable", "inaccessible", "invalid"),
+                  "invalid pressure resource status")
+            continue
+        check(item.keys() == {"status", "some", "full"}, "invalid pressure resource fields")
+        for stall in ("some", "full"):
+            row = item[stall]
+            if stall == "full" and resource == "cpu":
+                check(equal(row, {"status": "not_applicable"}), "system CPU full is not applicable")
+                continue
+            if stall == "full" and equal(row, {"status": "unavailable"}):
+                continue
+            check(type(row) is dict and row.keys() == {"status", "total_stall_us", *averages}
+                  and row["status"] == "observed", "invalid pressure stall observation")
+            for field in averages:
+                val = row[field]
+                check(type(val) is str and re.fullmatch(r"(?:0|[1-9][0-9]?)\.[0-9]{2}|100\.00", val),
+                      "invalid pressure percentage")
+            total = row["total_stall_us"]
+            check(type(total) is str and re.fullmatch(r"0|[1-9][0-9]{0,19}", total)
+                  and int(total) < 2**64, "invalid pressure total")
+
+
 def verify_pressure_series(series, elapsed):
     expected = {"schema_version", "kind", "scope", "sample_count",
                 "requested_gap_ms", "workload_execution", "samples"}
@@ -109,13 +142,7 @@ def verify_pressure_series(series, elapsed):
         start, finish = row["started_monotonic_ms"], row["finished_monotonic_ms"]
         check(type(start) is int and type(finish) is int and 0 <= start <= finish <= elapsed
               and (previous is None or start - previous >= gap), "invalid pressure timing")
-        pressure = row["pressure"]
-        check(type(pressure) is dict and pressure.keys() == {
-            "schema_version", "scope", "cpu", "memory", "io"
-        } and type(pressure["schema_version"]) is int and pressure["schema_version"] == 1
-            and pressure["scope"] == "system_proc_pressure"
-            and all(type(pressure[k]) is dict for k in ("cpu", "memory", "io")),
-            "invalid pressure snapshot envelope")
+        verify_pressure_snapshot(row["pressure"])
         previous = finish
 
 
@@ -685,6 +712,8 @@ def verify(evidence, stdout, run_id, plan=None):
     check(q.get("run_id") == run_id, "run ID mismatch")
     check(equal(saved["qualification"], q), "saved qualification differs from command output")
     health = q.get("system_health")
+    if type(health) is dict and "pressure" in health:
+        verify_pressure_snapshot(health["pressure"])
     if type(health) is dict and "pressure_series" in health:
         verify_pressure_series(health["pressure_series"], saved["elapsed_monotonic_ms"])
     if "network_health" in q:
