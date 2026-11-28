@@ -234,6 +234,12 @@ the other. Fields are read independently and do not diagnose throttling.
 No governor, frequency or policy settings are changed.
 [Linux CPU frequency guidance](https://docs.kernel.org/admin-guide/pm/cpufreq.html)
 
+Validate saved output without the target with
+`python3 -B scripts/check_cpufreq_policy_evidence.py --report frequency.json --policy policy0`.
+An independently recorded `--expected-sha256` can select exact bytes.
+The checker does not infer hardware frequency from driver output or assess
+thermal throttling from independent samples.
+
 ## Read a selected HugeTLB pool
 
 ```sh
