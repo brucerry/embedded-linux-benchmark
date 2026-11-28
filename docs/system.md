@@ -219,6 +219,21 @@ For an exact byte match, use the independently recorded
 package membership. The checker does not calculate deltas or totals for
 several logical CPUs.
 
+## Read one CPU frequency policy
+
+```sh
+eld-engine cpufreq policy --policy policy0
+```
+
+Unlike the broader inventory, this reads only the selected policy and
+includes its minimum scaling limit. All frequencies are in kHz.
+`scaling_cur_freq` commonly reflects the last setting requested by the
+driver, not a hardware measurement. `cpuinfo_cur_freq` is reported
+separately when the kernel exposes it; no fallback substitutes one for
+the other. Fields are read independently and do not diagnose throttling.
+No governor, frequency or policy settings are changed.
+[Linux CPU frequency guidance](https://docs.kernel.org/admin-guide/pm/cpufreq.html)
+
 ## Read a selected HugeTLB pool
 
 ```sh

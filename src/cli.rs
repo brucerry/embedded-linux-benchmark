@@ -328,6 +328,7 @@ fn help() {
   eld-engine hwmon fan --sensor hwmon0 --channel 1
   eld-engine thermal cooling --device cooling_device0
   eld-engine thermal throttle --cpu 0
+  eld-engine cpufreq policy --policy policy0
   eld-engine numa inventory
   eld-engine fabric rdma-port --device NAME --port NUMBER
   eld-engine accelerator inventory|interfaces
@@ -500,6 +501,7 @@ fn capabilities() -> String {
             r#""network_peer_receipt":{{"schema":1,"flag":"--peer-receipt","traffic":"explicit_peer_only"}},"#,
             r#""passive_observation_timeline":{{"schema":1,"flag":"--include-timeline","execution":"sequential"}},"#,
             r#""passive_hugetlb_pool":{{"schema":1,"scope":"explicit_page_size_only"}},"#,
+            r#""passive_cpufreq_policy":{{"schema":1,"scope":"explicit_policy_only","unit":"kHz"}},"#,
             r#""passive_cpu_thermal_throttle":{{"schema":1,"scope":"explicit_logical_cpu_only"}},"#,
             r#""passive_thermal_cooling_state":{{"schema":1,"scope":"explicit_cooling_device_only"}},"#,
             r#""passive_hwmon_fan":{{"schema":1,"scope":"explicit_sensor_channel_only","unit":"rpm"}},"#,
@@ -541,6 +543,13 @@ pub(crate) fn run() -> Result<(), String> {
                 );
             }
             _ => return Err("expected memory hugepages with an explicit size".into()),
+        },
+        "cpufreq" => match args {
+            [mode, rest @ ..] if mode == "policy" => {
+                let opts = Options::parse("cpufreq policy", rest, &[("--policy", Kind::Text)])?;
+                return crate::cpufreq_policy::run(opts.text("--policy")?);
+            }
+            _ => return Err("expected cpufreq policy with an explicit policy".into()),
         },
         "thermal" => match args {
             [mode, rest @ ..] if mode == "cooling" => {

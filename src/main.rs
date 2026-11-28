@@ -10,6 +10,7 @@ mod can;
 mod cli;
 mod common;
 mod cpu;
+mod cpufreq_policy;
 mod edac;
 mod gpio;
 mod gpio_chardev;
