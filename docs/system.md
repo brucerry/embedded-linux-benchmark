@@ -162,6 +162,15 @@ an absent tachometer reports unavailable. No PWM, fan control, or load is
 applied. Indices can change after reboot.
 [Linux hwmon fan ABI](https://docs.kernel.org/hwmon/sysfs-interface.html#fans)
 
+Review saved output offline with the selected sensor and channel:
+
+```sh
+python3 -B scripts/check_hwmon_fan_evidence.py --report fan.json --sensor hwmon0 --channel 1
+```
+
+An optional independently recorded SHA-256 binds the exact report bytes.
+This does not authenticate the device or assess cooling health.
+
 ## Read a selected HugeTLB pool
 
 ```sh
