@@ -36,3 +36,15 @@ not fetch a sensor, follow links, export OEM data, or assess cooling health.
 Provide `--expected-sha256` from an independent capture record when available.
 
 [DMTF Redfish data model](https://redfish.dmtf.org/schemas/v1/DSP0268_2025.3.pdf)
+
+## Saved rotational-speed sensor
+
+```sh
+python3 -B scripts/check_redfish_rotational_capture.py --capture fan.json --sensor-id fan1
+```
+
+For a saved Redfish `Sensor`, this returns RPM only for the `Rotational`
+reading type and either documented RPM spelling, `{rev}/min` or `RPM`.
+Percent and radians per second stay unsupported, not converted. Zero RPM
+is not a cooling verdict. The sensor ID and optional digest select a saved
+record, not a live fan or its physical identity. No control is performed.
