@@ -162,6 +162,17 @@ change kernel limits, inspect transparent huge pages, or say that the
 current process can allocate the reported free pages.
 [Linux HugeTLB pools](https://docs.kernel.org/admin-guide/mm/hugetlbpage.html)
 
+To validate saved output on the analysis machine, use the same selected
+size and optionally a separately recorded digest:
+
+```sh
+python3 scripts/check_hugetlb_evidence.py --report hugetlb.json --size-kib 2048
+```
+
+This checks the report structure and preserves observed zero, unavailable
+counters, and an unavailable pool as distinct states. It does not verify
+device identity or allocation capacity.
+
 ## Passive Linux pressure snapshot
 
 `eld-engine pressure` reads the CPU, memory and I/O files under
