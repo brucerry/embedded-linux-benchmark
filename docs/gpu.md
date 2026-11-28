@@ -75,6 +75,19 @@ Vendor queries may still affect device power state. Unsupported,
 inaccessible, and unavailable readings stay separate from zero.
 The unsigned capture format reports negative temperatures as unavailable.
 
+To check a saved decode on the host without NVML or access to the GPU,
+save the decoder's JSON to a file, then run:
+
+```sh
+python3 scripts/check_nvidia_capture_evidence.py --device "$GPU" --report nvml.json
+```
+
+Use a canonical Linux BDF, for example `0000:01:00.0`. Optionally pass the
+trusted file digest with `--expected-sha256`. The checker verifies the
+selected BDF, offline scope and exact integer ranges. It preserves the
+reading states, but does not authenticate the GPU, confirm that the
+collector ran, or establish ECC continuity.
+
 Treat volatile ECC totals as snapshots. They reset on driver load, which can
 happen more than once per Linux boot. A matching GPU and boot, or a higher
 later total, does not establish continuity. Only compute a difference if
