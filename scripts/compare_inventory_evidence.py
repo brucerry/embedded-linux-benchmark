@@ -9,6 +9,7 @@ from check_hub_evidence import check, parse, read_bounded
 
 FIELDS = ("distribution_id", "distribution_version", "kernel_release", "device_tree_model",
           "dmi_system_model", "dmi_board_model", "dmi_firmware_version")
+OPTIONAL = ("distribution_build_id",)
 WITHHELD = ("unavailable", "inaccessible", "invalid")
 ENVELOPE = {"evidence_schema_version", "kind", "started_unix_ms", "finished_unix_ms",
             "elapsed_monotonic_ms", "inventory"}
@@ -35,7 +36,10 @@ def capture(raw, expected):
     check(type(arch) is str and re.fullmatch(r"[a-z0-9_]{1,32}", arch),
           "invalid reported architecture")
     fields = {"process_architecture": {"status": "observed", "value": arch}}
-    for name in FIELDS:
+    for name in (*FIELDS, *OPTIONAL):
+        if name in OPTIONAL and name not in x:
+            fields[name] = {"status": "unavailable"}
+            continue
         row = x.get(name)
         check(type(row) is dict and type(row.get("status")) is str,
               "invalid observation: " + name)

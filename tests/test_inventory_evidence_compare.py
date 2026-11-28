@@ -44,3 +44,21 @@ class InventoryComparison(unittest.TestCase):
         ):
             with self.subTest(a=a, left=left), self.assertRaises(ValueError):
                 compare(a, b, left, right)
+
+
+    def test_build_labels_compare_separately_and_older_captures_remain_compatible(self):
+        old = capture()
+        obj = json.loads(old)
+        obj["inventory"]["distribution_version"] = {"status": "observed", "value": "23.05.6"}
+        obj["inventory"]["distribution_build_id"] = {"status": "observed", "value": "r12345-abc123"}
+        before = json.dumps(obj).encode()
+        obj["inventory"]["distribution_build_id"]["value"] = "r12346-def456"
+        after = json.dumps(obj).encode()
+        labels = compare(before, after)["fields"]
+        self.assertEqual(labels["distribution_build_id"]["status"], "changed")
+        self.assertEqual(labels["distribution_version"]["status"], "unchanged")
+        self.assertEqual(labels["kernel_release"]["status"], "unchanged")
+        self.assertEqual(compare(old, after)["fields"]["distribution_build_id"]["status"], "not_comparable")
+        obj["inventory"]["distribution_build_id"] = None
+        with self.assertRaises(ValueError):
+            compare(old, json.dumps(obj).encode())

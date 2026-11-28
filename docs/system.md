@@ -8,6 +8,11 @@ Device Tree or DMI. It does not scan the network, read machine IDs or serial
 numbers, or execute a system configuration file. The architecture describes
 the executable, not a claim about the physical board under emulation.
 Unavailable, inaccessible, and invalid observations stay separate.
+The reported `distribution_build_id` is the optional `BUILD_ID` label from
+`os-release`, separate from `VERSION_ID`, the kernel release, and any DMI
+BIOS version. On OpenWrt it can distinguish builds with the same release
+label. It is neither an image digest nor a signature. Older evidence
+without the label remains comparable for the other fields.
 
 ## CPU and RAM
 

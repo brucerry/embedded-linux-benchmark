@@ -9,7 +9,7 @@ use std::path::Path;
 use std::time::{Instant, SystemTime};
 
 const LIMIT: u64 = 4096;
-const OS_KEYS: [&str; 2] = ["ID", "VERSION_ID"];
+const OS_KEYS: [&str; 3] = ["ID", "VERSION_ID", "BUILD_ID"];
 
 #[derive(Debug, PartialEq, Eq)]
 enum Observation {
@@ -101,7 +101,7 @@ fn field(release: &str, key: &str) -> Observation {
     value.map_or(Observation::Unavailable, Observation::Available)
 }
 
-fn release() -> [Observation; 2] {
+fn release() -> [Observation; 3] {
     let candidate = Path::new("/etc/os-release");
     let actual = match fs::canonicalize(candidate) {
         Ok(path) => path,
@@ -1054,10 +1054,11 @@ pub(crate) fn snapshot(
     } else {
         String::new()
     };
-    let [distribution, version] = release();
+    let [distribution, version, build_id] = release();
     let cells = [
         ("distribution_id", distribution),
         ("distribution_version", version),
+        ("distribution_build_id", build_id),
         ("kernel_release", text("/proc/sys/kernel/osrelease")),
         (
             "device_tree_model",
@@ -1472,6 +1473,22 @@ mod tests {
         assert_eq!(
             field(sample, "VERSION_ID"),
             Observation::Available("23.05.6".into())
+        );
+        assert_eq!(
+            OS_KEYS.map(|key| field(
+                "ID=openwrt\nVERSION_ID=23.05.6\nBUILD_ID=\"r12345-abcdef\"",
+                key
+            )),
+            [
+                Observation::Available("openwrt".into()),
+                Observation::Available("23.05.6".into()),
+                Observation::Available("r12345-abcdef".into()),
+            ]
+        );
+        assert_eq!(field(sample, "BUILD_ID"), Observation::Unavailable);
+        assert_eq!(
+            field("BUILD_ID=a\nBUILD_ID=b", "BUILD_ID"),
+            Observation::Invalid
         );
         assert_eq!(field("ID=linux\nID=other", "ID"), Observation::Invalid);
         assert_eq!(field("ID=$(fake-command)", "ID"), Observation::Invalid);

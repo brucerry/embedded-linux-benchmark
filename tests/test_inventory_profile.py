@@ -35,3 +35,13 @@ class InventoryProfile(unittest.TestCase):
                 evaluate(data, plan)
         with self.assertRaises(ValueError):
             evaluate(data, profile(kernel_release="6.6.1"), "1"*64)
+
+
+    def test_build_label_expectation_is_optional_for_older_captures(self):
+        data = capture()
+        key = "distribution_build_id"
+        expected = profile(distribution_build_id="r12345-abc123")
+        self.assertEqual(evaluate(data, expected)["status"], "incomplete")
+        obj = json.loads(data)
+        obj["inventory"][key] = {"status": "observed", "value": "r12345-abc123"}
+        self.assertEqual(evaluate(json.dumps(obj).encode(), expected)["status"], "match")

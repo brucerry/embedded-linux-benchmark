@@ -5,9 +5,9 @@ import hashlib
 import json
 
 from check_hub_evidence import check, parse, read_bounded
-from compare_inventory_evidence import FIELDS, capture
+from compare_inventory_evidence import FIELDS, OPTIONAL, capture
 
-ALLOWED = frozenset(FIELDS) | {"process_architecture"}
+ALLOWED = frozenset((*FIELDS, *OPTIONAL)) | {"process_architecture"}
 MAX_PROFILE = 4096
 
 
