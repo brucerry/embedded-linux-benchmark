@@ -9,7 +9,9 @@ import sys
 import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from check_hub_evidence import parse, read_bounded, verify  # noqa: E402
+from check_hub_evidence import (  # noqa: E402
+    parse, read_bounded, verify, verify_numa_inventory, verify_pressure_snapshot,
+)
 from plan_hub_passive import plan  # noqa: E402
 
 
@@ -106,6 +108,10 @@ def smoke_standalone_mmc(binary, directory, card, expected_snapshot):
 def smoke(binary, pcie_health_device=None):
     with tempfile.TemporaryDirectory(prefix="eld-hub-passive-") as directory:
         cap = parse(invoke(binary, "capabilities"))
+        # Standalone outputs must meet the same producer schema as nested
+        # system-health data. Separate reads can change; do not compare values.
+        verify_numa_inventory(parse(invoke(binary, "numa", "inventory")))
+        verify_pressure_snapshot(parse(invoke(binary, "pressure")))
         absent_edac = "mc9999999"
         edac_path = Path("/sys/devices/system/edac/mc") / absent_edac
         if edac_path.exists() or edac_path.is_symlink():
