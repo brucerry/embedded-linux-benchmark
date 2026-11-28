@@ -66,3 +66,6 @@ Missing or mismatched devices fail; unavailable observations stay
 unavailable. No requirements means not assessed. This score does not
 certify the board or establish hardware, transport, or manufacturing
 provenance. Read the JSON outcome rather than using tool exit as a pass.
+
+For synthetic and saved management-plane observations, see [offline BMC evidence](bmc.md).
+It is separate from physical board and firmware verification.
