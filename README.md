@@ -38,6 +38,7 @@ These commands do not generate test traffic or write to the selected device.
 | [AMD GPU sensors](docs/gpu.md#amd-gpu-sensors) | `eld-engine accelerator amdgpu-hwmon --device 0000:65:00.0` | Temperature and supported power channels on the selected AMDGPU-bound device |
 | [Jetson power rails](docs/power.md#selected-ina3221-power-rail-readings) | `eld-engine power ina3221 --node 1-0040` | Voltage and current on the selected rail monitor, not necessarily GPU-only |
 | [Board, CPU, memory, thermal](docs/system.md#read-host-resource-inventory) | `eld-engine inventory` | Board and kernel metadata, resources, and available thermal and error counters |
+| [hwmon temperature](docs/system.md#read-one-hwmon-temperature-channel) | `eld-engine hwmon temperature --sensor hwmon0 --channel 1` | One selected temperature channel, without a workload |
 | [CPU, memory, I/O pressure](docs/system.md#passive-linux-pressure-snapshot) | `eld-engine pressure` | Linux PSI where available |
 | [Expected PCIe device](docs/pcie.md#check-expected-pci-devices) | `eld-engine inventory --require-pcie 0000:01:00.0=14c3:7990` | Whether the expected vendor/device is at that PCI address |
 | [Ethernet or Wi-Fi interface](docs/network.md#passive-network-link-health) | `eld-engine network health --interface eth0 --sample-ms 1000` | Link state and comparable error/drop counter changes, not throughput |

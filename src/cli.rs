@@ -101,6 +101,8 @@ const IIO_OPTIONS: &[(&str, Kind)] = &[
     ("--samples", Number(2, iio::MAX_SAMPLES)),
     ("--timeout-ms", Number(1, iio::MAX_TIMEOUT_MS)),
 ];
+const HWMON_TEMPERATURE_OPTIONS: &[(&str, Kind)] =
+    &[("--sensor", Kind::Text), ("--channel", Number(1, 32))];
 const INVENTORY_OPTIONS: &[(&str, Kind)] = &[
     ("--require-pcie", Kind::Text),
     ("--board-profile", Kind::Path),
@@ -319,6 +321,7 @@ fn help() {
   eld-engine capabilities
   eld-engine pressure
   eld-engine pressure series --samples N --interval-ms MS
+  eld-engine hwmon temperature --sensor hwmon0 --channel 1
   eld-engine numa inventory
   eld-engine fabric rdma-port --device NAME --port NUMBER
   eld-engine accelerator inventory|interfaces
@@ -488,6 +491,7 @@ fn capabilities() -> String {
             r#""pcie_saved_snapshot":{{"schema":1,"flag":"--save-snapshot","continuity_metadata":"private_export"}},"#,
             r#""network_peer_receipt":{{"schema":1,"flag":"--peer-receipt","traffic":"explicit_peer_only"}},"#,
             r#""passive_observation_timeline":{{"schema":1,"flag":"--include-timeline","execution":"sequential"}},"#,
+            r#""passive_hwmon_temperature":{{"schema":1,"scope":"explicit_sensor_channel_only"}},"#,
             r#""passive_thermal_window":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--thermal-sample-ms"}},"#,
             r#""passive_network_health":{{"schema":1,"max_sample_wait_ms":2000,"qualification_flag":"--network-health-sample-ms"}},"#,
             r#""passive_pcie_expectation":{{"schema":1,"flag":"--require-pcie"}},"#,
@@ -517,6 +521,17 @@ pub(crate) fn run() -> Result<(), String> {
     }
     let (command, args) = args.split_first().expect("command is present");
     let (spec, subject) = match command.as_str() {
+        "hwmon" => match args {
+            [mode, rest @ ..] if mode == "temperature" => {
+                let opts = Options::parse("hwmon temperature", rest, HWMON_TEMPERATURE_OPTIONS)?;
+                let sensor = opts.text("--sensor")?;
+                let channel = opts.number("--channel").ok_or("missing --channel")?;
+                return crate::hwmon::run(sensor, channel);
+            }
+            _ => {
+                return Err("expected hwmon temperature with an explicit sensor and channel".into())
+            }
+        },
         "capabilities" => {
             Options::parse("capabilities", args, &[])?;
             println!("{}", capabilities());

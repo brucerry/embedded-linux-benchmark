@@ -14,6 +14,7 @@ mod edac;
 mod gpio;
 mod gpio_chardev;
 mod hdmi;
+mod hwmon;
 mod i2c;
 mod iio;
 mod ina3221;

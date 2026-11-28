@@ -71,6 +71,19 @@ final-component symlink. Check the command’s exit status before consuming the
 file; an interrupted or failed write may leave a partial file. This passive
 evidence is not a signed attestation or hardware qualification.
 
+### Read one hwmon temperature channel
+
+```sh
+eld-engine hwmon temperature --sensor hwmon0 --channel 1
+```
+
+Select a known Linux hwmon index and channel for the board under test. This
+reads only its `temp1_input` (or the selected channel up to 32) and reports
+millidegrees Celsius. The command does not enumerate sensors or write thresholds.
+A sensor index is local to a boot and is not a hardware identifier. An absent,
+inaccessible, invalid or replaced observation is not an observed temperature.
+Use an explicit sensor from the platform documentation or local sysfs.
+
 ### Inspect one saved thermal zone
 
 ```sh
