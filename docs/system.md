@@ -77,6 +77,30 @@ the kernel exposes its backward-compatibility zero. This is system-level
 pressure, not a per-process measurement or a benchmark result.
 See [Linux Pressure Stall Information](https://docs.kernel.org/accounting/psi.html).
 
+### Bounded passive pressure series
+
+Use an isolated run ID and a fresh evidence path:
+
+```sh
+eld-engine qualify passive --include-system-health \
+  --pressure-series-samples 2 --pressure-series-gap-ms 100 \
+  --run-id 0123456789abcdeffedcba9876543210 \
+  --evidence-json /tmp/eld-pressure.json
+```
+
+The count is 2–8 and the requested pause between samples is 100–1000 ms.
+Pressure is system-wide kernel telemetry. The command adds waits and reads,
+not a workload, and cannot establish which process caused the stalls.
+A reported zero is different from unavailable telemetry; system CPU
+`full` is not applicable.
+
+For Hub handoff, pass the two pressure options and `--feature system-health`
+to `scripts/plan_hub_passive.py` with captured capabilities, the chosen run ID,
+and the evidence path. The preview does not execute the command. Keep the
+plan, stdout, and evidence together: `scripts/check_hub_evidence.py --plan`
+checks that the count and gap match the approved plan, and validates the
+values without interpreting them as a health or performance rating.
+
 ## Selected memory-controller error trends
 
 ```sh
