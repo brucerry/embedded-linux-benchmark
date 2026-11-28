@@ -109,3 +109,20 @@ invalid, or changed state, and `partial` or `available` require actual
 observations. An observed `"0"` is a measured zero increment. It is not
 interchangeable with an unavailable counter, and neither certifies link health.
 The field totals count observable fields, not error events.
+
+### Saved PCIe AER notices
+
+On the host, pass a saved plain UTF-8 kernel log and an independently known
+root-port BDF:
+
+```sh
+python3 -B scripts/check_pcie_aer_log.py --log boot.log --observer-bdf 0000:00:01.0
+```
+
+This extracts only recognized root-port AER notice lines, with their line
+numbers, observer BDF, printed source ID and severity. It does not forward
+unrelated log text, read the live kernel, or infer a failing endpoint from
+the source ID. The number of log notices is not a hardware error count.
+No matches does not mean zero errors, and unrelated vendor log formats are
+not included. An optional `--expected-sha256` pins the saved bytes.
+[Linux AER notice format](https://github.com/torvalds/linux/blob/v6.6/drivers/pci/pcie/aer.c#L690-L698)
