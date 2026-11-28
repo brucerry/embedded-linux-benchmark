@@ -121,3 +121,23 @@ The controller's passive-evidence verifier uses the same arithmetic for nested
 NIC windows. Older saved windows without coverage fields are accepted only
 when their original counter values and withheld/reset states are consistent.
 Matching saved JSON and stdout by themselves cannot establish valid arithmetic.
+
+### Offline RDMA port observations
+
+The host-side checker can decode a saved JSON fixture with exactly the Linux
+`state`, `phys_state`, `link_layer`, and `rate` attribute strings for one
+RDMA port (use JSON null for unavailable). For example:
+
+```json
+{"state":"4: ACTIVE","phys_state":"5: LinkUp","link_layer":"InfiniBand","rate":"400 Gb/sec (4X NDR)"}
+```
+
+```sh
+python3 -B scripts/check_rdma_port_capture.py --capture /path/to/saved-fixture.json
+```
+
+This never probes a device, starts traffic, or verifies which device supplied
+the data. The displayed link rate is a kernel report, not throughput.
+Ethernet alone doesn't prove a usable RoCE path. No GID or network address
+is captured, and no fabric or hardware qualification is implied.
+[Linux RDMA sysfs ABI](https://www.kernel.org/doc/html/v6.10/admin-guide/abi-stable.html#abi-file-stable-sysfs-class-infiniband)
