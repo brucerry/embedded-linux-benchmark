@@ -91,6 +91,45 @@ def equal(x, y):
     return x == y
 
 
+def verify_numa_inventory(snapshot):
+    check(type(snapshot) is dict and snapshot.keys() == {"schema_version", "scope", "nodes"}
+          and type(snapshot["schema_version"]) is int and snapshot["schema_version"] == 1
+          and snapshot["scope"] == "linux_numa_inventory", "invalid NUMA snapshot envelope")
+
+    def observation(item, extra=()):
+        check(type(item) is dict, "invalid NUMA observation")
+        if item.get("status") == "observed":
+            check(item.keys() == {"status", "value"}, "invalid NUMA observed fields")
+            return True, item["value"]
+        check(item.keys() == {"status"}
+              and item["status"] in ("unavailable", "inaccessible", "invalid", *extra),
+              "invalid NUMA withheld status")
+        return False, None
+
+    found, nodes = observation(snapshot["nodes"], ("changed_during_read", "limit_exceeded"))
+    if not found:
+        return
+    check(type(nodes) is list and 1 <= len(nodes) <= 64, "invalid NUMA node count")
+    previous = -1
+    cpu_count = 0
+    for row in nodes:
+        check(type(row) is dict and row.keys() == {"node_id", "cpu_ids", "memory_total_bytes"},
+              "invalid NUMA node fields")
+        ident = row["node_id"]
+        check(type(ident) is int and previous < ident < 2**32, "invalid NUMA node order or ID")
+        previous = ident
+        observed, cpus = observation(row["cpu_ids"])
+        if observed:
+            check(type(cpus) is list and len(cpus) <= 8192 - cpu_count
+                  and all(type(cpu) is int and 0 <= cpu < 2**32 for cpu in cpus)
+                  and all(a < b for a, b in zip(cpus, cpus[1:])), "invalid NUMA CPU list")
+            cpu_count += len(cpus)
+        observed, memory = observation(row["memory_total_bytes"])
+        if observed:
+            check(type(memory) is str and re.fullmatch(r"0|[1-9][0-9]{0,19}", memory)
+                  and int(memory) < 2**64 and int(memory) % 1024 == 0, "invalid NUMA memory bytes")
+
+
 def verify_pressure_snapshot(snapshot):
     resources = ("cpu", "memory", "io")
     averages = ("avg10_percent", "avg60_percent", "avg300_percent")
@@ -729,6 +768,8 @@ def verify(evidence, stdout, run_id, plan=None):
     check(q.get("run_id") == run_id, "run ID mismatch")
     check(equal(saved["qualification"], q), "saved qualification differs from command output")
     health = q.get("system_health")
+    if type(health) is dict and "numa" in health:
+        verify_numa_inventory(health["numa"])
     if type(health) is dict and "pressure" in health:
         verify_pressure_snapshot(health["pressure"])
     if type(health) is dict and "pressure_series" in health:

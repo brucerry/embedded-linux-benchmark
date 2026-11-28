@@ -308,6 +308,41 @@ class Evidence(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported"):
             m.verify(pack(q), json.dumps(changed).encode(), TOKEN)
 
+    def test_checks_numa_bounds_without_inventing_topology(self):
+        q = fixture()
+        row = {"node_id": 3, "cpu_ids": {"status": "observed", "value": [0, 3, 2**32 - 1]},
+               "memory_total_bytes": {"status": "observed", "value": str(2**64 - 1024)}}
+        second = {"node_id": 9, "cpu_ids": {"status": "observed", "value": []},
+                  "memory_total_bytes": {"status": "unavailable"}}
+        numa = {"scope": "linux_numa_inventory", "schema_version": 1,
+                "nodes": {"status": "observed", "value": [row, second]}}
+        q["system_health"] = {"numa": numa}
+
+        def run():
+            return m.verify(pack(q), json.dumps(q).encode(), TOKEN)
+
+        self.assertEqual(run()["status"], "correlated")
+        cases = [(second, "node_id", 3), (second, "node_id", True),
+                 (row["cpu_ids"], "value", [0, 0]),
+                 (row["cpu_ids"], "value", [2**32]),
+                 (row["cpu_ids"], "value", list(range(8193))),
+                 (row["memory_total_bytes"], "value", "1025"),
+                 (row["memory_total_bytes"], "value", str(2**64)),
+                 (row["memory_total_bytes"], "value", 0),
+                 (numa["nodes"], "value", [])]
+        for container, key, value in cases:
+            with self.subTest(key=key):
+                old = container[key]
+                container[key] = value
+                with self.assertRaisesRegex(ValueError, "NUMA"):
+                    run()
+                container[key] = old
+        numa["nodes"] = {"status": "changed_during_read"}
+        self.assertEqual(run()["status"], "correlated")
+        numa["nodes"]["value"] = []
+        with self.assertRaisesRegex(ValueError, "NUMA withheld"):
+            run()
+
     def test_checks_pressure_series_windows_even_when_both_captures_match(self):
         q = fixture()
         snapshot = {"schema_version": 1, "scope": "system_proc_pressure",
